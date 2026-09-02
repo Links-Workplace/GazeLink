@@ -19,6 +19,7 @@ from gazelink.feature_check import (
     FeatureCheckPhase,
     FeatureCheckSample,
     FeatureCheckSettings,
+    VerticalSignalSource,
     analyze_feature_check,
 )
 from gazelink.feature_check_window import format_feature_check_report, write_feature_check_report
@@ -201,6 +202,28 @@ def test_vertical_gate_rejects_weak_combined_signal_even_when_eyes_agree() -> No
     )
 
     assert down.verdict is DirectionVerdict.NO_SEPARATION
+
+
+def test_vertical_check_uses_lid_relative_signal_when_corner_axis_has_no_separation() -> None:
+    samples = list(_diagnostic_samples())
+    for index, sample in enumerate(samples):
+        if sample.direction is not FeatureCheckDirection.UP:
+            continue
+        values = list(sample.features.values)
+        noise = -0.001 if index % 2 == 0 else 0.001
+        values[1] = 0.5 + noise
+        values[3] = 0.5 - noise
+        values[4] = 0.46 + noise
+        values[5] = 0.46 - noise
+        samples[index] = replace(sample, features=GazeFeatureVector(tuple(values)))
+
+    result = analyze_feature_check(tuple(samples))
+    up = next(
+        check for check in result.direction_checks if check.direction is FeatureCheckDirection.UP
+    )
+
+    assert up.verdict is DirectionVerdict.PASS
+    assert up.vertical_signal_source is VerticalSignalSource.LID_RELATIVE
 
 
 def test_controller_retries_same_direction_when_no_stable_window_exists() -> None:

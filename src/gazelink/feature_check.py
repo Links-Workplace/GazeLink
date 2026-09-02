@@ -52,6 +52,13 @@ class DirectionVerdict(StrEnum):
     EYES_DISAGREE = "EYES_DISAGREE"
 
 
+class VerticalSignalSource(StrEnum):
+    """Vertical feature that supplied the diagnostic verdict."""
+
+    CORNER_AXIS = "CORNER_AXIS"
+    LID_RELATIVE = "LID_RELATIVE"
+
+
 @dataclass(frozen=True, slots=True)
 class FeatureCheckSettings:
     """Unvalidated diagnostic thresholds, centralized for later live tuning."""
@@ -146,6 +153,7 @@ class FeatureTargetMetrics:
     feature_medians: tuple[float, ...]
     gaze_horizontal_median: float
     gaze_vertical_median: float
+    gaze_lid_vertical_median: float
     stationary_p95: float
     head_pose_p95_deg: float
 
@@ -158,6 +166,7 @@ class FeatureTargetMetrics:
             },
             "gaze_horizontal_median": self.gaze_horizontal_median,
             "gaze_vertical_median": self.gaze_vertical_median,
+            "gaze_lid_vertical_median": self.gaze_lid_vertical_median,
             "stationary_p95": self.stationary_p95,
             "head_pose_p95_deg": self.head_pose_p95_deg,
         }
@@ -170,6 +179,7 @@ class DirectionCheck:
     left_eye_delta: float
     right_eye_delta: float
     verdict: DirectionVerdict
+    vertical_signal_source: VerticalSignalSource | None = None
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -178,6 +188,9 @@ class DirectionCheck:
             "left_eye_delta": self.left_eye_delta,
             "right_eye_delta": self.right_eye_delta,
             "verdict": self.verdict.value,
+            "vertical_signal_source": (
+                None if self.vertical_signal_source is None else self.vertical_signal_source.value
+            ),
         }
 
 
@@ -427,6 +440,9 @@ def _target_metrics(
     vertical_values = [
         (sample.features.values[1] + sample.features.values[3]) / 2.0 for sample in samples
     ]
+    lid_vertical_values = [
+        (sample.features.values[4] + sample.features.values[5]) / 2.0 for sample in samples
+    ]
     horizontal_median = statistics.median(horizontal_values)
     vertical_median = statistics.median(vertical_values)
     stability = measure_feature_window_stability([sample.features for sample in samples])
@@ -436,6 +452,7 @@ def _target_metrics(
         feature_medians=medians,
         gaze_horizontal_median=horizontal_median,
         gaze_vertical_median=vertical_median,
+        gaze_lid_vertical_median=statistics.median(lid_vertical_values),
         stationary_p95=stability.eye_p95,
         head_pose_p95_deg=stability.head_pose_p95_deg,
     )
@@ -448,17 +465,63 @@ def _direction_check(
     settings: FeatureCheckSettings,
 ) -> DirectionCheck:
     horizontal = direction in {FeatureCheckDirection.LEFT, FeatureCheckDirection.RIGHT}
-    feature_index_left = 0 if horizontal else 1
-    feature_index_right = 2 if horizontal else 3
-    combined = (
-        metric.gaze_horizontal_median - center.gaze_horizontal_median
-        if horizontal
-        else metric.gaze_vertical_median - center.gaze_vertical_median
+    if horizontal:
+        combined = metric.gaze_horizontal_median - center.gaze_horizontal_median
+        left = metric.feature_medians[0] - center.feature_medians[0]
+        right = metric.feature_medians[2] - center.feature_medians[2]
+        verdict = _direction_verdict(direction, combined, left, right, settings, horizontal=True)
+        return DirectionCheck(direction, combined, left, right, verdict)
+
+    corner = _vertical_check(
+        direction,
+        metric,
+        center,
+        settings,
+        VerticalSignalSource.CORNER_AXIS,
     )
-    left = metric.feature_medians[feature_index_left] - center.feature_medians[feature_index_left]
-    right = (
-        metric.feature_medians[feature_index_right] - center.feature_medians[feature_index_right]
+    lid = _vertical_check(
+        direction,
+        metric,
+        center,
+        settings,
+        VerticalSignalSource.LID_RELATIVE,
     )
+    # Corner-axis Y remains the primary signal because it stays meaningful
+    # when lids follow the iris.  The lid-relative signal is a validated
+    # fallback only when it demonstrably separates this user's vertical gaze.
+    if corner.verdict is DirectionVerdict.PASS or lid.verdict is not DirectionVerdict.PASS:
+        return corner
+    return lid
+
+
+def _vertical_check(
+    direction: FeatureCheckDirection,
+    metric: FeatureTargetMetrics,
+    center: FeatureTargetMetrics,
+    settings: FeatureCheckSettings,
+    source: VerticalSignalSource,
+) -> DirectionCheck:
+    if source is VerticalSignalSource.CORNER_AXIS:
+        combined = metric.gaze_vertical_median - center.gaze_vertical_median
+        left = metric.feature_medians[1] - center.feature_medians[1]
+        right = metric.feature_medians[3] - center.feature_medians[3]
+    else:
+        combined = metric.gaze_lid_vertical_median - center.gaze_lid_vertical_median
+        left = metric.feature_medians[4] - center.feature_medians[4]
+        right = metric.feature_medians[5] - center.feature_medians[5]
+    verdict = _direction_verdict(direction, combined, left, right, settings, horizontal=False)
+    return DirectionCheck(direction, combined, left, right, verdict, source)
+
+
+def _direction_verdict(
+    direction: FeatureCheckDirection,
+    combined: float,
+    left: float,
+    right: float,
+    settings: FeatureCheckSettings,
+    *,
+    horizontal: bool,
+) -> DirectionVerdict:
     expected_sign = (
         -1.0 if direction in {FeatureCheckDirection.LEFT, FeatureCheckDirection.UP} else 1.0
     )
@@ -479,4 +542,4 @@ def _direction_check(
         verdict = DirectionVerdict.INVERTED
     else:
         verdict = DirectionVerdict.PASS
-    return DirectionCheck(direction, combined, left, right, verdict)
+    return verdict

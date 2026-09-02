@@ -65,6 +65,7 @@ def format_feature_check_report(
             f"{metric.direction.value}: samples={metric.sample_count} "
             f"horizontal={metric.gaze_horizontal_median:.5f} "
             f"vertical={metric.gaze_vertical_median:.5f} "
+            f"vertical_lid={metric.gaze_lid_vertical_median:.5f} "
             f"stationary_p95={metric.stationary_p95:.5f} "
             f"head_pose_p95_deg={metric.head_pose_p95_deg:.5f}"
         )
@@ -78,8 +79,8 @@ def format_feature_check_report(
                         "left_y",
                         "right_x_corrected",
                         "right_y",
-                        "left_open",
-                        "right_open",
+                        "left_lid_y",
+                        "right_lid_y",
                         "yaw_deg",
                         "pitch_deg",
                         "roll_deg",
@@ -93,6 +94,7 @@ def format_feature_check_report(
     for check in result.direction_checks:
         lines.append(
             f"{check.direction.value}: verdict={check.verdict.value} "
+            f"vertical_source={check.vertical_signal_source or '-'} "
             f"combined_delta={check.combined_delta:+.5f} "
             f"left_delta={check.left_eye_delta:+.5f} "
             f"right_delta={check.right_eye_delta:+.5f}"

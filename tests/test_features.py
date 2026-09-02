@@ -38,12 +38,29 @@ def test_eye_openness_and_iris_position_are_scale_invariant() -> None:
     assert regular.eye.iris_in_eye.y == pytest.approx(0.5)
     assert scaled.eye.iris_in_eye.x == pytest.approx(0.5)
     assert scaled.eye.iris_in_eye.y == pytest.approx(0.5)
+    assert regular.eye.iris_in_lids_y == pytest.approx(0.5)
+    assert scaled.eye.iris_in_lids_y == pytest.approx(0.5)
     # The frame coordinate must NOT be scale invariant: it tracks where the eye
     # actually sits in the image, which is what a debug overlay draws.
     assert regular.eye.iris_center is not None and scaled.eye.iris_center is not None
     assert regular.eye.iris_center.x == pytest.approx(0.20)
     assert scaled.eye.iris_center.x == pytest.approx(0.40)
     assert regular.eye.iris_center.x != pytest.approx(scaled.eye.iris_center.x)
+
+
+@pytest.mark.parametrize(("iris_y", "expected_lid_y"), [(0.16, 3.0 / 14.0), (0.24, 11.0 / 14.0)])
+def test_iris_position_relative_to_lids_is_preserved(iris_y: float, expected_lid_y: float) -> None:
+    landmarks = EyeLandmarks(
+        outer_corner=NormalizedPoint(0.10, 0.20),
+        inner_corner=NormalizedPoint(0.30, 0.20),
+        upper_lid=NormalizedPoint(0.20, 0.13),
+        lower_lid=NormalizedPoint(0.20, 0.27),
+        iris_frame_points=(NormalizedPoint(0.20, iris_y),),
+        detector_confidence=0.9,
+    )
+    result = extract_eye_features(landmarks, occlusion_reason=ReasonCode.LEFT_EYE_OCCLUDED)
+    assert result.valid and result.eye is not None
+    assert result.eye.iris_in_lids_y == pytest.approx(expected_lid_y)
 
 
 def test_frame_and_eye_relative_iris_coordinates_are_not_interchangeable() -> None:

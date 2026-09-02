@@ -152,6 +152,14 @@ def _confidence(value: object, field_name: str) -> float:
     return number
 
 
+def _optional_ratio(value: object, field_name: str) -> float | None:
+    """Validate an optional normalized scalar without inventing a value."""
+
+    if value is None:
+        return None
+    return _confidence(value, field_name)
+
+
 def _nonempty_string(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ContractValidationError(f"{field_name} must be a non-empty string")

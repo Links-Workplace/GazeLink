@@ -187,8 +187,6 @@ def from_calibration_sample(sample: CalibrationSample) -> GazeFeatureVector | No
     required = (
         left,
         right,
-        sample.left_iris_in_lids_y,
-        sample.right_iris_in_lids_y,
         sample.head_yaw_deg,
         sample.head_pitch_deg,
         sample.head_roll_deg,
@@ -196,16 +194,8 @@ def from_calibration_sample(sample: CalibrationSample) -> GazeFeatureVector | No
     if any(value is None for value in required):
         return None
     assert left is not None and right is not None
-    left_lid_y = (
-        sample.left_iris_in_eye.y
-        if sample.left_iris_in_lids_y is None
-        else sample.left_iris_in_lids_y
-    )
-    right_lid_y = (
-        sample.right_iris_in_eye.y
-        if sample.right_iris_in_lids_y is None
-        else sample.right_iris_in_lids_y
-    )
+    left_lid_y = left.y if sample.left_iris_in_lids_y is None else sample.left_iris_in_lids_y
+    right_lid_y = right.y if sample.right_iris_in_lids_y is None else sample.right_iris_in_lids_y
     assert sample.head_yaw_deg is not None
     assert sample.head_pitch_deg is not None
     assert sample.head_roll_deg is not None

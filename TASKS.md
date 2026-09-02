@@ -1247,6 +1247,14 @@ M2-02 Stage B (Sample Quality Policy) הושלם ברמת הקוד ואומת א
 
 העבודה המרכזית הבאה היא Run אמיתי של `--gaze-feature-check` וניתוח ההפרדה/היציבות של CENTER/LEFT/RIGHT/UP/DOWN. אין להריץ Calibration נוסף לפני שה־Preflight מראה אם שתי העיניים נעות בעקביות או מצביע במפורש על `NO_SEPARATION`/`INVERTED`/`EYES_DISAGREE`. לאחר תיקון מקור ה־Feature חוזרים ל־Calibration עם Stabilization ושער Promotion, ואז ל־Raw מול Filtered. Foundations של M2-03A/M2-03B ושל M2-04 Filtering קיימים, אך Accuracy/Jitter חיים עדיין לא אומתו.
 
+Feature schema 3 — vertical fallback diagnostic — בוצע אוטומטית, ממתין לאימות מצלמה — 2026-09-02
+
+בדיקת ה־Feature החיה האחרונה (`feature_check_20260902T111823425241Z`) הראתה אות יציב אך אין הפרדת UP מציר פינות העין: combined `-0.00541`, נמוך מסף `0.015`. בהתאם אושר ונוסף `iris_in_lids_y` — מיקום הקשתית היחסי לפתיחת העפעפיים — כ־Feature 5/6 חדש, לצד ציר הפינות הקיים ולא במקומו. `FEATURE_SCHEMA_VERSION` עלה מ־2 ל־3; Dataset/Model/Correction ישנים נדחים במפורש כדי שלא יאומנו או ייטענו תחת משמעות Features חדשה.
+
+`--gaze-feature-check` מודד ומדווח כעת גם `vertical_lid` ואת מקור ההכרעה האנכית: `CORNER_AXIS` נשאר ברירת־המחדל; `LID_RELATIVE` נבחר רק אם ציר הפינות נכשל בהפרדה והמדד החדש עובר את אותו Gate דו־עיני. לכן הבדיקה אינה מסתירה כשל באמצעות מעבר שקט לאות אחר. ה־Guided calibration וה־Gaze model נשענים על Schema 3 החדש בלבד.
+
+קבצים ששונו: `domain.py`, `features.py`, `calibration.py`, `calibration_ui.py`, `gaze_features.py`, `feature_check.py`, `feature_check_window.py`, בדיקות ממוקדות והמסמכים האלה. QA אוטומטי: `312 passed, 2 deselected`, `ruff check`, `ruff format --check`, `mypy src tests`, `python -m gazelink --help` ו־`python -m build` עברו. נדרש כעת Run מצלמה אחד: `python -m gazelink --gaze-feature-check`; רק אם כל הכיוונים יציבים וכל ארבעת כיווני ההפרדה מדווחים `PASS` (ובפרט UP עם `vertical_source=LID_RELATIVE` או `CORNER_AXIS`) ממשיכים ל־`--guided-calibration`. אחרת עוצרים לפני אימון ומנתחים את הדוח החדש. לא הופעל OS input.
+
 M2-03A ו־M2-03B מומשו ואומתו אוטומטית ב־2026-09-02. מנגנון איסוף מתוזמן, Model promotion gate ו־M2-04 Filter foundation נוספו לאחר כשל ה־Session החי. כעת נדרש Session חדש מול המצלמה; רק אם הוא מפרסם `latest_model.json` ממשיכים ל־Raw/Filtered ולזרימת Correction האבחונית Before/After. Blink activation נשאר תלוי ב־M3-03 ו־Hands-free product UX נשאר ב־M4.
 
 הסיבה:
