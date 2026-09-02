@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gazelink"
+version = "0.1.0"
+description = "Local, safety-first eye tracking and eye control for Windows"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = "LicenseRef-Proprietary"
+authors = [{ name = "GAZELINK" }]
+dependencies = [
+    "mediapipe>=0.10.21,<0.11",
+    "numpy>=1.26,<2",
+    "opencv-python>=4.10,<5",
+    "PySide6>=6.8,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.14,<2",
+    "pip-tools>=7.4,<8",
+    "pytest>=8.3,<9",
+    "pytest-cov>=6,<8",
+    "ruff>=0.9,<1",
+]
+
+[project.scripts]
+gazelink = "gazelink.app:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers --cov=gazelink --cov-report=term-missing -p support.pytest_safety"
+testpaths = ["tests"]
+pythonpath = ["tests"]
+markers = [
+    "unit: deterministic unit test with no external device or operating-system input",
+    "integration: deterministic multi-component test using fakes only",
+    "hardware: requires an explicitly enabled physical-device test session",
+    "performance: requires an explicitly enabled manual benchmark or accuracy session",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["gazelink"]
+
+[tool.coverage.report]
+show_missing = true

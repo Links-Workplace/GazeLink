@@ -1,0 +1,38 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+*.lic
+# Builds and packaging
+build/
+dist/
+*.egg-info/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local runtime data (must never contain raw camera frames)
+.gazelink/
+logs/
+diagnostics/
+
+# Third-party Tobii Nexus SDK (proprietary, under Tobii's evaluation license — do not commit)
+tobi/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
