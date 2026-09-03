@@ -32,7 +32,7 @@ from gazelink.gaze_engine import (
     GazeEstimator,
     normalized_to_pixel,
 )
-from gazelink.gaze_model import GazeModelKind, RegressionModel
+from gazelink.gaze_model import GazeModelKind, GazeModelProfile, RegressionModel
 
 
 def _geometry(*, screen_id: str = "primary") -> ScreenGeometry:
@@ -129,10 +129,16 @@ def test_training_uses_real_target_coordinates_and_returns_a_measured_model() ->
     assert outcome.model.feature_schema_version == FEATURE_SCHEMA_VERSION
     assert len(outcome.comparison.baseline.per_target_error_normalized) == 9
     assert len(outcome.comparison.advanced.per_target_error_normalized) == 9
-    assert {model.regression.kind for model in outcome.candidate_models} == {
-        GazeModelKind.LINEAR,
-        GazeModelKind.POLYNOMIAL_RIDGE,
-    }
+    assert any(
+        model.regression.kind is GazeModelKind.LINEAR
+        and model.regression.profile is GazeModelProfile.AXIS_IRIS
+        for model in outcome.candidate_models
+    )
+    assert any(
+        model.regression.kind is GazeModelKind.LINEAR
+        and model.regression.profile is GazeModelProfile.AXIS_IRIS_LIDS
+        for model in outcome.candidate_models
+    )
     assert outcome.promotable
     assert outcome.quality_reasons == ()
 
@@ -216,6 +222,16 @@ def test_model_and_dataset_persistence_round_trip_and_recover_from_corruption(
     assert store.load_latest_model(_geometry(screen_id="other")) is None
     (tmp_path / "latest_model.json").write_text("{broken", encoding="utf-8")
     assert store.load_latest_model(_geometry()) is None
+
+
+def test_dataset_can_be_resolved_from_the_candidate_calibration_identity(tmp_path: Path) -> None:
+    result = _result()
+    outcome = CalibrationEngine().train(result)
+    store = CalibrationStore(tmp_path)
+    store.save_dataset(result)
+
+    assert store.load_dataset_for_calibration(outcome.model.calibration_id) == result
+    assert store.load_dataset_for_calibration("missing-calibration") is None
 
 
 def test_latest_model_quarantine_is_recoverable_and_disables_loading(tmp_path: Path) -> None:

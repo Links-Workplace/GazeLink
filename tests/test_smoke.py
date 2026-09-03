@@ -68,3 +68,31 @@ def test_debug_overlay_is_opt_in_and_rejects_an_invalid_camera_index() -> None:
     assert parser.parse_args(["--debug-overlay"]).camera_index == 0
     with pytest.raises(SystemExit):
         cli(["--debug-overlay", "--camera-index", "-1"])
+
+
+def test_engine_defaults_to_native_everywhere() -> None:
+    """Omitting --engine must never change which engine runs."""
+
+    parser = build_parser()
+
+    assert parser.parse_args([]).engine == "native"
+    assert parser.parse_args(["--gaze-check"]).engine == "native"
+    assert parser.parse_args(["--debug-overlay"]).engine == "native"
+    assert parser.parse_args(["--gaze-check", "--engine", "eyegestures"]).engine == "eyegestures"
+
+
+def test_unknown_engine_is_rejected_by_the_parser() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--gaze-check", "--engine", "tobii"])
+
+
+@pytest.mark.parametrize(
+    "flag",
+    ["--debug-overlay", "--guided-calibration", "--gaze-validation", "--gaze-test"],
+)
+def test_alternative_engine_fails_loudly_where_it_is_not_wired(flag: str) -> None:
+    """An --engine the mode ignores must error, not silently run native."""
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli([flag, "--engine", "eyegestures"])
+    assert excinfo.value.code == 2

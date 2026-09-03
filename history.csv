@@ -1,0 +1,8 @@
+timestamp,note,model_id,calib_median,test_median,test_median_interp,test_median_extrap,gap,worst_point,verdict
+2026-09-03T07:09:04.747570+00:00,first real measurement-day run (2nd gaze-test),543d7bd31f9ac8745301612d721777e15b2d3f2333e65b45d9c9be6d6e096e04,126.4,632.0,641.8,497.2,505.5,TEST_5,FAIL
+2026-09-03T07:22:14.527324+00:00,posture-drift probe: test_dataset_20260903T071927716318Z,e76db0e39f01bce6a65a5880436535d0b40339544d1050d60bdfc0f7695b3c80,113.7,396.4,410.8,225.2,282.7,TEST_2,FAIL
+2026-09-03T07:22:14.736930+00:00,posture-drift probe: test_dataset_20260903T072021741286Z,e76db0e39f01bce6a65a5880436535d0b40339544d1050d60bdfc0f7695b3c80,113.7,480.3,481.1,372.4,366.6,TEST_6,FAIL
+2026-09-03T07:22:14.929053+00:00,posture-drift probe: test_dataset_20260903T072059373002Z,e76db0e39f01bce6a65a5880436535d0b40339544d1050d60bdfc0f7695b3c80,113.7,341.1,332.8,506.7,227.4,TEST_0,FAIL
+2026-09-03T09:43:27.085361+00:00,"eyegestures v2 held-out, 10 points",predictions:predictions,,508.7,518.3,394.2,,TEST_7,N/A
+2026-09-03T10:20:34.700577+00:00,"tobii nexus, 1200x337.5mm, camera below screen",predictions:predictions,,1004.5,980.9,1204.7,,TEST_1,N/A
+2026-09-03T11:55:10.574860+00:00,"tobii nexus, held-out seed 771155, affine correction fitted on seed 20260903",predictions:predictions_validate,,101.8,101.8,,,TEST_6,N/A

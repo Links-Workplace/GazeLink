@@ -13,11 +13,13 @@ from gazelink.camera import CameraError
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
 from gazelink.domain import GazePoint, ReasonCode, ScreenGeometry
 from gazelink.gaze_engine import CalibrationStore, GazeEstimationResult, GazeEstimator
+from gazelink.gaze_features import from_observation
 from gazelink.live_validation import (
     LiveValidationCandidate,
     LiveValidationComparisonController,
     LiveValidationComparisonView,
     LiveValidationReportPaths,
+    build_calibration_feature_reference,
     format_live_validation_comparison_summary,
     format_live_validation_summary,
     write_live_validation_comparison_report,
@@ -63,13 +65,23 @@ def run_gaze_validation(*, camera_index: int = 0) -> int:
         GazeEstimator(model, live_screen_geometry=geometry) for model in pending.candidate_models
     )
     candidates = tuple(
-        LiveValidationCandidate(model.model_id, model.regression.kind.value)
+        LiveValidationCandidate(model.model_id, model.regression.label)
         for model in pending.candidate_models
+    )
+    calibration_dataset = store.load_dataset_for_calibration(pending.model.calibration_id)
+    feature_reference = (
+        None
+        if calibration_dataset is None
+        else build_calibration_feature_reference(calibration_dataset)
     )
     window = _LiveValidationWindow(
         runtime,
         estimators,
-        LiveValidationComparisonController(geometry, candidates=candidates),
+        LiveValidationComparisonController(
+            geometry,
+            candidates=candidates,
+            feature_reference=feature_reference,
+        ),
         store,
     )
     window.show()
@@ -173,18 +185,20 @@ class _LiveValidationWindow:  # pragma: no cover - requires display and live cam
             return
         now_ms = tick.frame.captured_at_monotonic_ms + (tick.latency_ms or 0.0)
         if tick.accepted_observation is None:
+            features = None
             results = {
                 estimator.model_id: GazeEstimationResult(None, (ReasonCode.LOW_CONFIDENCE,))
                 for estimator in self._estimators
             }
         else:
+            features = from_observation(tick.accepted_observation)
             results = {
                 estimator.model_id: estimator.estimate(
                     tick.accepted_observation, now_monotonic_ms=now_ms
                 )
                 for estimator in self._estimators
             }
-        view = self._controller.ingest(results, now_monotonic_ms=now_ms)
+        view = self._controller.ingest(results, now_monotonic_ms=now_ms, features=features)
         self._render(view)
         if view.complete:
             self._write_report(view)

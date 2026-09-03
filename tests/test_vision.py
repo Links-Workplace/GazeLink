@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pytest
@@ -287,10 +288,113 @@ def test_malformed_frame_becomes_fresh_lost_error_without_model_call() -> None:
     assert landmarker.timestamps == []
 
 
-def test_pose_matrix_uses_documented_rotation_decomposition() -> None:
+def _face_matrix(
+    pitch_up_deg: float, yaw_deg: float, roll_deg: float
+) -> tuple[tuple[float, ...], ...]:
+    """Build a transform whose columns are the face axes, as MediaPipe supplies.
+
+    Rotations are applied yaw, then pitch, then roll, matching the order the
+    angles are read back in.  ``pitch_up_deg`` is positive for chin up, so the
+    rotation about X is negated: a positive right-handed rotation about +X
+    tips the forward axis DOWN.
+    """
+
+    pitch = math.radians(-pitch_up_deg)
+    yaw = math.radians(yaw_deg)
+    roll = math.radians(roll_deg)
+    yaw_matrix = (
+        (math.cos(yaw), 0.0, math.sin(yaw)),
+        (0.0, 1.0, 0.0),
+        (-math.sin(yaw), 0.0, math.cos(yaw)),
+    )
+    pitch_matrix = (
+        (1.0, 0.0, 0.0),
+        (0.0, math.cos(pitch), -math.sin(pitch)),
+        (0.0, math.sin(pitch), math.cos(pitch)),
+    )
+    roll_matrix = (
+        (math.cos(roll), -math.sin(roll), 0.0),
+        (math.sin(roll), math.cos(roll), 0.0),
+        (0.0, 0.0, 1.0),
+    )
+
+    def multiply(
+        left: tuple[tuple[float, ...], ...], right: tuple[tuple[float, ...], ...]
+    ) -> tuple[tuple[float, ...], ...]:
+        return tuple(
+            tuple(sum(left[row][k] * right[k][col] for k in range(3)) for col in range(3))
+            for row in range(3)
+        )
+
+    rotation = multiply(multiply(yaw_matrix, pitch_matrix), roll_matrix)
+    # Translation mirrors a real capture: the face sits in front of the camera.
+    return tuple(
+        tuple(rotation[row]) + (translation,) for row, translation in enumerate((0.0, 0.0, -38.0))
+    ) + ((0.0, 0.0, 0.0, 1.0),)
+
+
+def test_pose_reads_zero_for_a_face_aimed_at_the_camera() -> None:
     pose = head_pose_from_transformation_matrix(_identity_matrix())
 
     assert pose is not None
     assert pose.yaw_deg == 0.0
     assert pose.pitch_deg == 0.0
+    assert pose.roll_deg == 0.0
+
+
+@pytest.mark.parametrize(
+    ("pitch_up_deg", "yaw_deg", "roll_deg"),
+    [
+        (20.0, 0.0, 0.0),
+        (-20.0, 0.0, 0.0),
+        (45.0, 0.0, 0.0),
+        (0.0, 30.0, 0.0),
+        (0.0, -30.0, 0.0),
+        (0.0, 0.0, 20.0),
+        (30.0, 25.0, 15.0),
+        (-35.0, -20.0, -10.0),
+    ],
+)
+def test_pose_round_trips_each_axis(pitch_up_deg: float, yaw_deg: float, roll_deg: float) -> None:
+    """Every angle must come back as the angle that was put in.
+
+    Reading an angle out of the wrong axis pair still round-trips the identity
+    matrix, so a zero-only test cannot tell a correct mapping from a broken
+    one.  These cases can.
+    """
+
+    pose = head_pose_from_transformation_matrix(_face_matrix(pitch_up_deg, yaw_deg, roll_deg))
+
+    assert pose is not None
+    assert pose.pitch_deg == pytest.approx(pitch_up_deg, abs=1e-6)
+    assert pose.yaw_deg == pytest.approx(yaw_deg, abs=1e-6)
+    assert pose.roll_deg == pytest.approx(roll_deg, abs=1e-6)
+
+
+def test_pitch_separates_chin_up_from_chin_down() -> None:
+    """A nod must move pitch a long way, and in opposite directions.
+
+    This is the property that failed on the live device: chin-up and chin-down
+    both landed on the same side of neutral, 1.9 deg apart, so every frame sat
+    outside ``HeadPoseLimits.max_abs_pitch_deg`` and the confidence gate
+    rejected 100% of frames while the eyes were perfectly visible.  A pitch
+    that does not separate a nod is not a pitch, whatever it round-trips to.
+    """
+
+    down = head_pose_from_transformation_matrix(_face_matrix(-25.0, 0.0, 0.0))
+    level = head_pose_from_transformation_matrix(_face_matrix(0.0, 0.0, 0.0))
+    up = head_pose_from_transformation_matrix(_face_matrix(25.0, 0.0, 0.0))
+
+    assert down is not None and level is not None and up is not None
+    assert down.pitch_deg < level.pitch_deg < up.pitch_deg
+    assert up.pitch_deg - down.pitch_deg == pytest.approx(50.0, abs=1e-6)
+
+
+def test_roll_is_zero_rather_than_arbitrary_when_looking_straight_up() -> None:
+    """Roll is undefined when the forward axis is vertical; it must not invent one."""
+
+    pose = head_pose_from_transformation_matrix(_face_matrix(90.0, 0.0, 0.0))
+
+    assert pose is not None
+    assert pose.pitch_deg == pytest.approx(90.0, abs=1e-6)
     assert pose.roll_deg == 0.0

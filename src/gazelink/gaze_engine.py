@@ -31,6 +31,7 @@ from gazelink.gaze_features import (
 from gazelink.gaze_model import (
     DEFAULT_RIDGE_LAMBDA,
     GazeModelKind,
+    GazeModelProfile,
     LabeledGazeRow,
     ModelComparison,
     RegressionModel,
@@ -238,6 +239,7 @@ class CalibrationEngine:
                 [row.features for row in rows],
                 [row.target for row in rows],
                 ridge_lambda=self._ridge_lambda,
+                profile=GazeModelProfile.AXIS_IRIS,
             ),
             screen_geometry=result.screen_geometry,
             camera_id=result.camera_id,
@@ -249,6 +251,19 @@ class CalibrationEngine:
                 [row.features for row in rows],
                 [row.target for row in rows],
                 ridge_lambda=self._ridge_lambda,
+                profile=GazeModelProfile.AXIS_IRIS_LIDS,
+            ),
+            screen_geometry=result.screen_geometry,
+            camera_id=result.camera_id,
+            calibration_id=calibration_id,
+        )
+        linear_lids_model = CalibrationModel.create(
+            regression=fit_model(
+                GazeModelKind.LINEAR,
+                [row.features for row in rows],
+                [row.target for row in rows],
+                ridge_lambda=self._ridge_lambda,
+                profile=GazeModelProfile.AXIS_IRIS_LIDS,
             ),
             screen_geometry=result.screen_geometry,
             camera_id=result.camera_id,
@@ -265,12 +280,17 @@ class CalibrationEngine:
             quality_reasons.append("median_error_did_not_beat_center_baseline")
         if selected_metrics.p95_error_px >= comparison.center_baseline.p95_error_px:
             quality_reasons.append("p95_error_did_not_beat_center_baseline")
+        candidate_models = [linear_model, linear_lids_model]
+        # The advanced model is always benchmarked, but it reaches the live
+        # comparison only after conservative held-out evidence beats baseline.
+        if comparison.selected_kind is GazeModelKind.POLYNOMIAL_RIDGE:
+            candidate_models.append(advanced_model)
         return CalibrationTrainingResult(
             model=model,
             comparison=comparison,
             promotable=not quality_reasons,
             quality_reasons=tuple(quality_reasons),
-            candidate_models=(linear_model, advanced_model),
+            candidate_models=tuple(candidate_models),
         )
 
 
@@ -361,6 +381,26 @@ class CalibrationStore:
     def save_dataset(self, result: CalibrationSessionResult) -> Path:
         return self._save_timestamped("dataset", result.to_dict())
 
+    def load_dataset_for_calibration(self, calibration_id: str) -> CalibrationSessionResult | None:
+        """Load the newest lossless dataset matching a candidate identity."""
+
+        try:
+            expected = _nonempty(calibration_id, "calibration_id")
+            paths = sorted(
+                self._directory.glob("dataset_*.json"),
+                key=lambda path: path.stat().st_mtime_ns,
+                reverse=True,
+            )
+            for path in paths:
+                result = CalibrationSessionResult.from_dict(
+                    json.loads(path.read_text(encoding="utf-8"))
+                )
+                if _calibration_identity(result) == expected:
+                    return result
+        except (OSError, ValueError, TypeError, ContractValidationError):
+            return None
+        return None
+
     def save_model(self, model: CalibrationModel) -> Path:
         timestamped = self._save_timestamped("model", model.to_dict())
         self._write_json(self._directory / "latest_model.json", model.to_dict())
@@ -416,6 +456,7 @@ class CalibrationStore:
                         "candidate_model_file": path.name,
                         "model_id": model.model_id,
                         "kind": model.regression.kind.value,
+                        "profile": model.regression.profile.value,
                     }
                     for model, path in zip(models, paths, strict=True)
                 ],
@@ -547,6 +588,13 @@ class CalibrationStore:
     def _save_timestamped(self, prefix: str, value: Mapping[str, JSONValue]) -> Path:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         path = self._directory / f"{prefix}_{stamp}.json"
+        # Several candidates can be written in the same clock tick.  Keep the
+        # timestamp readable, but never overwrite an earlier candidate: a
+        # pending manifest must name distinct immutable model artifacts.
+        suffix = 1
+        while path.exists():
+            path = self._directory / f"{prefix}_{stamp}_{suffix}.json"
+            suffix += 1
         self._write_json(path, value)
         return path
 

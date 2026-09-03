@@ -202,32 +202,87 @@ def map_face_landmarker_result(result: object, frame: FramePacket) -> VisionObse
     )
 
 
+_AXIS_EPSILON = 1e-6
+
+
 def head_pose_from_transformation_matrix(matrix: object) -> HeadPose | None:
     """Convert a 4x4 facial transform to pitch/yaw/roll degrees.
 
-    MediaPipe supplies a row-major facial transformation matrix.  We extract
-    the rotation using the conventional ``Rz(roll) * Ry(yaw) * Rx(pitch)``
-    decomposition.  Axis orientation requires live visual validation before it
-    may be used for calibration or control, so this is a diagnostic M1 mapping
-    rather than a final product convention.
+    MediaPipe supplies a row-major facial transformation matrix whose
+    upper-left 3x3 is a proper rotation -- verified against the live device:
+    ``det == 1.000`` and orthonormality error ``0.0000`` over sampled frames.
+    Its COLUMNS are the face's own axes expressed in MediaPipe's camera frame
+    (X right, Y up, Z toward the camera), so each angle is read straight off an
+    axis vector instead of being recovered by a decomposition:
+
+    * ``yaw``   -- azimuth of the face's forward axis about the vertical
+    * ``pitch`` -- elevation of that forward axis above the horizon
+    * ``roll``  -- rotation of the face's up axis about its own forward axis
+
+    A face aimed straight at the camera is ``(0, 0, 0)`` here, and every angle
+    answers one physical question, so a sign can be checked against a held pose
+    instead of argued about.
+
+    This replaces a ``Rz(roll) * Ry(yaw) * Rx(pitch)`` decomposition that was
+    mathematically correct -- it round-trips synthetic rotations exactly -- but
+    assumed an aerospace axis convention this matrix does not use.  It read
+    pitch as ``atan2(up_z, forward_z)``, mixing two different axes into a value
+    that does not vary monotonically with head pitch.  Measured live over three
+    held poses, chin-up and chin-down landed on the SAME side of neutral and
+    differed by 1.9 deg where a real nod spans 40-70 deg, while a single held
+    pose scattered across 31 deg.  Every frame therefore sat outside
+    ``HeadPoseLimits.max_abs_pitch_deg`` and the confidence gate rejected 100%
+    of frames -- eyes, iris and openness all present and usable.
+
+    Sign convention: ``pitch`` > 0 chin up, ``yaw`` > 0 face turned toward the
+    camera's right, ``roll`` > 0 head tipped toward the face's right shoulder.
+
+    A camera mounted below the screen and angled up leaves a large fixed pitch
+    offset even for a level head.  That offset is real geometry, not an error
+    in this function, and whether the gate should tolerate it is a separate
+    decision that belongs with the threshold, not here.
     """
 
     rows = _matrix_rows(matrix)
     if rows is None:
         return None
-    r00, r01, r02 = rows[0][:3]
-    r10, r11, r12 = rows[1][:3]
-    r20, r21, r22 = rows[2][:3]
-    del r01, r02, r11, r12
-    horizontal = math.hypot(r00, r10)
-    if horizontal > 1e-6:
-        pitch = math.atan2(r21, r22)
-        yaw = math.atan2(-r20, horizontal)
-        roll = math.atan2(r10, r00)
-    else:
-        pitch = math.atan2(-rows[1][2], rows[1][1])
-        yaw = math.atan2(-r20, horizontal)
+    # Columns of the rotation, i.e. the face's axes in camera coordinates.
+    up = (rows[0][1], rows[1][1], rows[2][1])
+    forward = (rows[0][2], rows[1][2], rows[2][2])
+
+    horizontal = math.hypot(forward[0], forward[2])
+    yaw = math.atan2(forward[0], forward[2])
+    pitch = math.atan2(forward[1], horizontal)
+
+    # Roll is the signed angle between the face's up axis and world up, taken
+    # about the forward axis.  World up is first made perpendicular to forward
+    # so the two vectors share a plane; when the face points almost straight up
+    # or down that projection vanishes and roll is genuinely undefined, so it
+    # reports 0.0 rather than an arbitrary large angle.
+    vertical_component = forward[1]
+    reference = (
+        -vertical_component * forward[0],
+        1.0 - vertical_component * forward[1],
+        -vertical_component * forward[2],
+    )
+    reference_length = math.sqrt(sum(component * component for component in reference))
+    if reference_length <= _AXIS_EPSILON:
         roll = 0.0
+    else:
+        unit = (
+            reference[0] / reference_length,
+            reference[1] / reference_length,
+            reference[2] / reference_length,
+        )
+        side = (
+            (forward[1] * unit[2]) - (forward[2] * unit[1]),
+            (forward[2] * unit[0]) - (forward[0] * unit[2]),
+            (forward[0] * unit[1]) - (forward[1] * unit[0]),
+        )
+        roll = math.atan2(
+            sum(a * b for a, b in zip(up, side, strict=True)),
+            sum(a * b for a, b in zip(up, unit, strict=True)),
+        )
     return HeadPose(
         yaw_deg=math.degrees(yaw),
         pitch_deg=math.degrees(pitch),
@@ -393,8 +448,16 @@ def _create_mediapipe_landmarker(model_path: Path) -> _Landmarker:
         RunningMode,
     )
 
+    # Load the model as bytes rather than by path. MediaPipe resolves
+    # ``model_asset_path`` against a process-wide resource root, and anything
+    # that imports the legacy ``mp.solutions`` API repoints that root at
+    # MediaPipe's own package -- after which even an ABSOLUTE path here is
+    # rewritten to ``site-packages/C:\\Users\\...`` and construction fails.
+    # A buffer bypasses that resolution entirely, so this stays correct
+    # regardless of the working directory or what else in the process has
+    # touched MediaPipe's globals. Same model, same options, same output.
     options = FaceLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=str(model_path)),
+        base_options=BaseOptions(model_asset_buffer=model_path.read_bytes()),
         running_mode=RunningMode.VIDEO,
         num_faces=2,
         output_face_blendshapes=False,

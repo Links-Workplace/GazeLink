@@ -19,12 +19,16 @@ from statistics import median
 
 import numpy as np
 
+from gazelink.calibration import CalibrationSessionResult
 from gazelink.calibration_ui import CalibrationTimingSettings
-from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
+from gazelink.domain import ContractValidationError, GazePoint, JSONValue, ScreenGeometry
 from gazelink.gaze_engine import GazeEstimationResult
+from gazelink.gaze_features import FEATURE_NAMES, GazeFeatureVector, from_calibration_sample
 
 _DEFAULT_VALIDATION_TIMING = CalibrationTimingSettings()
 LIVE_VALIDATION_LOG_DIR = Path(".gazelink") / "validation_logs"
+FEATURE_DRIFT_Z_THRESHOLD = 4.0  # UNVALIDATED diagnostic placeholder; not a promotion gate.
+_FEATURE_SCALE_FLOORS = (0.01,) * 6 + (0.5,) * 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +63,146 @@ class LiveValidationPhase(StrEnum):
     COMPLETE = "COMPLETE"
 
 
+class FeatureDriftStatus(StrEnum):
+    NO_LARGE_FEATURE_DRIFT = "NO_LARGE_FEATURE_DRIFT"
+    FEATURE_DRIFT_SUSPECTED = "FEATURE_DRIFT_SUSPECTED"
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationFeatureAnchor:
+    target: GazePoint
+    medians: tuple[float, ...]
+    scales: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationFeatureReference:
+    anchors: tuple[CalibrationFeatureAnchor, ...]
+
+    def __post_init__(self) -> None:
+        if not self.anchors:
+            raise ContractValidationError("feature reference requires calibration anchors")
+
+
+@dataclass(frozen=True, slots=True)
+class FeatureDriftMeasurement:
+    status: FeatureDriftStatus
+    max_standardized_delta: float
+    largest_feature: str
+    live_median: float
+    expected_median: float
+    standardized_delta: float
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "status": self.status.value,
+            "max_standardized_delta": self.max_standardized_delta,
+            "largest_feature": self.largest_feature,
+            "live_median": self.live_median,
+            "expected_median": self.expected_median,
+            "standardized_delta": self.standardized_delta,
+        }
+
+
+def build_calibration_feature_reference(
+    result: CalibrationSessionResult,
+) -> CalibrationFeatureReference:
+    """Aggregate scalar feature anchors from accepted calibration samples."""
+
+    anchors: list[CalibrationFeatureAnchor] = []
+    for target in result.targets:
+        vectors = [
+            features
+            for sample in result.samples
+            if sample.accepted and sample.target_index == target.index
+            if (features := from_calibration_sample(sample)) is not None
+        ]
+        if not vectors:
+            raise ContractValidationError(
+                f"calibration target {target.index} has no usable feature reference"
+            )
+        medians = tuple(
+            float(median(vector.values[index] for vector in vectors))
+            for index in range(GazeFeatureVector.size)
+        )
+        scales = tuple(
+            max(
+                _FEATURE_SCALE_FLOORS[index],
+                1.4826
+                * float(median(abs(vector.values[index] - medians[index]) for vector in vectors)),
+            )
+            for index in range(GazeFeatureVector.size)
+        )
+        anchors.append(
+            CalibrationFeatureAnchor(
+                GazePoint(target.screen_position.x, target.screen_position.y), medians, scales
+            )
+        )
+    return CalibrationFeatureReference(tuple(anchors))
+
+
+def measure_feature_drift(
+    reference: CalibrationFeatureReference,
+    target: GazePoint,
+    live_features: tuple[GazeFeatureVector, ...],
+) -> FeatureDriftMeasurement:
+    """Compare a fresh aggregate with interpolated calibration anchors."""
+
+    if not live_features:
+        raise ContractValidationError("feature drift requires fresh live features")
+    live_medians = tuple(
+        float(median(vector.values[index] for vector in live_features))
+        for index in range(GazeFeatureVector.size)
+    )
+    distances = tuple(
+        math.hypot(anchor.target.x - target.x, anchor.target.y - target.y)
+        for anchor in reference.anchors
+    )
+    exact = next((index for index, distance in enumerate(distances) if distance < 1e-9), None)
+    if exact is not None:
+        expected = reference.anchors[exact].medians
+        scales = reference.anchors[exact].scales
+    else:
+        nearest = sorted(range(len(distances)), key=distances.__getitem__)[:4]
+        weights = tuple(1.0 / max(distances[index] ** 2, 1e-6) for index in nearest)
+        weight_sum = sum(weights)
+        expected = tuple(
+            sum(
+                weight * reference.anchors[anchor_index].medians[feature_index]
+                for anchor_index, weight in zip(nearest, weights, strict=True)
+            )
+            / weight_sum
+            for feature_index in range(GazeFeatureVector.size)
+        )
+        scales = tuple(
+            sum(
+                weight * reference.anchors[anchor_index].scales[feature_index]
+                for anchor_index, weight in zip(nearest, weights, strict=True)
+            )
+            / weight_sum
+            for feature_index in range(GazeFeatureVector.size)
+        )
+    standardized = tuple(
+        (live - expected_value) / scale
+        for live, expected_value, scale in zip(live_medians, expected, scales, strict=True)
+    )
+    largest_index = max(range(len(standardized)), key=lambda index: abs(standardized[index]))
+    largest = standardized[largest_index]
+    status = (
+        FeatureDriftStatus.FEATURE_DRIFT_SUSPECTED
+        if abs(largest) > FEATURE_DRIFT_Z_THRESHOLD
+        else FeatureDriftStatus.NO_LARGE_FEATURE_DRIFT
+    )
+    return FeatureDriftMeasurement(
+        status=status,
+        max_standardized_delta=abs(largest),
+        largest_feature=FEATURE_NAMES[largest_index],
+        live_median=live_medians[largest_index],
+        expected_median=expected[largest_index],
+        standardized_delta=largest,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class LiveValidationMeasurement:
     target: LiveValidationTarget
@@ -66,6 +210,7 @@ class LiveValidationMeasurement:
     median_error_px: float
     p95_error_px: float
     sample_count: int
+    feature_drift: FeatureDriftMeasurement | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +299,8 @@ def format_live_validation_summary(view: LiveValidationView) -> str:
             f"median={measurement.median_error_px:.0f}px "
             f"p95={measurement.p95_error_px:.0f}px"
         )
+        if measurement.feature_drift is not None:
+            lines.append(f"  {_format_feature_drift(measurement.feature_drift)}")
     return "\n".join(lines)
 
 
@@ -174,6 +321,8 @@ def format_live_validation_comparison_summary(view: LiveValidationComparisonView
                 f"median={measurement.median_error_px:.0f}px "
                 f"p95={measurement.p95_error_px:.0f}px"
             )
+            if measurement.feature_drift is not None:
+                lines.append(f"    {_format_feature_drift(measurement.feature_drift)}")
     if view.recommended_model_id is None:
         lines.append("Recommendation: none; no candidate was no-worse at every measured target.")
     else:
@@ -186,6 +335,28 @@ def format_live_validation_comparison_summary(view: LiveValidationComparisonView
     return "\n".join(lines)
 
 
+def _format_feature_drift(drift: FeatureDriftMeasurement) -> str:
+    return (
+        f"feature_drift={drift.status.value} max_z={drift.max_standardized_delta:.2f} "
+        f"largest={drift.largest_feature} live={drift.live_median:.5f} "
+        f"expected={drift.expected_median:.5f} delta_z={drift.standardized_delta:+.2f}"
+    )
+
+
+def _measurement_payload(measurement: LiveValidationMeasurement) -> dict[str, JSONValue]:
+    return {
+        "target_name": measurement.target.name,
+        "target_normalized": measurement.target.screen_position.to_dict(),
+        "predicted_normalized": measurement.predicted_normalized.to_dict(),
+        "median_error_px": measurement.median_error_px,
+        "p95_error_px": measurement.p95_error_px,
+        "sample_count": measurement.sample_count,
+        "feature_drift": (
+            None if measurement.feature_drift is None else measurement.feature_drift.to_dict()
+        ),
+    }
+
+
 def write_live_validation_report(
     view: LiveValidationView,
     *,
@@ -196,10 +367,9 @@ def write_live_validation_report(
 ) -> LiveValidationReportPaths:
     """Persist reviewable aggregate validation evidence, never frames/features.
 
-    The report contains target coordinates, aggregate predictions and errors;
-    it deliberately excludes camera images, landmarks and per-frame eye/head
-    features.  It is written as both readable text and lossless JSON so the
-    user can share a path rather than transcribing a diagnostic window.
+    The report contains target coordinates, aggregate predictions/errors and
+    one minimum diagnostic drift summary per target. It excludes camera
+    images, landmarks and per-frame eye/head features.
     """
 
     if not view.complete:
@@ -215,17 +385,7 @@ def write_live_validation_report(
         "generated_at_utc": timestamp.isoformat(),
         "model_id": model_id,
         "screen_geometry": geometry.to_dict(),
-        "measurements": [
-            {
-                "target_name": measurement.target.name,
-                "target_normalized": measurement.target.screen_position.to_dict(),
-                "predicted_normalized": measurement.predicted_normalized.to_dict(),
-                "median_error_px": measurement.median_error_px,
-                "p95_error_px": measurement.p95_error_px,
-                "sample_count": measurement.sample_count,
-            }
-            for measurement in view.measurements
-        ],
+        "measurements": [_measurement_payload(measurement) for measurement in view.measurements],
     }
     header = [
         "GAZELINK -- Live calibration validation",
@@ -254,7 +414,7 @@ def write_live_validation_comparison_report(
     directory: Path = LIVE_VALIDATION_LOG_DIR,
     generated_at: datetime | None = None,
 ) -> LiveValidationReportPaths:
-    """Persist aggregate comparisons only; never frames, landmarks, or features."""
+    """Persist comparisons and minimum drift aggregates; never raw observations."""
 
     if not view.complete:
         raise ContractValidationError("only a completed validation can be reported")
@@ -272,14 +432,7 @@ def write_live_validation_comparison_report(
                 "model_id": candidate_view.candidate.model_id,
                 "label": candidate_view.candidate.label,
                 "measurements": [
-                    {
-                        "target_name": measurement.target.name,
-                        "target_normalized": measurement.target.screen_position.to_dict(),
-                        "predicted_normalized": measurement.predicted_normalized.to_dict(),
-                        "median_error_px": measurement.median_error_px,
-                        "p95_error_px": measurement.p95_error_px,
-                        "sample_count": measurement.sample_count,
-                    }
+                    _measurement_payload(measurement)
                     for measurement in candidate_view.view.measurements
                 ],
             }
@@ -321,6 +474,7 @@ class LiveValidationController:
         *,
         targets: tuple[LiveValidationTarget, ...] = default_live_validation_targets(),
         timing: CalibrationTimingSettings = _DEFAULT_VALIDATION_TIMING,
+        feature_reference: CalibrationFeatureReference | None = None,
     ) -> None:
         if not isinstance(geometry, ScreenGeometry):
             raise ContractValidationError("geometry must be a ScreenGeometry")
@@ -331,17 +485,23 @@ class LiveValidationController:
         self._geometry = geometry
         self._targets = targets
         self._timing = timing
+        self._feature_reference = feature_reference
         self._target_index = 0
         self._phase = LiveValidationPhase.STABILIZING
         self._phase_started_ms: float | None = None
         self._last_frame_id: int | None = None
         self._last_candidate_ms: float | None = None
         self._candidates: list[GazePoint] = []
+        self._candidate_features: list[GazeFeatureVector] = []
         self._measurements: list[LiveValidationMeasurement] = []
         self._feedback = "Look at the highlighted point and hold still."
 
     def ingest(
-        self, result: GazeEstimationResult, *, now_monotonic_ms: float
+        self,
+        result: GazeEstimationResult,
+        *,
+        now_monotonic_ms: float,
+        features: GazeFeatureVector | None = None,
     ) -> LiveValidationView:
         """Collect only a fresh vetted base-model prediction.
 
@@ -358,6 +518,10 @@ class LiveValidationController:
         if result.sample is None:
             self._reset_target(now_monotonic_ms)
             self._feedback = "Tracking was withheld; keep both eyes visible and retry this point."
+            return self.view()
+        if self._feature_reference is not None and features is None:
+            self._reset_target(now_monotonic_ms)
+            self._feedback = "Feature diagnostics were unavailable; retry this point."
             return self.view()
         if result.sample.source_frame_id == self._last_frame_id:
             return self.view()
@@ -379,6 +543,8 @@ class LiveValidationController:
         ):
             return self.view()
         self._candidates.append(result.sample.raw_normalized)
+        if features is not None:
+            self._candidate_features.append(features)
         self._last_candidate_ms = now_monotonic_ms
         elapsed = now_monotonic_ms - self._phase_started_ms
         if len(self._candidates) < 5 or elapsed < self._timing.capture_window_ms:
@@ -394,6 +560,7 @@ class LiveValidationController:
         self._last_frame_id = None
         self._last_candidate_ms = None
         self._candidates.clear()
+        self._candidate_features.clear()
         self._measurements.clear()
         self._feedback = "Validation restarted. Look at the highlighted point and hold still."
         return self.view()
@@ -420,6 +587,7 @@ class LiveValidationController:
         self._phase_started_ms = now_monotonic_ms
         self._last_candidate_ms = None
         self._candidates.clear()
+        self._candidate_features.clear()
 
     def _complete_target(self) -> None:
         target = self._targets[self._target_index]
@@ -430,6 +598,15 @@ class LiveValidationController:
             _pixel_error(point, target.screen_position, self._geometry)
             for point in self._candidates
         ]
+        drift = (
+            None
+            if self._feature_reference is None
+            else measure_feature_drift(
+                self._feature_reference,
+                target.screen_position,
+                tuple(self._candidate_features),
+            )
+        )
         self._measurements.append(
             LiveValidationMeasurement(
                 target=target,
@@ -437,10 +614,12 @@ class LiveValidationController:
                 median_error_px=float(median(errors)),
                 p95_error_px=float(np.percentile(errors, 95)),
                 sample_count=len(self._candidates),
+                feature_drift=drift,
             )
         )
         self._target_index += 1
         self._candidates.clear()
+        self._candidate_features.clear()
         self._last_candidate_ms = None
         if self._target_index == len(self._targets):
             self._phase = LiveValidationPhase.COMPLETE
@@ -463,6 +642,7 @@ class LiveValidationComparisonController:
         candidates: tuple[LiveValidationCandidate, ...],
         targets: tuple[LiveValidationTarget, ...] = default_live_validation_targets(),
         timing: CalibrationTimingSettings = _DEFAULT_VALIDATION_TIMING,
+        feature_reference: CalibrationFeatureReference | None = None,
     ) -> None:
         if not candidates or len({candidate.model_id for candidate in candidates}) != len(
             candidates
@@ -470,7 +650,13 @@ class LiveValidationComparisonController:
             raise ContractValidationError("comparison candidates must have unique model identities")
         self._candidates = candidates
         self._controllers = tuple(
-            LiveValidationController(geometry, targets=targets, timing=timing) for _ in candidates
+            LiveValidationController(
+                geometry,
+                targets=targets,
+                timing=timing,
+                feature_reference=feature_reference,
+            )
+            for _ in candidates
         )
 
     def ingest(
@@ -478,6 +664,7 @@ class LiveValidationComparisonController:
         results: Mapping[str, GazeEstimationResult],
         *,
         now_monotonic_ms: float,
+        features: GazeFeatureVector | None = None,
     ) -> LiveValidationComparisonView:
         if set(results) != {candidate.model_id for candidate in self._candidates}:
             raise ContractValidationError(
@@ -487,12 +674,12 @@ class LiveValidationComparisonController:
         if any(result.sample is None for result in values):
             withheld = next(result for result in values if result.sample is None)
             views = tuple(
-                controller.ingest(withheld, now_monotonic_ms=now_monotonic_ms)
+                controller.ingest(withheld, now_monotonic_ms=now_monotonic_ms, features=features)
                 for controller in self._controllers
             )
         else:
             views = tuple(
-                controller.ingest(result, now_monotonic_ms=now_monotonic_ms)
+                controller.ingest(result, now_monotonic_ms=now_monotonic_ms, features=features)
                 for controller, result in zip(self._controllers, values, strict=True)
             )
         return self._view(views)

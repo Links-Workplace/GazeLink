@@ -10,7 +10,11 @@ import pytest
 from gazelink.calibration_ui import CalibrationTimingSettings
 from gazelink.domain import GazePoint, GazeSample, PixelPoint, ReasonCode, ScreenGeometry
 from gazelink.gaze_engine import GazeEstimationResult
+from gazelink.gaze_features import GazeFeatureVector
 from gazelink.live_validation import (
+    CalibrationFeatureAnchor,
+    CalibrationFeatureReference,
+    FeatureDriftStatus,
     LiveValidationCandidate,
     LiveValidationComparisonController,
     LiveValidationController,
@@ -134,6 +138,54 @@ def test_completed_validation_writes_shareable_aggregate_only_reports(tmp_path: 
     assert "landmark" not in text.lower()
     assert "iris" not in payload.lower()
     assert "Fresh validation measurements" in format_live_validation_summary(view)
+
+
+def test_validation_reports_aggregate_feature_drift_without_per_frame_data(
+    tmp_path: Path,
+) -> None:
+    target = LiveValidationTarget("CENTER", GazePoint(0.5, 0.5))
+    reference = CalibrationFeatureReference(
+        (
+            CalibrationFeatureAnchor(
+                target.screen_position,
+                (0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0),
+                (0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.5, 0.5, 0.5),
+            ),
+        )
+    )
+    controller = LiveValidationController(
+        _geometry(),
+        targets=(target,),
+        timing=CalibrationTimingSettings(
+            stabilization_ms=0.0,
+            capture_window_ms=0.0,
+            min_sample_interval_ms=0.0,
+        ),
+        feature_reference=reference,
+    )
+    drifted = GazeFeatureVector((0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 8.0, 0.0, 0.0))
+    for frame_id in range(5):
+        view = controller.ingest(
+            _result(frame_id, target.screen_position),
+            now_monotonic_ms=float(frame_id),
+            features=drifted,
+        )
+
+    drift = view.measurements[0].feature_drift
+    assert drift is not None
+    assert drift.status is FeatureDriftStatus.FEATURE_DRIFT_SUSPECTED
+    assert drift.largest_feature == "head_yaw_deg"
+    paths = write_live_validation_report(
+        view,
+        model_id="model-1",
+        geometry=_geometry(),
+        directory=tmp_path,
+        generated_at=datetime(2026, 9, 2, tzinfo=UTC),
+    )
+    payload = paths.json_path.read_text(encoding="utf-8")
+    assert '"status": "FEATURE_DRIFT_SUSPECTED"' in payload
+    assert '"largest_feature": "head_yaw_deg"' in payload
+    assert "per_frame" not in payload
 
 
 def test_live_comparison_recommends_only_a_model_that_dominates_every_target(

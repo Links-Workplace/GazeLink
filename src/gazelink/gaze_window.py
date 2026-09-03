@@ -13,7 +13,7 @@ from gazelink.correction_diagnostic import (
     CorrectionDiagnosticView,
 )
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
-from gazelink.domain import GazePoint, ScreenGeometry
+from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
 from gazelink.gaze_correction import CorrectionStore
 from gazelink.gaze_engine import (
     CalibrationStore,
@@ -22,11 +22,26 @@ from gazelink.gaze_engine import (
     normalized_to_pixel,
 )
 from gazelink.gaze_filter import GazeStabilityFilter, RollingJitterMonitor
+from gazelink.gaze_predictor import (
+    ENGINE_CHOICES,
+    EYEGESTURES_ENGINE,
+    NATIVE_ENGINE,
+    GazePredictor,
+    NativeGazePredictor,
+)
 from gazelink.runtime import VisionRuntime
 
 _WINDOW_TITLE = "GAZELINK — M2 raw gaze check"
 _INFO_PANEL_WIDTH = 1200
 _INFO_PANEL_HEIGHT = 174
+
+# Qt is single-threaded: when the timer slot takes longer than the interval,
+# paint events never get a turn and the window stops redrawing -- it looks
+# frozen even though it is running. The native engine costs ~32 ms per tick
+# against the default 16 ms interval, which already overruns; adding an
+# external engine's own face mesh (~15 ms) pushes it to ~47 ms and the window
+# visibly stops updating. Give that path an interval with real slack instead.
+EXTERNAL_ENGINE_TIMER_INTERVAL_MS = 66
 
 
 def clamp_panel_position(
@@ -71,8 +86,19 @@ def format_gaze_status(
     )
 
 
-def run_gaze_check(*, camera_index: int = 0) -> int:
-    """Load the latest compatible model and display live vetted predictions."""
+def run_gaze_check(*, camera_index: int = 0, engine: str = NATIVE_ENGINE) -> int:
+    """Display live vetted predictions from the selected engine.
+
+    ``engine="native"`` is the unchanged path: load this project's latest
+    compatible model and show its predictions, with local-correction
+    diagnostics available.  ``engine="eyegestures"`` instead routes prediction
+    through the external library, which owns its own calibration and has no
+    model of ours -- so the correction diagnostic is not offered there.
+    """
+
+    if engine not in ENGINE_CHOICES:
+        print(f"Unknown engine '{engine}'. Expected one of: {', '.join(ENGINE_CHOICES)}.")
+        return 1
 
     runtime = build_runtime(camera_index=camera_index)
     try:
@@ -97,22 +123,64 @@ def run_gaze_check(*, camera_index: int = 0) -> int:
         height_px=rectangle.height(),
         dpi_scale=float(screen.devicePixelRatio()),
     )
-    model = CalibrationStore().load_latest_model(geometry)
-    if model is None:
-        runtime.close()
-        print("No compatible gaze model. Run --guided-calibration first.")
-        return 1
-    estimator = GazeEstimator(model, live_screen_geometry=geometry)
-    correction_store = CorrectionStore()
-    correction_engine = correction_store.load(
-        base_model_id=model.model_id, screen_geometry=geometry
+
+    predictor: GazePredictor
+    diagnostic: CorrectionDiagnosticSession | None
+    correction_store: CorrectionStore | None
+    if engine == EYEGESTURES_ENGINE:
+        # Say this BEFORE the slow part, not after. Importing EyeGestures pulls
+        # in scikit-learn, which takes seconds on a warm cache and much longer
+        # on a cold one -- and it happens after the camera is already open but
+        # before any window exists, so the screen is blank the whole time. Left
+        # unannounced it reads as a hang, and gets interrupted.
+        print(
+            "Engine: eyegestures (external, GPL-3.0). It runs its own calibration "
+            "first; no GAZELINK model or correction is used on this path.",
+            flush=True,
+        )
+        print("Loading EyeGestures (imports scikit-learn) -- please wait...", flush=True)
+
+        from gazelink.eyegestures_engine import EyeGesturesGazePredictor  # noqa: PLC0415
+
+        try:
+            predictor = EyeGesturesGazePredictor(screen_geometry=geometry)
+        except ContractValidationError as error:
+            runtime.close()
+            print(str(error))
+            return 1
+        diagnostic = None
+        correction_store = None
+        print("EyeGestures ready. Opening the window...", flush=True)
+    else:
+        model = CalibrationStore().load_latest_model(geometry)
+        if model is None:
+            runtime.close()
+            print("No compatible gaze model. Run --guided-calibration first.")
+            return 1
+        estimator = GazeEstimator(model, live_screen_geometry=geometry)
+        predictor = NativeGazePredictor(estimator)
+        correction_store = CorrectionStore()
+        diagnostic = CorrectionDiagnosticSession(
+            estimator,
+            correction_store.load(base_model_id=model.model_id, screen_geometry=geometry),
+        )
+
+    window = _GazeCheckWindow(
+        runtime,
+        predictor,
+        diagnostic,
+        correction_store,
+        interval_ms=(
+            EXTERNAL_ENGINE_TIMER_INTERVAL_MS
+            if engine == EYEGESTURES_ENGINE
+            else DEFAULT_TIMER_INTERVAL_MS
+        ),
     )
-    diagnostic = CorrectionDiagnosticSession(estimator, correction_engine)
-    window = _GazeCheckWindow(runtime, estimator, diagnostic, correction_store)
     window.show()
     try:
         return int(application.exec())
     finally:
+        predictor.close()
         runtime.close()
 
 
@@ -120,9 +188,9 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
     def __init__(
         self,
         runtime: VisionRuntime,
-        estimator: GazeEstimator,
-        diagnostic: CorrectionDiagnosticSession,
-        correction_store: CorrectionStore,
+        predictor: GazePredictor,
+        diagnostic: CorrectionDiagnosticSession | None,
+        correction_store: CorrectionStore | None,
         *,
         interval_ms: int = DEFAULT_TIMER_INTERVAL_MS,
     ) -> None:
@@ -131,13 +199,18 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         from PySide6.QtWidgets import QLabel, QWidget  # noqa: PLC0415
 
         self._runtime = runtime
-        self._estimator = estimator
+        self._predictor = predictor
+        # None on the eyegestures path: local correction is defined against
+        # our own model, which that engine does not have.
         self._diagnostic = diagnostic
         self._correction_store = correction_store
+        self._correction_estimator: GazeEstimator | None = (
+            predictor.estimator if isinstance(predictor, NativeGazePredictor) else None
+        )
         self._closed = False
         self._last_now_ms: float | None = None
         self._stability = GazeStabilityFilter()
-        self._jitter = RollingJitterMonitor(estimator.screen_geometry)
+        self._jitter = RollingJitterMonitor(predictor.screen_geometry)
         self._correction_map_visible = False
         self._widget = QWidget()
         self._widget.setWindowTitle(_WINDOW_TITLE)
@@ -255,7 +328,14 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         self._timer = QTimer(self._widget)
         self._timer.timeout.connect(self._on_tick)
         self._timer.start(interval_ms)
-        self._render_diagnostic(self._diagnostic.view())
+        if self._diagnostic is not None:
+            self._render_diagnostic(self._diagnostic.view())
+        else:
+            self._correction_status.setText(
+                f"Engine: {self._predictor.engine_name} (external). "
+                "Local correction is unavailable on this engine. "
+                "Follow its own calibration target first."
+            )
 
     def show(self) -> None:
         """Show reliably on Windows, then center the movable info panel."""
@@ -302,6 +382,12 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         if event.key() == Qt.Key.Key_C:
             self._center_info_panel()
             return
+        # Every remaining key drives local correction, which is defined against
+        # our own model. On an external engine there is nothing to correct, so
+        # those keys stay inert rather than half-working.
+        if self._diagnostic is None or self._correction_estimator is None:
+            event.ignore()
+            return
         if event.key() == Qt.Key.Key_K:
             self._set_correction_map_visible(not self._correction_map_visible)
             return
@@ -315,7 +401,7 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
             and self._last_now_ms is not None
             and self._correction_map_visible
         ):
-            target = targets_for_screen_geometry(self._estimator.screen_geometry)[
+            target = targets_for_screen_geometry(self._predictor.screen_geometry)[
                 int(text) - 1
             ].screen_position
             self._set_correction_map_visible(False)
@@ -343,7 +429,8 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         if event.key() == Qt.Key.Key_D:
             engine = self._diagnostic.engine
             self._diagnostic = CorrectionDiagnosticSession(
-                self._estimator, engine.enable() if not engine.enabled else engine.disable()
+                self._correction_estimator,
+                engine.enable() if not engine.enabled else engine.disable(),
             )
             self._render_diagnostic(self._diagnostic.view())
             self._persist_corrections()
@@ -366,25 +453,46 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
             self._raw_dot.hide()
             self._corrected_dot.hide()
             self._status.setText("NO VETTED GAZE SAMPLE — tracking withheld — NOT FOR CONTROL")
+            # An external engine still gets this frame, and still shows its own
+            # calibration target. Its calibration is what the user must look AT
+            # to become trackable at all, and our policy accepts only ~18% of
+            # frames -- starving the engine here stretched a calibration pass
+            # to about five minutes, which reads as a hung screen. The point it
+            # returns is still discarded; only calibration advances.
+            if tick is not None and self._diagnostic is None:
+                self._predictor.predict(
+                    frame=tick.frame,
+                    observation=tick.observation,
+                    now_monotonic_ms=tick.frame.captured_at_monotonic_ms,
+                )
+            self._render_engine_calibration()
             return
         now_ms = tick.frame.captured_at_monotonic_ms + (tick.latency_ms or 0.0)
         self._last_now_ms = now_ms
-        diagnostic_view = self._diagnostic.ingest(
-            tick.accepted_observation, now_monotonic_ms=now_ms
-        )
-        self._render_diagnostic(diagnostic_view)
-        result = self._estimator.estimate(
-            tick.accepted_observation,
+        diagnostic_view: CorrectionDiagnosticView | None = None
+        if self._diagnostic is not None:
+            diagnostic_view = self._diagnostic.ingest(
+                tick.accepted_observation, now_monotonic_ms=now_ms
+            )
+            self._render_diagnostic(diagnostic_view)
+        result = self._predictor.predict(
+            frame=tick.frame,
+            observation=tick.accepted_observation,
             now_monotonic_ms=now_ms,
         )
+        self._render_engine_calibration()
         if result.sample is not None:
-            corrected = self._diagnostic.engine.apply_to_sample(result.sample)
+            corrected = (
+                result.sample
+                if self._diagnostic is None
+                else self._diagnostic.engine.apply_to_sample(result.sample)
+            )
             filtered_point = self._stability.update(corrected.corrected_normalized, now_ms)
             filtered = replace(
                 corrected,
                 filtered_normalized=filtered_point,
                 screen_position=normalized_to_pixel(
-                    filtered_point, self._estimator.screen_geometry
+                    filtered_point, self._predictor.screen_geometry
                 ),
             )
             self._jitter.add(now_ms, filtered.raw_normalized, filtered.filtered_normalized)
@@ -404,7 +512,7 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
             self._corrected_dot.hide()
             return
         sample = result.sample
-        if diagnostic_view.state not in {
+        if diagnostic_view is not None and diagnostic_view.state not in {
             CorrectionDiagnosticState.IDLE,
             CorrectionDiagnosticState.REVIEW,
         }:
@@ -419,8 +527,10 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         )
 
     def _set_correction_map_visible(self, visible: bool) -> None:
+        if self._diagnostic is None:
+            return
         self._correction_map_visible = visible
-        targets = targets_for_screen_geometry(self._estimator.screen_geometry)
+        targets = targets_for_screen_geometry(self._predictor.screen_geometry)
         for label, target in zip(self._grid_labels, targets, strict=True):
             if visible:
                 self._place(label, target.screen_position.x, target.screen_position.y)
@@ -436,7 +546,53 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         dot.raise_()
         self._info_panel.raise_()
 
+    def _render_engine_calibration(self) -> None:
+        """Draw an external engine's own calibration target, when it has one.
+
+        The native engine calibrates in its own screen, so this is a no-op
+        there and the target dot stays under the correction diagnostic's
+        control.
+        """
+
+        view = getattr(self._predictor, "calibration_view", None)
+        if view is None:
+            return
+        calibration = view()
+        if not calibration.active:
+            self._target_dot.hide()
+            self._correction_status.setText(
+                f"Engine: {self._predictor.engine_name} (external) — calibrated "
+                f"({calibration.progress_text}). Local correction unavailable."
+            )
+            return
+        if calibration.target_normalized is None:
+            # Still calibrating, but the engine has not published a target yet
+            # (it needs at least one processed frame). Say so plainly instead
+            # of claiming calibration is finished.
+            self._target_dot.hide()
+            self._correction_status.setText(
+                f"Engine: {self._predictor.engine_name} (external) — waiting for a "
+                "stable face before its calibration can start. Sit facing the "
+                "camera, centred and well lit."
+            )
+            return
+        self._raw_dot.hide()
+        self._corrected_dot.hide()
+        self._target_dot.setStyleSheet("color: #FFD740; background: transparent;")
+        self._place(
+            self._target_dot,
+            calibration.target_normalized.x,
+            calibration.target_normalized.y,
+        )
+        self._correction_status.setText(
+            f"Engine: {self._predictor.engine_name} (external) — follow the yellow "
+            f"target: {calibration.progress_text}. No gaze point is reported until "
+            "its calibration completes."
+        )
+
     def _render_diagnostic(self, view: CorrectionDiagnosticView) -> None:
+        if self._diagnostic is None:
+            return
         details = view.instruction
         if view.before_error_normalized is not None and view.after_error_normalized is not None:
             details += (
@@ -466,6 +622,8 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         self._place(self._target_dot, view.target.x, view.target.y)
 
     def _persist_corrections(self) -> None:
+        if self._diagnostic is None or self._correction_store is None:
+            return
         try:
             self._correction_store.save(self._diagnostic.engine)
         except OSError as error:

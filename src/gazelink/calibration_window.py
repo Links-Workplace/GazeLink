@@ -30,14 +30,16 @@ from gazelink.camera import CameraError
 from gazelink.confidence import ConfidencePolicySettings
 from gazelink.config import ConfidenceThresholds
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
-from gazelink.domain import NormalizedPoint, ScreenGeometry
+from gazelink.domain import ContractValidationError, NormalizedPoint, ScreenGeometry
 from gazelink.gaze_engine import (
     CalibrationEngine,
     CalibrationStore,
     CalibrationTrainingResult,
+    GazeEstimator,
     PendingCalibration,
 )
 from gazelink.overlay import CircleCommand, OverlayCommand, RectangleCommand, TextCommand
+from gazelink.prediction_overlay import PredictionOverlay, load_overlay_model
 from gazelink.runtime import VisionRuntime
 
 _WINDOW_TITLE = "GAZELINK — Guided calibration"
@@ -246,9 +248,18 @@ def write_calibration_log(content: str, *, directory: Path = CALIBRATION_LOG_DIR
 
 
 def run_guided_calibration(
-    *, camera_index: int = 0, target_order: Sequence[int] | None = None
+    *,
+    camera_index: int = 0,
+    target_order: Sequence[int] | None = None,
+    overlay_model_path: str | None = None,
 ) -> int:
-    """Run calibration on the primary display; open camera before Qt on Windows."""
+    """Run calibration on the primary display; open camera before Qt on Windows.
+
+    ``overlay_model_path``, when given, is loaded once and used only to draw
+    a live prediction marker next to the calibration target for visual
+    sanity-checking.  It is never trained, saved, or promoted -- purely a
+    display concern layered on top of the unmodified calibration flow.
+    """
 
     runtime = build_runtime(
         camera_index=camera_index,
@@ -281,6 +292,15 @@ def run_guided_calibration(
         height_px=geometry.height(),
         dpi_scale=float(screen.devicePixelRatio()),
     )
+    overlay_estimator: GazeEstimator | None = None
+    if overlay_model_path is not None:
+        try:
+            overlay_model = load_overlay_model(Path(overlay_model_path))
+        except (OSError, ValueError, ContractValidationError) as error:
+            runtime.close()
+            print(f"--overlay-model could not be loaded: {error}")
+            return 1
+        overlay_estimator = GazeEstimator(overlay_model, live_screen_geometry=screen_geometry)
     session = CalibrationSession(
         camera_id=camera_id,
         screen_geometry=screen_geometry,
@@ -292,6 +312,7 @@ def run_guided_calibration(
         CalibrationUiController(session),
         camera_id=camera_id,
         screen_geometry=screen_geometry,
+        overlay_estimator=overlay_estimator,
     )
     window.show()
     try:
@@ -310,6 +331,7 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         *,
         camera_id: str,
         screen_geometry: ScreenGeometry,
+        overlay_estimator: GazeEstimator | None = None,
     ) -> None:
         from PySide6.QtCore import Qt, QTimer  # noqa: PLC0415
         from PySide6.QtGui import QFont  # noqa: PLC0415
@@ -328,6 +350,7 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._log_events: list[CalibrationLogEvent] = []
         self._closed = False
         self._artifacts_written = False
+        self._overlay_estimator = overlay_estimator
         self._widget = QWidget()
         self._widget.setWindowTitle(_WINDOW_TITLE)
         self._widget.setStyleSheet("background: #101820; color: white;")
@@ -351,6 +374,10 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._target.setFont(target_font)
         self._target.setStyleSheet("color: #00E5FF; background: transparent;")
         self._target.setAccessibleName("Calibration target")
+
+        self._prediction_overlay = (
+            None if overlay_estimator is None else PredictionOverlay(self._widget)
+        )
 
         self._progress = QLabel(self._widget)
         self._feedback = QLabel(self._widget)
@@ -470,6 +497,8 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
                     )
                 )
             self._render(view)
+            if self._prediction_overlay is not None and view.target is not None:
+                self._update_prediction_overlay(tick)
             if view.complete:
                 # Publish the lossless dataset/model immediately when the
                 # final accepted sample completes calibration. The user need
@@ -477,6 +506,27 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
                 # hidden prerequisite for --gaze-check.
                 self._timer.stop()
                 self._write_log()
+
+    def _update_prediction_overlay(self, tick: Any) -> None:
+        """Draw where ``--overlay-model`` currently predicts, or why it can't.
+
+        Uses ``tick.accepted_observation`` -- the same vetted observation
+        ``--gaze-check`` and ``--gaze-validation`` estimate from -- not the
+        unvetted ``tick.observation`` the calibration controller ingests.
+        This keeps the overlay's own tracking/confidence gating identical to
+        every other live-prediction surface in the product.
+        """
+
+        assert self._prediction_overlay is not None
+        assert self._overlay_estimator is not None
+        if tick.accepted_observation is None:
+            self._prediction_overlay.update(None)
+            return
+        now_ms = tick.frame.captured_at_monotonic_ms + (tick.latency_ms or 0.0)
+        result = self._overlay_estimator.estimate(
+            tick.accepted_observation, now_monotonic_ms=now_ms
+        )
+        self._prediction_overlay.update(result)
 
     def _on_retry(self) -> None:
         # `CalibrationSession.retry_current_target()` raises once the session
@@ -514,6 +564,12 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._target.setVisible(view.target is not None)
         if view.target is not None:
             self._place_target(view.target)
+        elif self._prediction_overlay is not None:
+            # No active target (session complete/cancelled/restarted): a
+            # stale prediction mark here would be as misleading as a stale
+            # target, so it is cleared through the same code path that
+            # decides "no tracking this tick".
+            self._prediction_overlay.update(None)
 
     def _paint_preview(
         self,

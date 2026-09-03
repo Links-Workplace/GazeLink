@@ -10,6 +10,7 @@ from gazelink.domain import GazePoint, ScreenGeometry
 from gazelink.gaze_features import GazeFeatureVector
 from gazelink.gaze_model import (
     GazeModelKind,
+    GazeModelProfile,
     LabeledGazeRow,
     ModelMetrics,
     RegressionModel,
@@ -168,3 +169,32 @@ def test_regression_model_round_trips_without_prediction_drift() -> None:
     loaded = RegressionModel.from_dict(model.to_dict())
     assert loaded == model
     assert loaded.predict(features[3]) == model.predict(features[3])
+
+
+def test_axis_profile_prevents_horizontal_features_from_changing_y_prediction() -> None:
+    features = tuple(_vector(index) for index in range(24))
+    targets = tuple(_linear_target(vector) for vector in features)
+    model = fit_model(
+        GazeModelKind.LINEAR,
+        features,
+        targets,
+        profile=GazeModelProfile.AXIS_IRIS,
+    )
+    base = features[8]
+    changed = GazeFeatureVector(
+        (
+            0.99,
+            base.values[1],
+            0.01,
+            base.values[3],
+            base.values[4],
+            base.values[5],
+            45.0,
+            base.values[7],
+            -30.0,
+        )
+    )
+
+    assert model.predict(changed).y == pytest_approx(model.predict(base).y)
+    assert model.profile is GazeModelProfile.AXIS_IRIS
+    assert RegressionModel.from_dict(model.to_dict()) == model

@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
 from gazelink import __version__
+from gazelink.gaze_predictor import ENGINE_CHOICES, NATIVE_ENGINE
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,10 +66,54 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--gaze-test",
+        action="store_true",
+        help=(
+            "open the held-out test-point screen: randomized targets, disjoint from the 9 "
+            "calibration targets, for measuring generalization rather than memorization; "
+            "never trains, promotes, or emits OS input"
+        ),
+    )
+    parser.add_argument(
+        "--test-seed",
+        type=int,
+        default=None,
+        help="seed for --gaze-test target placement (default: a fixed built-in seed)",
+    )
+    parser.add_argument(
+        "--test-points",
+        type=int,
+        default=None,
+        help="number of held-out test points for --gaze-test (default: 10)",
+    )
+    parser.add_argument(
+        "--overlay-model",
+        type=str,
+        default=None,
+        help=(
+            "path to a calibration model JSON file; when given, --guided-calibration and "
+            "--gaze-test draw its live prediction next to the target for visual comparison. "
+            "Never affects training, promotion, or the saved dataset"
+        ),
+    )
+    parser.add_argument(
         "--camera-index",
         type=int,
         default=0,
         help="camera index for live debug, calibration, or gaze-check modes (default: 0)",
+    )
+    parser.add_argument(
+        "--engine",
+        choices=ENGINE_CHOICES,
+        default=NATIVE_ENGINE,
+        help=(
+            "which gaze engine produces the screen point (default: native). "
+            "'eyegestures' routes prediction through the optional external "
+            "EyeGestures library instead of this project's model; it runs its own "
+            "calibration, is currently supported only with --gaze-check, and needs "
+            'the optional extra: pip install -e ".[eyegestures]". EyeGestures is '
+            "GPL-3.0 licensed -- see TASKS.md before distributing"
+        ),
     )
     return parser
 
@@ -87,20 +132,38 @@ def run(*, smoke: bool = False) -> BootstrapStatus:
 def cli(argv: Sequence[str] | None = None) -> int:
     """CLI entry point; a camera opens only for an explicit live-mode flag."""
 
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    # An alternative engine is only wired into --gaze-check so far. Fail loudly
+    # rather than silently running the native engine under an --engine flag the
+    # user believed had taken effect.
+    if args.engine != NATIVE_ENGINE and not args.gaze_check:
+        parser.error(f"--engine {args.engine} is currently supported only with --gaze-check")
     if (
         args.debug_overlay
         or args.guided_calibration
         or args.gaze_check
         or args.gaze_validation
         or args.gaze_feature_check
+        or args.gaze_test
     ):
         if args.camera_index < 0:
             raise SystemExit("--camera-index must be non-negative")
         if args.guided_calibration:
             from gazelink.calibration_window import run_guided_calibration
 
-            return run_guided_calibration(camera_index=args.camera_index)
+            return run_guided_calibration(
+                camera_index=args.camera_index, overlay_model_path=args.overlay_model
+            )
+        if args.gaze_test:
+            from gazelink.test_window import run_gaze_test
+
+            return run_gaze_test(
+                camera_index=args.camera_index,
+                overlay_model_path=args.overlay_model,
+                seed=args.test_seed,
+                point_count=args.test_points,
+            )
         if args.gaze_feature_check:
             from gazelink.feature_check_window import run_gaze_feature_check
 
@@ -108,7 +171,7 @@ def cli(argv: Sequence[str] | None = None) -> int:
         if args.gaze_check:
             from gazelink.gaze_window import run_gaze_check
 
-            return run_gaze_check(camera_index=args.camera_index)
+            return run_gaze_check(camera_index=args.camera_index, engine=args.engine)
         if args.gaze_validation:
             from gazelink.validation_window import run_gaze_validation
 

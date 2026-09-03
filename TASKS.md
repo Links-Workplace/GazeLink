@@ -771,6 +771,54 @@ Replay על `dataset_20260902T102939128973Z.json` תחת המדיניות החד
 
 QA אוטומטי: `308 passed, 2 deselected`, coverage `84%`; `ruff format --check .`, `ruff check .`, `mypy src tests`, `python -m gazelink --help` ו־`python -m build` עברו. בדיקות חדשות מכסות השוואה סימולטנית, המלצה רק לדומיננטי בכל Target, דוח comparison aggregate-only, שמירת/טעינת שני מועמדים וקידום מפורש של מועמד שאינו בחירת ה־offline. טרם הורץ כיול מצלמה חדש אחרי הרחבה זו.
 
+מועמדי Feature-profile + Feature drift ב־Validation — בוצע אוטומטית, נדרש אימות מצלמה אמיתי — 2026-09-02
+
+נוספו שני מועמדי Linear בעלי חוזה Feature מפורש: `AXIS_IRIS` משתמש ב־iris X וב־yaw לציר X וב־iris Y וב־pitch לציר Y; `AXIS_IRIS_LIDS` מוסיף רק לציר Y את שני מדדי openness. שני הצירים עוברים נרמול שנשמר יחד עם המודל. הבחירה אינה עוברת בשקט ל־Feature נוסף: שני ה־Linear candidates נמדדים ב־Validation חי על אותם Frames, ואילו Polynomial נכנס להשוואה רק אם כבר ניצח שמרנית את ה־offline baseline. לכן כל מועמד שניתן לקידום נמדד בפועל, ואין תלות ב־Benchmark בלבד.
+
+דוח Validation כולל מעתה לכל Target גם תקציר Feature-drift מינימלי: Median של דגימות ה־live מול Anchor אינטרפולטיבי מה־Dataset, עם שם Feature בעל הסטייה המנורמלת הגדולה ביותר. הוא נשאר מדד אבחוני בלבד ואינו Gate לקידום. הדוח אינו שומר Frames, Landmarks, Features גולמיים או נתוני Biometric per-frame. אם Dataset ההפניה חסר, ה־Validation ממשיך ללא מדד זה.
+
+תוקנה התנגשות Persistence: כמה candidate artifacts הנשמרים באותו UTC tick מקבלים suffix רציף במקום לדרוס זה את זה; manifest של השוואה תמיד מפנה לקבצים נפרדים. QA: `315 passed, 2 deselected`; `ruff check .`, `ruff format --check .`, `mypy src tests`, `python -m gazelink --help` ו־`python -m build` עברו. לא הופעל OS input ולא בוצע Run מצלמה אחרי השינוי.
+
+אבחון Y-axis root cause + הסרת קונפאונד Head-pitch — בוצע אוטומטית, נדרש Live validation מצלמה אמיתי — 2026-09-02
+
+לאחר ש־`--gaze-validation` על ה־Candidate מ־`dataset_20260902T114309350044Z.json` הראה שגיאת Y שיטתית (CENTER נחזה `(0.48, 0.64)` במקום `(0.50, 0.50)`; UP_CENTER `(0.49, 0.38)` במקום `(0.50, 0.18)`), בוצע Audit מלא של השרשרת Feature→Train→Validate לפני כל שינוי קוד, לפי דרישת המשתמש שלא לנחש.
+
+נבדק סמנטית כל Feature (`gaze_features.py`): כיוון Y מתועד ואומת כ"חיובי כלפי מטה" גם ב־Raw data — Median של `left_iris_y`/`right_iris_y` ב־45 הדגימות המתקבלות עולה מונוטונית UP→CENTER→DOWN (‏`0.217→0.272→0.327` שמאל), כנ"ל pitch. נבדק גם ש־`calibration_ui.py` (Ingestion בזמן Calibration) ו־`gaze_features.from_observation` (Live) קוראים בדיוק אותם שדות גולמיים (`left_eye.iris_in_eye`/`iris_in_lids_y`) ומפעילים את אותה פונקציית `_build()` — נשלל Sign/Axis-swap/Feature-mismatch/Ordering bug (השערות 1–3).
+
+נמצא קונפאונד אמיתי: ב־Dataset הנוכחי `head_pitch_deg` מתואם `r=0.72` עם `left_iris_y` (ו־`0.63` עם `right_iris_y`), כי מסך Ultrawide 4096px מניע תנועת ראש טבעית בזמן הבטה ל־Targets עליונים/תחתונים. פרופיל ה־Y הקיים `AXIS_IRIS` כלל את Pitch, ו־Leave-One-Target-Out (שכבר ממומש ב־`cross_validate`) הראה שהמקדם על Pitch תלוי בצימוד הזה: הסרתו הורידה P95 Y מנורמל מ־`0.3999` ל־`0.2684` (ירידה של כ־33% בשגיאת המקרה הגרוע) על אותו Dataset, כמעט ללא פגיעה ב־Median (`0.1390→0.1421`). הוספת אותה הסרה ל־`AXIS_IRIS_LIDS` החמירה שם P95 (‏`0.5652→0.5810`), ולכן הפרופילים נשארו שונים במכוון — כל אחד לפי הראיה שלו, לא לשם אחידות.
+
+Polynomial Ridge (`AXIS_IRIS_LIDS`) אושר שוב כ־Overfit קטלני על אותו Dataset: P95 `3949.7px` ב־LOO, ולכן `advanced_improves_conservatively` ממשיך לדחות אותו והוא נשאר Benchmark בלבד — לא נכנס ל־Live validation candidates (מומש כבר, לא שונה).
+
+תיקון קוד: `_Y_AXIS_IRIS_FEATURE_INDICES` ב־`src/gazelink/gaze_model.py` שונה מ־`(left_iris_y, right_iris_y, head_pitch_deg)` ל־`(left_iris_y, right_iris_y)` בלבד, עם הערה מתעדת את המדידה. זהו שינוי שורה אחת, מכוסה ב־Suite הקיים ללא שינוי בבדיקות. `_Y_AXIS_IRIS_LIDS_FEATURE_INDICES` לא שונה.
+
+Target 0 (‏UP_LEFT) נשאר החריג הגרוע ביותר בכל וריאציה (LOO error עד `0.42–0.59` מנורמל) — יש לו yaw `31°`/pitch `-33°` קיצוניים ביחס לשאר, כנראה Extrapolation לפינה שדורשת סיבוב ראש חריג ב־Grid האופקי של 15%/85%. זו נשארת סיכון פתוח לתיעוד, לא תוקן ולא שונו נקודות ה־Edge inset.
+
+QA אוטומטי: Suite מלא `315 passed, 2 deselected` (ללא רגרסיה). לא בוצע Run מצלמה חדש ולא נוצר Calibration חדש — כל המדידות לעיל הן Replay דטרמיניסטי על ה־Dataset הקיים `dataset_20260902T114309350044Z.json` דרך `CalibrationEngine().train()`/`cross_validate()` בפועל, ללא הפעלת מצלמה או OS input. `latest_model.json` עדיין לא קיים ולא נוצר על ידי שינוי זה; `pending_validation.json` הקיים לא נגע בו.
+
+אימות חי לאחר התיקון — 2026-09-02
+
+ה־Run החי הראשון אחרי התיקון (`validation_comparison_20260902T122317462058Z`) בדק בטעות candidate ישן: `pending_validation.json` הצביע עדיין על `LINEAR/FULL`/`POLYNOMIAL_RIDGE/FULL` (10 מקדמים, כל 9 ה־Features הגולמיים) מ־11:43, לפני שהתיקון נכתב. אומת ישירות מול `candidate_model_20260902T114309385971Z.json` (`profile` חסר בקובץ = FULL). לכן שוחזר מחדש: `CalibrationEngine().train()` הורץ שוב על `dataset_20260902T114309350044Z.json` הקיים (ללא מצלמה) עם הקוד המתוקן, ו־`CalibrationStore.save_pending_models()` נכתב מחדש עם `LINEAR/AXIS_IRIS` (`de4daae56dcf…`) ו־`LINEAR/AXIS_IRIS_LIDS` (`d21b5759a7c3…`). `latest_model.json` עדיין לא קיים.
+
+Run שני (`validation_comparison_20260902T122629557205Z`) מדד את המודל הנכון וזו ההשוואה האמיתית מול ה־FULL הישן, על אותם Targets: CENTER ‏210px→110px, UP_CENTER ‏310px→218px, UP_RIGHT ‏266px→85px, RIGHT_CENTER ‏410px→77px (LEFT_CENTER נשאר דומה, ‏261px→259px). זהו שיפור אמיתי, שנמדד Live ולא רק ב־LOO. בהשוואת שני המועמדים החדשים, `AXIS_IRIS` (בלי Pitch) עדיף בבירור ב־3/5 Targets (UP_CENTER/UP_RIGHT/RIGHT_CENTER) ו־`AXIS_IRIS_LIDS` עדיף רק במעט ב־2 (CENTER/LEFT_CENTER); ה־P95 הגרוע ביותר בכל סט Targets נמוך יותר אצל `AXIS_IRIS` (‏299px מול ‏330px). הכלי עצמו הדפיס `Recommendation: none` כי אף מועמד אינו Dominant בכל Target — זו ההתנהגות השמרנית הנכונה ואינה תקועה.
+
+`FEATURE_DRIFT_SUSPECTED` נורה ב־4/5 Targets גם ב־Run השני, לרוב על `head_yaw_deg`/`head_roll_deg`, עם z עד `8.25` דווקא ב־UP_CENTER — הנקודה עם השארית הגרועה ביותר. חשוב לנתח בזהירות: ה"Expected" של האבחון הזה הוא אינטרפולציה בין עוגני ה־Grid (0.05/0.5/0.95), ו־UP_CENTER/LEFT_CENTER/RIGHT_CENTER יושבים מחוץ ל־Grid בכוונה (M2-03 existing design) — לכן חלק מה־Drift עשוי לשקף שגיאת אינטרפולציה של ה־Reference עצמו ולא בהכרח סטיית ראש אמיתית של המשתמש. אין עדיין דרך להפריד בין השניים; זו לא נבדקה.
+
+נשאר: אין המלצת קידום כרגע (נכון ותקין). הצעד הבא הוא להחליט אם `AXIS_IRIS` (העדיף כרגע ב־P95 ובמרבית ה־Targets) ראוי לקידום ידני מודע לאחר עוד Run חי אחד או שניים לאישוש היציבות, ו/או לחקור את מקור ה־Drift ב־UP_CENTER לפני כן. לא להריץ Calibration חדש — ה־Dataset עדיין תקין ומספיק.
+
+Run שלישי לאישוש יציבות — 2026-09-02
+
+`validation_comparison_20260902T122952740771Z` (אותם Candidates, ‏`de4daae56dcf`/`d21b5759a7c3`) מאשש שני דברים: (1) `AXIS_IRIS` ממשיך להיות עדיף באופן עקבי על `AXIS_IRIS_LIDS` ב־UP_CENTER/UP_RIGHT/RIGHT_CENTER על פני שני Runs נפרדים (UP_CENTER השתפר גם בפועל: ‏218px→106px, תחזית `y=0.21` מול Target `0.18`; UP_RIGHT ‏85px→98px median אך `y=0.16` כמעט מדויק). (2) `LEFT_CENTER` הוא כשל אמיתי ועקבי, בלתי תלוי במודל: שני המועמדים קיבלו P95 קטסטרופלי (`922px`/`924px`, לעומת `299px`/`273px` ב־Run הקודם), ו־`FEATURE_DRIFT_SUSPECTED` שם דיווח Feature שונה בכל Run (‏`head_yaw_deg` ב־Run הקודם, ‏`head_pitch_deg` כאן) — כלומר חוסר יציבות כללי בתנוחת הראש באזור הזה, לא קונפאונד יחיד וקבוע.
+
+מסקנת ביניים: `AXIS_IRIS` הוא המועמד המועדף אם וכאשר תתקבל החלטת קידום, אך `LEFT_CENTER` (‏x=0.18 על מסך 4096px) נשאר אזור לא אמין בשני המודלים כאחד ומחייב בדיקה נפרדת — קרוב לוודאי תנוחת ישיבה/טווח תנועה א־סימטרי של המשתמש ולא באג קוד. לא בוצע שינוי קוד נוסף; אין קידום.
+
+בדיקת השערת התנוחה — נשללה — `feature_check_20260902T123348515856Z` — 2026-09-02
+
+הריצה המבוקרת מפריכה את ההשערה שכיוון LEFT גורם לחוסר יציבות ראש: `head_pose_p95_deg` בכיוון LEFT היה `0.60952°` — נמוך יותר מ־CENTER עצמו (`0.99848°`) ומתחת בהרבה לסף `5°`. כל חמשת הכיוונים היו יציבים (`stationary_p95` ‏`0.0135–0.0218`, מתחת לסף `0.08`). כלומר המשתמש כן מסוגל להחזיק ראש יציב כשמסתכל שמאלה; זו לא בעיית ישיבה/טווח תנועה כללית.
+
+`Overall diagnostic pass: False` בריצה הזו רק בגלל RIGHT ‏(`NO_SEPARATION`, ‏combined_delta=`0.02638` מול סף `0.03`) — אות חלש חד־פעמי, לא קשור ל־LEFT ולא חוסם כלום (לא רצים Calibration חדש).
+
+מסקנה מתוקנת: ה־P95 הקטסטרופלי ב־LEFT_CENTER בשני Runs של `--gaze-validation` (‏`922px`/`924px`) כנראה נובע מ־Sample size קטן (‏`sample_count=7` ל־Target) ולא מבעיה מבנית — עם 7 דגימות, P95 קרוב ל־Max ופריים בודד חריג (Blink/micro-saccade רגעי) יכול להטות אותו לגמרי בעוד ה־Median נשאר סביר (‏`259–288px`). אין עדות תומכת ל־Drift מבני אמיתי באזור הזה; ה־Median הוא המדד האמין יותר כרגע ל־n כה קטן. אין המלצה לשנות Sample count/Capture window בלי אישור המשתמש — זהו Placeholder קיים.
+
 נשאר לפני DONE
 
 ה־Preflight המבוקר האחרון עבר ב־Replay תחת ה־Gate הדו־עיני המאושר. אין צורך לחזור עליו לפני ה־Session הבא; אם התנהגות המצלמה/תנוחת המשתמש משתנה מהותית, מריצים אותו שוב לפני Calibration.
@@ -797,7 +845,7 @@ M2-T04, M2-T05, M2-T07
 
 M2-04 — Gaze Stability + Validation + Demo
 
-Status: 🟡 PARTIAL / IN PROGRESS — Filter candidates, reset policy, rolling jitter metrics ו־Raw/Filtered diagnostic overlay מומשו ואומתו אוטומטית; נדרש Benchmark חי, בחירת Filter מכוילת ו־Validation/Accuracy מלאים
+Status: 🟡 PARTIAL / IN PROGRESS — Filter candidates, reset policy, rolling jitter metrics ו־Raw/Filtered diagnostic overlay מומשו ואומתו אוטומטית; נדרש Benchmark חי, בחירת Filter מכוילת ו־Validation/Accuracy מלאים. בנוסף, כלי מדידה ל"דיוק אמיתי מול שינון" (ראו למטה) מכסים עכשיו את "Validation targets נפרדים", חלק מ"Median/P95 error" ואת "Gaze point overlay" מתוך הרשימה הבאה — קוד בלבד, טרם אומת מול מצלמה אמיתית
 
 לבצע
 
@@ -826,6 +874,84 @@ Definition of Done
 Legacy mapping
 
 M2-T06, M2-T08, M2-T09
+
+כלי מדידה — דיוק אמיתי מול שינון — בוצע אוטומטית, טרם אומת מול מצלמה אמיתית — 2026-09-03
+
+המשתמש ביקש יום מדידה נפרד: לפני שיפור נוסף, לדעת אם הדיוק הנמדד בכיול (250px→50-150px) הוא למידה אמיתית או ששיטת ה־Validation הקיימת (`--gaze-validation`, 5 Targets קבועים) פשוט חופפת חלקית לרשת הכיול עצמה — `CENTER` הוא ממש Calibration target 4, ו־`LEFT_CENTER`/`RIGHT_CENTER` יושבים על שורת האמצע שלה. חוקי ברזל מפורשים מהמשתמש: אסור לגעת ב־Model/Mapping/Calibration logic; כל שינוי הוא תוספת; אין המצאת פורמט קבצים חדש.
+
+נוספו ארבעה קבצים חדשים תחת `src/gazelink/`, אפס עריכה ב־`calibration.py`/`calibration_ui.py`/`gaze_model.py`/`gaze_features.py`/`gaze_correction.py`/`gaze_engine.py`/`live_validation.py` (אומת ב־`git diff --stat`):
+
+`test_points.py` — `generate_test_targets()`: Targets רנדומליים עם Seed קבוע (`20260903`, ניתן לשינוי), מרחק מינימלי מכל אחת מ־9 נקודות הכיול האמיתיות (נגזר מ־`targets_for_screen_geometry()` עצמה, לא רשימה משוכפלת) ומכל Target אחר. ברירת מחדל 10 נקודות. אזור העבודה נפתח במפורש מעבר לטווח הכיול ב־X (0.12–0.88 מול 0.15–0.85 בפועל על מסך Ultrawide) כדי לבדוק גם Extrapolation, לא רק Interpolation; `is_extrapolated()`/`calibration_bounding_box()` מסמנים זאת.
+
+`test_dataset.py` — `TestSample`/`TestPointResult`: שכפול Byte-identical של סכמת `CalibrationSample`/`dataset_*.json` עם N Targets במקום 9 בדיוק (`CalibrationSample.target_index` נעול ל־0..8). `TestSample` בנוי סביב Carrier אמיתי מסוג `CalibrationSample` כדי לעטוף Validation קיים ולקרוא ל־`from_calibration_sample()` המקורי — אין העתקת חישוב Features. `TestSampleRecorder` עוטף את `LiveValidationController` הקיים (ללא עריכה בו) ומסיק מה קרה אך ורק מה־View המוחזר; מסרב לכתוב שורות אם ספירתן לא תואמת את מה ש־Controller דיווח. נכתב ל־`.gazelink/test_points/`, ספרייה נפרדת מ־`.gazelink/calibration/`.
+
+`prediction_overlay.py` — `compute_prediction_overlay_state()` (טהור, ניתן לבדיקה בלי Qt) + `PredictionOverlay` (Qt shell דק): מציג `✕` מג'נטה בזמן אמת לצד המטרה, ומוחק אותו מיידית ברגע שאין Sample — לא מותיר נקודה קפואה. כישלון גאומטרי (מודל שלא תואם את המסך החי) מוצג כטקסט מפורש, לא כנקודה ריקה שקטה. `load_overlay_model()` טוען מודל מפורש בלבד — בלי `--overlay-model` אין נקודת חיזוי בכלל, כפי שהוחלט מול המשתמש.
+
+`test_window.py` — מסך `--gaze-test` חדש, מקביל ל־`validation_window.py`: איסוף דגימות עובד גם בלי מודל מאומן בכלל (Heartbeat מלאכותי שמניע רק את שעון היציבות של ה־Controller, לעולם לא נקרא על־ידי ה־Recorder), וגם עם `--overlay-model` אמיתי (אותה תוצאה מזינה גם את השעון וגם את הסמן). `Esc`/`R`, אפס OS input.
+
+`calibration_window.py`/`app.py` נערכו בתוספת בלבד: `run_guided_calibration`/`_CalibrationWindow` מקבלים `overlay_model_path` אופציונלי (ברירת מחדל `None`, מתנהג בדיוק כמו קודם); ארבעה דגלים חדשים (`--gaze-test`, `--test-seed`, `--test-points`, `--overlay-model`).
+
+`analyze.py` (שורש הריפו) — קורא בלבד, כותב רק ל־`history.csv`. `--model` חובה כדי שלא תתערבב השוואה בין שני מודלים שונים. מדפיס `CALIB_MEDIAN`/`TEST_MEDIAN`/`GAP` (חציון, לא ממוצע), ואז `VERDICT: PASS` רק אם `TEST_MEDIAN < 120px` וגם `GAP < 50px` — שני התנאים יחד, נעולים מראש ולא ניתנים לשינוי בזמן ריצה. `TEST_MEDIAN_INTERP_ONLY`/`TEST_MEDIAN_EXTRAP_ONLY` מדווחים כפירוק אבחוני בין נקודות בתוך/מחוץ לגריד הכיול, במפורש **לא** משתתפים בהכרעה (מכוסה בבדיקה ייעודית: חציון־פנימי נמוך לא הופך FAIL כללי ל־PASS). `--include-rejected` בונה עותק זמני עם `accepted=True` (`dataclasses.replace`) כדי להעביר גם דגימות שנדחו דרך אותה פונקציית Feature extraction בלי לעקוף אותה.
+
+תועד ב־`docs/MEASUREMENT_DAY.md` (חדש) — לא נערך `README.md` הראשי.
+
+QA אוטומטי: 365 בדיקות עוברות (350 קיימות + 15 `test_analyze.py` + קודמות ב־Stage 1/2), `ruff check .`, `ruff format --check .`, `mypy` (ללא ארגומנטים; `analyze.py` נוסף במפורש ל־`[tool.mypy].files` ב־`pyproject.toml` כך שנכלל גם בברירת המחדל) — כולם נקיים. הרצת Smoke ידנית של `analyze.py` על Fixtures סינתטיים (מודל קבוע החוזה נקודה יחידה) אימתה שהפלט תואם בדיוק את מה שמתועד ב־README, כולל אזהרת Geometry mismatch, ושקבצי הקלט לא נגעו בהם (mtime זהה) — נמחקו לאחר מכן.
+
+נשאר: אין Run מצלמה אמיתי. `--gaze-test`/`--overlay-model` לא הופעלו מול Webcam אמיתי; כל האימות הוא דטרמיניסטי (Fixtures סינתטיים, מודל קבוע-חיזוי). ה־250px→50-150px שנמדד קודם טרם נבדק דרך הכלים החדשים — זו בדיוק המדידה שהמשתמש צריך לבצע בעצמו (הסכמה מפורשת: "אני עושה: מריץ את הכיול... אתה עושה: בונה כלים"). אין המלצה על סף PASS/FAIL אחר מזה שהמשתמש קבע מראש.
+
+כלי מדידה — השוואה לספרייה חיצונית (predictions mode) — בוצע אוטומטית, טרם אומת מול Webcam/EyeGestures אמיתיים — 2026-09-03
+
+המשך ישיר לכלי המדידה שלמעלה: המשתמש רץ ניסוי נפרד ומבודד לגמרי (venv/ריפו משלו תחת `~/experiments/eyegestures-test/`, לא קשור ל־gazelink) עם ספריית `eyeGestures` חיצונית (Third-party, רישיון GPL-3.0), וביקש דרך להשוות אותה למערכת שלנו על אותו סרגל בדיוק — בלי לגעת במודל/מיפוי/כיול שלנו ובלי לשלב את EyeGestures לתוך gazelink. חוקי ברזל מפורשים מהמשתמש: אין עריכת אלגוריתם/מיפוי/כיול קיימים; אין אינטגרציה של EyeGestures לתוך gazelink; אותן נקודות בדיוק, אותו Seed, אותו סרגל (מסך) — אחרת ההשוואה חסרת ערך.
+
+`analyze.py` (שורש הריפו) הורחב, לא נכתב מחדש: דגל חדש `--predictions <file.json>` שמחליף את `--test`+`--model` יחד (`--calib` נשאר גם הוא לא רלוונטי במצב הזה — Parser מסרב לשלב `--predictions` עם כל אחד מהשלושה, ומחייב את כל השלושה יחד כשאין `--predictions`). קורא `PredictionSample`/`PredictionResult` חדשים (Target index + X/Y נורמליזציה מוכנה + Timestamp + Accepted, פלוס Targets ו-Screen geometry ברמת הקובץ — פורמט חדש, מוצהר במפורש, לא מומצא תוך כדי) ומחשב שגיאות דרך `compute_prediction_errors()` חדשה שמשתמשת באותה `_pixel_error()`/`is_extrapolated()` בדיוק כמו `compute_test_errors()` — בלי לקרוא ל־CalibrationModel ובלי Feature extraction בכלל (אין מודל שלנו לערב). הרנדור שותף: `_format_file_section()`/`_format_diagnostic_breakdown()` חדשים חולצו מתוך `format_report()` הקיים (רה־שימוש, לא כפילות) ומוזנים גם ל־`format_predictions_report()` החדש. במצב Predictions: `CALIB_MEDIAN`/`GAP` תמיד `n/a`, ואין `VERDICT` בכלל (לא FAIL, לא PASS — הסף הקבוע מעולם לא אומת מול מקור בלי Gap משלו); `history.csv` מקבל שורה עם `verdict=N/A` ו־`model_id=predictions:<שם קובץ>`. אפס עריכה בקוד הקיים של `compute_calibration_errors`/`compute_test_errors`/`compute_verdict`/`append_history` (אומת ב־Diff).
+
+`export_test_targets.py` (שורש הריפו, קובץ חדש) — כלי Read-only נוסף מקביל ל־`analyze.py`: קורא ל־`generate_test_targets()` הקיים (אותה פונקציה בדיוק ש־`--gaze-test` עצמו קורא לה, לא העתק) עם ברירת המחדל של Seed/Count/Screen geometry שלה, וכותב JSON עם `targets`+`screen_geometry` בלבד — אותה צורה בדיוק שקובץ Predictions מצפה לה, כדי שניסוי חיצוני יוכל להרחיב אותו במקום לשכתב פורמט. `--width-px`/`--height-px` ברירת מחדל מיובאת ישירות מ־`analyze.SCREEN_WIDTH_PX/HEIGHT_PX` (מקור אמת יחיד, לא מספרים משוכפלים).
+
+`eyegestures_capture.py` — נכתב **מחוץ לריפו הזה לגמרי**, תחת `~/experiments/eyegestures-test/` (venv הנפרד של EyeGestures), לפי דרישת המשתמש המפורשת. אפס Import של חבילת `gazelink`; קורא בלבד את `targets.json` (JSON גנרי, לא תלות בקוד) וכותב Predictions JSON בפורמט של סעיף analyze.py. משתמש אך ורק ב-API הציבורי של EyeGestures (`EyeGestures_v2`, `VideoCapture`) לפי המתכון המדויק מ־`examples/simple_example_v2.py` שלהם (Calibration map מסוג Meshgrid, `setClassicalImpact(2)`, `setFixation(1.0)`) — אין עריכת קוד שלהם, ואין העתקה/שינוי של הלוגיקה הפנימית שלהם. Ctrl+Q/סגירת חלון מבטלים בבטחה בלי לכתוב פלט חלקי.
+
+QA אוטומטי (בתוך gazelink בלבד — eyegestures_capture.py לא ב-CI של gazelink ולא ניתן להריצו ב-venv שלו, Python/Deps שונים לגמרי): 376 בדיקות עוברות (365 קיימות + 8 `test_analyze.py` חדשות למצב Predictions + 3 `test_export_test_targets.py` חדשות), `ruff check .`, `ruff format --check .`, `mypy` (ללא ארגומנטים; `export_test_targets.py` נוסף גם הוא במפורש ל־`[tool.mypy].files`) — כולם נקיים. `export_test_targets.py` הורץ ידנית והושווה ל־Import ישיר של `generate_test_targets()` — Byte-identical. `eyegestures_capture.py` עבר רק Compile+Import smoke test בתוך ה-venv הנפרד שלו (`py_compile` + Import ללא הרצת `main()`) — **לא הורץ מול מצלמה אמיתית או מול EyeGestures החי**.
+
+נשאר: כל זרימת EyeGestures החיה (Calibration שלהם, Capture על 10 הנקודות המוחזקות, כתיבת Predictions JSON, והרצת `analyze.py --predictions`) לא בוצעה בפועל — זו בדיוק החלוקה שהמשתמש ביקש ("אני ארוץ פיזית מול המצלמה... אתה לא צריך להעריך את זה בשבילי"). לפני הרצה: לוודא שה־`--width-px`/`--height-px` שהוזנו ל־`export_test_targets.py` (ברירת מחדל 4096x1152) תואמים בפועל למסך הפיזי ש־EyeGestures ירוץ עליו — אחרת "אותו סרגל" לא מתקיים. אין הרצה מול GPU/מצלמה שונה מזו שנבדקה בניסוי הבידוד הקודם.
+
+מסלול חיזוי חלופי — `--engine eyegestures` — בוצע אוטומטית, טרם אומת מול מצלמה — 2026-09-03
+
+⚠️ **חוב רישוי פתוח — GPL-3 — חוסם את M6.** `eyeGestures` מופץ תחת GPL-3.0 בעוד `pyproject.toml` מצהיר `license = "LicenseRef-Proprietary"`. יבוא בתהליך יוצר, לפי הפרשנות המקובלת, יצירה משולבת: **הפצת GAZELINK יחד עם הספרייה תחייב שחרור של GAZELINK כולו תחת GPL-3.** המשתמש אישר במפורש **שימוש פנימי בלבד** בשלב הזה (GPL הוא רישיון הפצה; שימוש שלא מופץ אינו מפעיל את החובות). M6 ב-`spec.MD` הוא "משתמש חדש יכול להתקין, לכייל ולהשתמש" — כלומר **הפצה** — ולכן M6 חסום עד רישיון מסחרי (`contact@eyegestures.com`, ה-README שלהם מאשר שקיים) או החלטה אחרת. לא ניתן ייעוץ משפטי; נדרש ייעוץ אמיתי לפני הפצה. הקלה מבנית: התלות היא **extra אופציונלי** (`[project.optional-dependencies].eyegestures`) עם יבוא עצל — סגור התלויות של התקנת ברירת המחדל נשאר נקי מ-GPL, והמסלול ה-native עובד גם בלי שהספרייה מותקנת בכלל.
+
+חוקי ברזל מהמשתמש: אין מיזוג של הלוגיקה שלהם לתוך `gaze_model.py`/`gaze_features.py`/`calibration.py`; אין שינוי במנוע הקיים; זיהוי הקריצות נשאר שלנו בשני המסלולים; שני המסלולים מוציאים אותו טיפוס נקודה. **קבצים שלא נגעתי בהם**: `gaze_engine.py`, `gaze_model.py`, `gaze_features.py`, `calibration.py`, `calibration_ui.py`, `runtime.py`, `camera.py` (אומת ב-Diff).
+
+⚠️ **חריגה מהצהרה קודמת: `vision.py` כן נערך.** בגרסה מוקדמת של הרשומה הזו נכתב שלא נגעתי בו — זה היה נכון אז והתברר כבלתי-אפשרי לשמר. שורה אחת: המודל נטען דרך `model_asset_buffer` (bytes) במקום `model_asset_path`. הנימוק תחת "התנגשות MediaPipe" למטה. זה שינוי בטעינת קובץ ולא בלוגיקה — אותו מודל, אותן אפשרויות, אותו פלט — ואומת שהמסלול ה-native ללא שינוי בביצועים (32ms/31FPS לפני ואחרי). המשתמש עודכן ואישר.
+
+חוסם שנפתר לפני האינטגרציה: ה-venv הריץ `mediapipe 0.10.35`, שממנה **הוסר** ה-API הישן `mp.solutions` ש-EyeGestures תלויה בו, בעוד `vision.py` שלנו על ה-Tasks API החדש. אומת ש-`0.10.21` תומכת בשתי ה-APIs, בוצעה הורדה, ו**המנוע הקיים אומת ששרד**: 376 בדיקות עוברות (זהה ל-baseline), ruff/mypy נקיים, ובנוסף הורץ `FaceLandmarkerAdapter` האמיתי עם קובץ המודל האמיתי על פריים סינתטי (המודל נטען, `detect_for_video` רץ, החזיר `LOST`/`FACE_NOT_FOUND` כצפוי לתמונה שחורה, `close()` תקין). המשתמש הריץ `--guided-calibration` מול מצלמה חיה אחרי ההורדה והיא הושלמה — נכתבו `dataset_*.json`, שני `candidate_model_*` ו-`pending_validation.json`, כלומר חילוץ ה-Landmarks עובד מקצה לקצה. הסף נרשם ב-extra: `mediapipe>=0.10.21,<0.10.30`.
+
+`gaze_predictor.py` (חדש) — התפר: `GazePredictor` Protocol שמקבל **גם** `FramePacket` וגם `VisionObservation` ומחזיר את `GazeEstimationResult` הקיים, כך ששום צרכן במורד הזרם לא יודע מי רץ. `NativeGazePredictor` הוא עטיפה דקה סביב `GazeEstimator` הבלתי-נגוע ומתעלם מה-Frame (הוא כבר נצרך במעלה הזרם). כל היבואים בקובץ הם `TYPE_CHECKING` בלבד — כדי ש-`app.py` יוכל לקרוא את שמות המנועים ל-Parser בלי לגרור את המנוע (ואת numpy) למסלול `--smoke`; אומת: `import gazelink.app` = 26ms, אפס מודולים כבדים, והבדיקה הקיימת `test_default_and_smoke_paths_never_import_a_camera_or_ui_stack` ממשיכה לעבור.
+
+`eyegestures_engine.py` (חדש) — מתאם בלבד. `frame_to_rgb_array()` פונקציה טהורה שממירה `FramePacket.image` (bytes) ל-`ndarray` רציף ב-RGB (RGB ולא BGR — כך הדוגמה העובדת שלהם מזינה את `step()`), ומחזירה `None` — לא מערך חלקית-תקין — על פורמט לא נתמך/`image=None`/buffer שלא תואם לגאומטריה המוצהרת. `EyeGesturesGazePredictor` מחזיק מכונת מצבים `UNCALIBRATED→CALIBRATING→READY` וסופר נקודות כיול שהושלמו ע"י מעקב אחרי תזוזת `Cevent.point` — **בלי לגעת בשדות פרטיים** כמו `clb[ctx].fitted`. `build_calibration_map()` משתמש ב-`default_rng(seed)` ולא ב-`np.random.shuffle` הגלובלי של הדוגמה שלהם, כדי שסדר הכיול יהיה משוחזר בין ריצות.
+
+שתי תכונות בטיחות שהמתאם קיים כדי לאכוף: (1) **מלכודת ה-[0,0]** — `Calibrator_v2.predict()` שלהם מחזיר `[0.0, 0.0]` לפני שהתאמן, כלומר הפינה השמאלית-עליונה של המסך, קואורדינטה שנראית לגמרי חוקית; המתאם מסרב לפלוט Sample כלשהו עד שרצף הכיול שלו הושלם. (2) **מדיניות הביטחון נשארת שלנו** — Sample נפלט רק כשה-`tracking_state` שלנו הוא `TRACKED`; אחרת מוחזרות הסיבות שלנו. בנוסף: `valid_for_control=False` תמיד; `confidence` נלקח מה-Observation שלנו (הם לא חושפים Confidence מכויל); נקודה מחוץ ל-0..1 מסומנת `OUT_OF_RANGE`+`CLAMPED_TO_SCREEN` כמו במנוע הקיים; נקודה לא-סופית (NaN/inf) נדחית כ-`ERROR`.
+
+**תיקון עיצובי אחרי מדידה חיה — הזנת המנוע החיצוני מופרדת מפליטת הנקודה.** בגרסה הראשונה השער היה גם על הקריאה ל-`step()`: אם ה-tracker שלנו לא אישר את הפריים, הספרייה לא נקראה כלל. נמדד שזה **מרעיב את הכיול שלהם**: מנוע הראייה שלנו אישר רק **61 מתוך 333 פריימים (18%)**, ומכיוון שהם דורשים 30+ דגימות לכל נקודת כיול (`isReadyToMove`), הכיול התקדם **נקודה אחת ב-12 שניות** — כ-5 דקות לסבב מלא, מה שנראה למשתמש כמסך תקוע. עכשיו הספרייה מקבלת **כל** פריים (גם כאלה שהמדיניות שלנו פוסלת, וגם `observation=None`), והשער נשאר במקום היחיד שבו הוא באמת שער בטיחות — פליטת ה-`GazeSample`. הזנת פריים אינה פלט. שלוש בדיקות חדשות מקבעות את ההפרדה הזו.
+
+`app.py` — `--engine {native|eyegestures}`, ברירת מחדל `native`. שילוב `--engine eyegestures` עם דגל שאינו `--gaze-check` נכשל ב-`parser.error` (יציאה 2) במקום להריץ בשקט את המנוע ה-native תחת דגל שהמשתמש חשב שנכנס לתוקף. `gaze_window.py` — `run_gaze_check(..., engine=...)` בונה את ה-Predictor המתאים; במסלול החיצוני אין מודל שלנו ולכן `CorrectionDiagnosticSession` הוא `None`, מקשי ה-Correction (K/1-9/A/X/U/R/D) הופכים אינרטיים במקום לעבוד חלקית, ומצויר יעד הכיול של הספרייה עם התקדמות `N/total`. היקף מכוון: **רק `--gaze-check`**. `--guided-calibration`/`--gaze-validation`/`--gaze-test` קשורים לסמנטיקת האימון/ולידציה של המודל *שלנו* ומנוע זר שם יהיה מטעה.
+
+**באג אמיתי שנתפס בהרצת Smoke מול הספרייה האמיתית — ההנחה המקורית שלי הייתה שגויה.** הנחתי ש-EyeGestures מחזירה `(None, None)` כשאין פנים בפריים. זה נכון רק בחלק מהמסלולים: כש-MediaPipe מחזירה תוצאה שבה `multi_face_landmarks is None`, `face.py:67` שלהם עושה `None[0]` ו**זורק `TypeError`**. ה-`process()` שלהם עוטף את זה ב-try/except שמוער כהערה, כך ששום דבר במעלה הזרם לא מכיל את זה. מכיוון שזה בדיוק המצב הרגיל **לפני שהמשתמש מתיישב מול המצלמה**, החלון היה קורס על הפריים הראשון. התיקון הוחל **במתאם ולא ב-site-packages** (patch שם אינו משוחזר ונמחק בכל reinstall): `predict()` עוטף את הקריאה ל-`step()` בלבד ומתרגם חריגה ל-`FACE_NOT_FOUND` — גבול ההכלה הוא בדיוק תפקידו של המתאם. נוספו שתי בדיקות (`_ExplodingGestures`) שמקבעות גם את ההכלה וגם שאין הצטברות מצב על כשל חוזר. שווה לשקול לפתוח Issue אצלם.
+
+QA אוטומטי: **412 בדיקות עוברות** (376 קודמות + 25 `test_eyegestures_engine.py` + 5 `test_gaze_predictor.py` + 4 CLI ב-`test_smoke.py`), `ruff check .`, `ruff format --check .`, `mypy` — כולם נקיים, גם כשה-extra מותקן וגם בלעדיו. הספרייה החיצונית מוחלפת בבדיקות בכפיל מוזרק בצורת ה-API שלה; אומת בפועל ע"י חסימת המודול ב-`sys.meta_path` ש-30 הבדיקות של שני הקבצים החדשים עוברות **כשהספרייה בלתי-זמינה לחלוטין**. קוד ה-ignore של mypy הועבר מ-inline ל-`[[tool.mypy.overrides]]` כי הוא תלוי סביבה (`import-not-found` בלי ה-extra מול `import-untyped` איתו). בדיקה אחת תפסה הנחה שגויה שלי לגבי תזמון דגל ה-`calibrate` (הדגל נבחר לפני הקריאה, ולכן הפריים שמשלים את הכיול עדיין מבקש כיול) — התוקנה הציפייה בבדיקה, לא הקוד.
+
+אומת מול הספרייה האמיתית (בלי מצלמה, בלי GUI): בנייה אמיתית של `EyeGestures_v2`, קבלת מפת הכיול שלי, `setClassicalImpact`/`setFixation`, ו-`step()` אמיתי עם פריימים סינתטיים ב-BGR24 וב-RGB24 — כולם עברו, כולל הכלת הקריסה. אומת גם שמסלול ה-not-TRACKED לא נוגע בספרייה בכלל.
+
+**שני חסמים שהתגלו רק בהרצה חיה, ושניהם נפתרו:**
+
+1. **התנגשות MediaPipe (הרסנית ושקטה).** EyeGestures משתמשת ב-API הישן `mp.solutions`, ועצם הייבוא שלו מגדיר **resource root גלובלי** בתהליך שמצביע על חבילת MediaPipe, כדי שהגרפים שלה יפתרו נתיבים יחסיים. מאותו רגע ה-Tasks API — שבו `vision.py` שלנו משתמש — פותר גם נתיבים **מוחלטים** יחסית לשורש הזה ומייצר `site-packages/C:\Users\...\face_landmarker.task`. כל בניית `FaceLandmarker` נכשלה, `vision.py` בלע את החריגה והחזיר `ERROR` — כלומר **בחירת המנוע החיצוני הרגה בשקט את זיהוי הפנים של gazelink** (נמדד: 156/156 פריימים `ERROR`). איפוס ה-root **אינו** פתרון: הוא מתקן אותנו ושובר את הנתיבים היחסיים שלהם, וכישלונם נבלע ב-try/except שלהם — ניסיתי, ובדיקת האימות שלי פירשה בטעות שגיאה מוכלת כהצלחה. הפתרון הנכון הוא בצד שלנו: טעינת המודל מ-bytes, שחסינה לכל resource root. אומת ללא סינון פלט: אפס שגיאות טעינת משאבים מהגרף שלהם, ושני המנועים מעבדים פריימים באותו תהליך.
+
+2. **קיפאון החלון.** Qt חד-חוטי; כשה-slot של הטיימר ארוך מהמרווח, אירועי ציור לא מקבלים זמן והחלון מפסיק להתרענן — נראה תקוע למרות שהקוד רץ. המנוע שלנו לבדו עולה ~32ms מול טיימר ברירת מחדל של 16ms (כבר חריגה פי 2), והוספת ה-FaceMesh שלהם (~15ms) הביאה ל-~47ms. במסלול החיצוני בלבד הטיימר הואט ל-`EXTERNAL_ENGINE_TIMER_INTERVAL_MS = 66` (~15 FPS, ~19ms פנויים לציור). אומת מול מצלמה על ידי המשתמש — הכיול והמעקב עובדים.
+
+**ממצא נלווה שאינו קשור למנוע החיצוני ושווה טיפול נפרד:** מנוע הראייה שלנו אישר רק **18% מהפריימים** (61/333) בהרצה חיה. `display_eligible` דורש **אפס** reason codes, כך שכל מצמוץ או סטיית ראש קלה פוסלים פריים שלם. זה מאט גם את הכיול והוולידציה של gazelink עצמו, לא רק את המנוע החיצוני.
+
+**אומת מול מצלמה חיה על ידי המשתמש**: `--gaze-check --engine eyegestures` עולה, מריץ את הכיול של הספרייה, ועובד. `--guided-calibration` ושאר המסלולים ה-native אומתו ללא רגרסיה (32ms/31FPS לפני ואחרי כל שינוי).
+
+**מלכודת תפעולית שעלתה שלוש פעמים במהלך העבודה ושווה לזכור**: תהליך אחר שמחזיק את המצלמה גורם ל-`CameraError`, והחלון אז **מכבה את הטיימר** ומציג טקסט שגיאה קטן בלבד — מה שנראה זהה לחלוטין ל"החלון תקוע/ריק". הופיע בגלל (א) תהליך `eyegestures_capture.py` תקוע שלא סגר את המצלמה (תוקן שם ב-`finally: cap.close()`), ו-(ב) `tobi/tools/sweep_geometry.py` של המשתמש שרץ במקביל. לפני אבחון של "החלון לא עובד" — לבדוק `Get-Process python` קודם.
+
+נשאר: לא נמדדה עלות CPU/FPS מדויקת של שתי הרצות FaceMesh לאורך זמן; ה-threads-per-frame שלהם נבדקו בסימולציה קצרה בלבד; ולא נמדדה **דיוק** המנוע החיצוני מתוך gazelink (רק דרך הכלי העצמאי, שנתן ~361-392px אחרי סינון זמן-נסיעה מול ~438px חציון של המנוע הקיים).
 
 M3 — Control: העיניים מחליפות את העכבר
 

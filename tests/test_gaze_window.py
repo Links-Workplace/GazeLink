@@ -80,7 +80,7 @@ def test_real_qt_panel_centers_and_dispatches_drag_events(monkeypatch: object) -
     )
     window = _GazeCheckWindow(
         _Runtime(),  # type: ignore[arg-type]
-        SimpleNamespace(screen_geometry=ScreenGeometry("primary", 1920, 1080, 1.0)),  # type: ignore[arg-type]
+        SimpleNamespace(screen_geometry=ScreenGeometry("primary", 1920, 1080, 1.0)),
         diagnostic,  # type: ignore[arg-type]
         object(),  # type: ignore[arg-type]
         interval_ms=60_000,
