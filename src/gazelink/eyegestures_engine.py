@@ -19,10 +19,21 @@ Two safety properties this adapter exists to enforce:
    perfectly legitimate-looking coordinate for a point that means "I have no
    idea".  This adapter refuses to emit any sample until its own calibration
    sequence has completed, so that value can never reach a consumer.
-2. GAZELINK's confidence and tracking policy stays authoritative.  When our
-   own observation is not ``TRACKED`` the adapter rejects the frame and never
-   calls into the library at all, so blink and loss handling remain ours in
-   both engines.
+2. GAZELINK's confidence and tracking policy stays authoritative over what is
+   EMITTED.  The frame itself is always handed to the library -- ``step()`` is
+   called unconditionally, because the library runs its own calibration from
+   the frames it sees and starving it hangs the calibration screen.  Feeding a
+   frame is not an output; the gate sits on the ``GazeSample``.
+
+   (An earlier version of this docstring claimed the adapter "never calls into
+   the library at all" when untracked.  That was never true of the code.)
+
+   A measurement run may opt out with ``require_tracked_observation=False``,
+   so the library's own accuracy can be measured without our vision policy
+   silently removing most of its output.  Opting out does not discard the
+   verdict: the gate's decision is recorded per sample via
+   ``gate_would_accept`` and travels in the sample's reason codes.  The
+   default is ``True``, so every other caller is unaffected.
 3. EyeGestures 3.2.4 *raises* on a frame with no detectable face rather than
    returning empty output (see ``predict``).  That is the normal state before
    the user sits down, so the adapter contains it and reports a lost frame.
@@ -58,6 +69,11 @@ DEFAULT_CALIBRATION_SEED = 20260903
 DEFAULT_CLASSICAL_IMPACT = 2
 DEFAULT_FIXATION = 1.0
 DEFAULT_CONTEXT = "gazelink"
+# Qt is single-threaded and this engine adds a second face mesh per frame on top
+# of ours. At the native 16ms interval the paint events never get a slot and the
+# window looks hung. Lives here rather than in a window module so a measurement
+# screen can use it without importing smoothing and correction it must not have.
+EXTERNAL_ENGINE_TIMER_INTERVAL_MS = 66
 
 _SUPPORTED_PIXEL_FORMATS = (PixelFormat.RGB24, PixelFormat.BGR24)
 
@@ -96,10 +112,40 @@ class EyeGesturesCalibrationView:
     acceptance_radius_px: float
     completed_points: int
     total_points: int
+    # The library's target in ITS OWN pixels, exactly as `Cevent.point` gave
+    # it. The library fits Ridge against this value, so drawing the glyph
+    # anywhere else silently teaches it a wrong label. Normalizing and then
+    # re-expanding would also cross the library's `n * W` convention with our
+    # `n * (W - 1)` one, which is a second, smaller disagreement.
+    target_pixel: tuple[float, float] | None = None
 
     @property
     def progress_text(self) -> str:
         return f"{self.completed_points}/{self.total_points}"
+
+
+def calibration_grid_points() -> tuple[GazePoint, ...]:
+    """The normalized grid EyeGestures calibrates on, as points.
+
+    Same source as :func:`build_calibration_map`, so a held-out test set can be
+    generated against the grid the library ACTUALLY trains on rather than a
+    hand-copied duplicate that could drift out of step with it.
+    """
+
+    return tuple(GazePoint(float(x), float(y)) for x, y in build_calibration_map())
+
+
+def gate_would_accept(observation: VisionObservation | None) -> bool:
+    """Would our own confidence/tracking policy have accepted this frame?
+
+    One definition, used by both the adapter (to stamp a sample's reason
+    codes) and by a measurement run (to record the gate's verdict per sample
+    without letting it filter anything).  Keeping it here rather than
+    re-deriving the condition at each call site is what stops the two from
+    drifting apart and quietly disagreeing about what "accepted" meant.
+    """
+
+    return observation is not None and observation.tracking_state is TrackingState.TRACKED
 
 
 def build_calibration_map(
@@ -118,6 +164,13 @@ def build_calibration_map(
     points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
     np.random.default_rng(seed).shuffle(points)
     return points
+
+
+# Every point of the grid we upload, so a measurement run walks the whole thing.
+# Derived from the grid rather than written out: a count that can disagree with
+# the grid is a count that eventually will. The previous default of 26 left ten
+# uploaded points never visited, and nothing in the code said so.
+FULL_CALIBRATION_POINTS = len(build_calibration_map())
 
 
 def frame_to_rgb_array(frame: FramePacket) -> npt.NDArray[np.uint8] | None:
@@ -195,6 +248,7 @@ class EyeGesturesGazePredictor:
         context: str = DEFAULT_CONTEXT,
         calibration_points: int = DEFAULT_CALIBRATION_POINTS,
         calibration_seed: int = DEFAULT_CALIBRATION_SEED,
+        require_tracked_observation: bool = True,
     ) -> None:
         if not isinstance(screen_geometry, ScreenGeometry):
             raise ContractValidationError("screen_geometry must be a ScreenGeometry")
@@ -209,8 +263,15 @@ class EyeGesturesGazePredictor:
         self._completed_points = 0
         self._previous_target: tuple[float, float] | None = None
         self._current_target: GazePoint | None = None
+        self._current_target_pixel: tuple[float, float] | None = None
         self._acceptance_radius_px = 0.0
         self._closed = False
+        # Default True keeps our confidence gate in force for every existing
+        # caller.  Only a measurement run opts out, and even then the gate's
+        # verdict is preserved per sample by `gate_would_accept` rather than
+        # discarded -- suppression becomes a label, not a silent filter.
+        self._require_tracked_observation = bool(require_tracked_observation)
+        self._calibration_frozen = False
 
         if gestures is None:
             gestures = _load_eyegestures_class()(calibration_radius=1000)
@@ -245,6 +306,7 @@ class EyeGesturesGazePredictor:
             acceptance_radius_px=self._acceptance_radius_px,
             completed_points=min(self._completed_points, self._required_points),
             total_points=self._required_points,
+            target_pixel=self._current_target_pixel if active else None,
         )
 
     def predict(
@@ -279,7 +341,7 @@ class EyeGesturesGazePredictor:
         if rgb is None:
             return GazeEstimationResult(None, (ReasonCode.ERROR,))
 
-        calibrating = not self.is_calibrated
+        calibrating = not self.is_calibrated and not self._calibration_frozen
         try:
             gaze_event, calibration_event = self._gestures.step(
                 rgb,
@@ -314,16 +376,101 @@ class EyeGesturesGazePredictor:
         if not self.is_calibrated:
             return GazeEstimationResult(None, (ReasonCode.CALIBRATION_INVALID,))
 
-        # OUR confidence and tracking policy has the final say on emitting a
-        # point, so blink and tracking-loss handling stay ours in both engines.
-        if observation is None:
-            return GazeEstimationResult(None, (ReasonCode.LOW_CONFIDENCE,))
-        if observation.tracking_state is not TrackingState.TRACKED:
-            return GazeEstimationResult(
-                None, observation.reason_codes or (ReasonCode.LOW_CONFIDENCE,)
-            )
+        # OUR confidence and tracking policy normally has the final say on
+        # emitting a point, so blink and tracking-loss handling stay ours in
+        # both engines.  A measurement run may opt out (see the class
+        # docstring): what the library predicted is then still emitted, and
+        # the gate's verdict travels with the sample instead of erasing it.
+        if self._require_tracked_observation:
+            if observation is None:
+                return GazeEstimationResult(None, (ReasonCode.LOW_CONFIDENCE,))
+            if observation.tracking_state is not TrackingState.TRACKED:
+                return GazeEstimationResult(
+                    None, observation.reason_codes or (ReasonCode.LOW_CONFIDENCE,)
+                )
 
         return self._sample_from(gaze_event, frame, observation, now_monotonic_ms)
+
+    @property
+    def is_frozen(self) -> bool:
+        return self._calibration_frozen
+
+    def freeze_calibration(self) -> None:
+        """Stop the library learning, permanently, for this predictor.
+
+        EyeGestures keeps training during ordinary use: while ``step()`` is
+        given ``calibration=True`` it adds a sample and refits Ridge on EVERY
+        frame.  ``calibration_radius`` is not a lever -- the radius test is
+        ``or``-ed with ``filled_points < 200``, and ``filled_points`` is capped
+        at 20, so that second condition is always true and the radius never
+        matters.  Passing ``calibration=False`` is the only real switch: it
+        skips ``add()``, skips ``movePoint()``, and leaves only ``post_fit()``,
+        which is a no-op in this version.
+
+        Freezing is irreversible on purpose.  A measurement that could quietly
+        resume training half way through would produce a number nobody can
+        interpret afterwards.
+        """
+
+        self._calibration_frozen = True
+
+    def calibration_fingerprint(self) -> tuple[float, ...] | None:
+        """A snapshot of the library's fitted model, or ``None`` if unreadable.
+
+        Compared before and after a measurement, this is DIRECT evidence about
+        whether learning actually stopped -- unlike a fixed wait, which proves
+        nothing.  ``Calibrator.add`` starts a fresh thread per sample and there
+        is no public join, so a fit launched just before the freeze can still
+        land afterwards and change these coefficients.
+
+        Reaches into the library's internals deliberately, and read-only.  If a
+        future version renames them this returns ``None``, which a caller must
+        report as "freeze not verified" rather than as "freeze confirmed".
+        """
+
+        calibrator = self._calibrator()
+        if calibrator is None:
+            return None
+        values: list[float] = []
+        for axis in ("reg_x", "reg_y"):
+            model = getattr(calibrator, axis, None)
+            if model is None:
+                return None
+            for attribute in ("coef_", "intercept_"):
+                raw = getattr(model, attribute, None)
+                if raw is None:
+                    return None
+                try:
+                    values.extend(float(item) for item in np.atleast_1d(raw).ravel())
+                except (TypeError, ValueError):
+                    return None
+        return tuple(values)
+
+    def pending_fit_threads(self) -> int | None:
+        """How many of the library's training threads are still running.
+
+        ``None`` means the question could not be answered, which is not the
+        same as zero and must never be reported as one.
+        """
+
+        calibrator = self._calibrator()
+        if calibrator is None:
+            return None
+        coroutines = getattr(calibrator, "fit_coroutines", None)
+        if not isinstance(coroutines, list):
+            return None
+        try:
+            return sum(1 for thread in coroutines if thread.is_alive())
+        except AttributeError:
+            return None
+
+    def _calibrator(self) -> Any | None:
+        """The library's per-context calibrator, if it exposes one."""
+
+        calibrators = getattr(self._gestures, "clb", None)
+        if not isinstance(calibrators, dict):
+            return None
+        return calibrators.get(self._context)
 
     def close(self) -> None:
         """EyeGestures exposes no release hook; make the adapter inert."""
@@ -353,6 +500,7 @@ class EyeGesturesGazePredictor:
         if isinstance(radius, (int, float)) and not isinstance(radius, bool):
             self._acceptance_radius_px = float(radius)
 
+        self._current_target_pixel = target
         self._current_target = GazePoint(
             target[0] / max(1, self._geometry.width_px),
             target[1] / max(1, self._geometry.height_px),
@@ -369,7 +517,7 @@ class EyeGesturesGazePredictor:
         self,
         gaze_event: Any,
         frame: FramePacket,
-        observation: VisionObservation,
+        observation: VisionObservation | None,
         now_monotonic_ms: float,
     ) -> GazeEstimationResult:
         point = getattr(gaze_event, "point", None)
@@ -389,7 +537,19 @@ class EyeGesturesGazePredictor:
         )
         reasons: list[ReasonCode] = []
         if not 0.0 <= raw.x <= 1.0 or not 0.0 <= raw.y <= 1.0:
+            # A prediction off the edge of the screen is a real prediction and
+            # must stay measurable.  These codes describe `screen_position`,
+            # which IS clamped for drawing; `raw_normalized` below is not.
             reasons.extend((ReasonCode.OUT_OF_RANGE, ReasonCode.CLAMPED_TO_SCREEN))
+        if not gate_would_accept(observation):
+            # Only reachable with the gate opted out. Record why our policy
+            # would have refused this frame, so a consumer can reproduce that
+            # decision instead of having the sample silently withheld.
+            reasons.extend(
+                observation.reason_codes
+                if observation is not None
+                else (ReasonCode.FACE_NOT_FOUND,)
+            )
 
         sample = GazeSample(
             source_frame_id=frame.frame_id,
@@ -404,10 +564,12 @@ class EyeGesturesGazePredictor:
             screen_id=self._geometry.screen_id,
             # Their gaze event exposes no calibrated confidence, so the honest
             # value is the one our own vision stage measured for this frame.
-            confidence=observation.overall_confidence,
+            # With no observation at all there is no measured confidence, and
+            # 0.0 says exactly that rather than inventing one.
+            confidence=0.0 if observation is None else observation.overall_confidence,
             # M2 authorizes no engine for control, and an unvalidated external
             # engine least of all.
             valid_for_control=False,
-            reason_codes=tuple(reasons),
+            reason_codes=tuple(dict.fromkeys(reasons)),
         )
-        return GazeEstimationResult(sample, tuple(reasons))
+        return GazeEstimationResult(sample, tuple(dict.fromkeys(reasons)))

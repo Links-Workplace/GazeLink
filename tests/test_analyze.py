@@ -642,3 +642,37 @@ def test_main_rejects_missing_required_args_without_predictions(tmp_path: Path) 
     with pytest.raises(SystemExit) as excinfo:
         analyze.main(["--note", "nothing given"])
     assert excinfo.value.code == 2
+
+
+# --- the unit every "px" in the report means --------------------------------
+
+
+def test_units_note_names_logical_pixels_and_the_device_conversion() -> None:
+    """ "px" was ambiguous: the panel is 5120x1440, the numbers are 4096x1152."""
+
+    note = analyze.units_note(ScreenGeometry("ultrawide", 4096, 1152, 1.25))
+
+    assert "logical" in note
+    assert "5120x1440" in note
+    assert "1.25" in note
+
+
+def test_units_note_still_says_logical_when_there_is_no_scaling() -> None:
+    note = analyze.units_note(ScreenGeometry("plain", 1920, 1080, 1.0))
+
+    assert "logical" in note
+
+
+def test_labelling_the_unit_did_not_change_any_number() -> None:
+    """The decision was to label, not convert. Conversion would invalidate
+    every historical row and the fixed 120px threshold for no measurement gain.
+    """
+
+    geometry = ScreenGeometry("ultrawide", 4096, 1152, 1.25)
+    predicted = GazePoint(0.6, 0.5)
+    target = GazePoint(0.5, 0.5)
+
+    dx, _dy, _euclid = analyze._pixel_error(predicted, target, geometry)
+
+    # 0.1 of (4096 - 1), unscaled by dpi_scale.
+    assert dx == pytest.approx(0.1 * 4095)

@@ -20,11 +20,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gazelink.domain import ContractValidationError, GazePoint
+from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
 from gazelink.gaze_engine import CalibrationModel, GazeEstimationResult
+from gazelink.screen_mapping import centered_top_left
 
 PREDICTION_MARKER_COLOR = "#FF4081"
 PREDICTION_MARKER_GLYPH = "✕"  # magenta X, distinct from every target dot
+# A prediction outside the screen is drawn at the nearest edge, because there is
+# nowhere else to draw it -- but it must not look like a prediction that landed
+# there. A separate colour plus a readout of the true value keeps the drawing
+# honest without touching the value that gets measured, which stays unclamped.
+PREDICTION_OFFSCREEN_COLOR = "#FF6E40"
+# Fixed box + centred text, for the same reason the target uses one: a label
+# sized by font metrics does not have its ink centred in its box.
+PREDICTION_MARKER_PX = 88
 
 
 def load_overlay_model(path: Path) -> CalibrationModel:
@@ -95,10 +104,16 @@ class PredictionOverlay:  # pragma: no cover - requires Qt
     prediction can never leave the previous frame's marker on screen.
     """
 
-    def __init__(self, parent: Any) -> None:
+    def __init__(self, parent: Any, geometry: ScreenGeometry | None = None) -> None:
+        from PySide6.QtCore import Qt  # noqa: PLC0415
         from PySide6.QtGui import QFont  # noqa: PLC0415
         from PySide6.QtWidgets import QLabel  # noqa: PLC0415
 
+        # With a geometry, the marker is centred on the pixel the prediction is
+        # SCORED at, using the one shared mapping. Without one (the calibration
+        # screen, which measures nothing) the original inset placement is kept
+        # so that caller is untouched by this change.
+        self._geometry = geometry
         self._mark = QLabel(PREDICTION_MARKER_GLYPH, parent)
         font = QFont()
         font.setPointSize(40)
@@ -106,7 +121,11 @@ class PredictionOverlay:  # pragma: no cover - requires Qt
         self._mark.setFont(font)
         self._mark.setStyleSheet(f"color: {PREDICTION_MARKER_COLOR}; background: transparent;")
         self._mark.setAccessibleName("Live gaze prediction")
-        self._mark.adjustSize()
+        if geometry is None:
+            self._mark.adjustSize()
+        else:
+            self._mark.setFixedSize(PREDICTION_MARKER_PX, PREDICTION_MARKER_PX)
+            self._mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._mark.hide()
         self._reason = QLabel(parent)
         self._reason.setStyleSheet(
@@ -117,6 +136,22 @@ class PredictionOverlay:  # pragma: no cover - requires Qt
         self._reason.setAccessibleName("Live gaze prediction status")
         self._reason.hide()
 
+    def hide_with_reason(self, reason: str) -> None:
+        """Hide the marker and show why, in the caller's own words.
+
+        ``update(None)`` reports "no tracking this frame", which is the wrong
+        explanation during an external engine's calibration: tracking is
+        working, the engine is simply refusing to answer yet. A wrong reason on
+        screen is worse than none, because it sends the reader to debug the
+        camera.
+        """
+
+        self._mark.hide()
+        self._reason.setText(reason)
+        self._reason.adjustSize()
+        self._reason.show()
+        self._reason.raise_()
+
     def update(self, result: GazeEstimationResult | None) -> None:
         state = compute_prediction_overlay_state(result)
         if not state.visible:
@@ -126,13 +161,33 @@ class PredictionOverlay:  # pragma: no cover - requires Qt
             self._reason.show()
             self._reason.raise_()
             return
-        self._reason.hide()
         assert state.point is not None
-        parent = self._mark.parentWidget()
-        width = 0 if parent is None else parent.width()
-        height = 0 if parent is None else parent.height()
-        x = round(min(1.0, max(0.0, state.point.x)) * max(0, width - self._mark.width()))
-        y = round(min(1.0, max(0.0, state.point.y)) * max(0, height - self._mark.height()))
+        off_screen = not (0.0 <= state.point.x <= 1.0 and 0.0 <= state.point.y <= 1.0)
+        colour = PREDICTION_OFFSCREEN_COLOR if off_screen else PREDICTION_MARKER_COLOR
+        self._mark.setStyleSheet(f"color: {colour}; background: transparent;")
+        if off_screen:
+            self._reason.setText(
+                f"prediction is OFF SCREEN at ({state.point.x:.3f}, {state.point.y:.3f}) — "
+                "marker pinned to the edge; the measured value is NOT clamped"
+            )
+            self._reason.adjustSize()
+            self._reason.show()
+            self._reason.raise_()
+        else:
+            self._reason.hide()
+        if self._geometry is None:
+            parent = self._mark.parentWidget()
+            width = 0 if parent is None else parent.width()
+            height = 0 if parent is None else parent.height()
+            x = round(min(1.0, max(0.0, state.point.x)) * max(0, width - self._mark.width()))
+            y = round(min(1.0, max(0.0, state.point.y)) * max(0, height - self._mark.height()))
+        else:
+            x, y = centered_top_left(
+                state.point,
+                self._geometry,
+                glyph_width_px=self._mark.width(),
+                glyph_height_px=self._mark.height(),
+            )
         self._mark.move(x, y)
         self._mark.show()
         self._mark.raise_()

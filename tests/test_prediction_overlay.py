@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from gazelink.domain import ContractValidationError, GazePoint, GazeSample, PixelPoint, ReasonCode
@@ -90,3 +92,32 @@ def test_consecutive_ticks_never_hold_a_prior_points_visibility() -> None:
     second = compute_prediction_overlay_state(None)
     assert first.visible and first.point is not None
     assert not second.visible and second.point is None
+
+
+# --- an off-screen prediction must not look like an edge prediction ---------
+
+
+def test_an_off_screen_prediction_is_still_shown_with_its_true_value() -> None:
+    """It has to be drawn somewhere, but not as if it landed at the edge.
+
+    The recorded value stays unclamped; this is only about the reader being
+    able to tell the difference on screen.
+    """
+
+    state = compute_prediction_overlay_state(_accepted(GazePoint(1.4, -0.3)))
+
+    assert state.visible is True
+    # The state carries the RAW value; clamping happens only when placing it.
+    assert (state.point.x, state.point.y) == (1.4, -0.3)  # type: ignore[union-attr]
+
+
+def test_the_drawn_point_is_the_raw_prediction_not_a_filtered_one() -> None:
+    """What is displayed must be what is measured, or the run proves nothing."""
+
+    accepted = _accepted(GazePoint(0.25, 0.75))
+    assert accepted.sample is not None
+    filtered = replace(accepted.sample, filtered_normalized=GazePoint(0.9, 0.9))
+
+    state = compute_prediction_overlay_state(GazeEstimationResult(filtered, ()))
+
+    assert state.point == GazePoint(0.25, 0.75)

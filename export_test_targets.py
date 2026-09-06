@@ -29,7 +29,7 @@ from pathlib import Path
 
 from analyze import SCREEN_HEIGHT_PX, SCREEN_WIDTH_PX
 
-from gazelink.domain import ScreenGeometry
+from gazelink.domain import GazePoint, ScreenGeometry
 from gazelink.test_points import DEFAULT_TEST_SEED, TEST_POINT_COUNT, generate_test_targets
 
 
@@ -61,6 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="must match the seed used for our own --gaze-test run to be comparable",
     )
     parser.add_argument("--count", type=int, default=TEST_POINT_COUNT)
+    parser.add_argument(
+        "--avoid-grid",
+        nargs="+",
+        metavar="X,Y",
+        default=None,
+        help=(
+            "normalized points the test targets must stay clear of, replacing "
+            "the default of GAZELINK's own 9 calibration targets. Pass the "
+            "EXTERNAL engine's calibration grid here when scoring one, or the "
+            "targets are not held out from what it was trained on"
+        ),
+    )
     return parser
 
 
@@ -72,7 +84,18 @@ def main(argv: list[str] | None = None) -> int:
         height_px=args.height_px,
         dpi_scale=args.dpi_scale,
     )
-    targets = generate_test_targets(geometry, seed=args.seed, count=args.count)
+    # "Held out" is only meaningful relative to a specific calibration grid.
+    # The default avoids GAZELINK's own 9 points, which is right when GAZELINK's
+    # model is what is being scored. An external engine calibrates on its own
+    # layout, and against that layout the default set is not held out at all.
+    avoid_points = None
+    if args.avoid_grid:
+        avoid_points = [
+            GazePoint(float(x), float(y)) for x, y in (pair.split(",") for pair in args.avoid_grid)
+        ]
+    targets = generate_test_targets(
+        geometry, seed=args.seed, count=args.count, avoid_points=avoid_points
+    )
     payload = {
         "screen_geometry": geometry.to_dict(),
         "targets": [

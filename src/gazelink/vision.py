@@ -205,6 +205,31 @@ def map_face_landmarker_result(result: object, frame: FramePacket) -> VisionObse
 _AXIS_EPSILON = 1e-6
 
 
+class NoOpVisionEngine:
+    """A vision stage that runs no model at all.
+
+    On the external-engine measurement path the same camera frame is currently
+    processed twice: once by EyeGestures to produce the gaze point, and once by
+    us to produce tracking state, confidence and head pose. Only the first is
+    needed for the measurement; the second is diagnostic.
+
+    Swapping this in removes our half so the cost of running it can be measured
+    rather than assumed. It is not free: with no vision stage there is no head
+    pose, so a run using it cannot say whether an error followed head movement.
+    That is the trade the two configurations exist to quantify, which is why
+    both are kept rather than one being chosen in advance.
+
+    Every observation it returns is explicitly LOST with a reason code, so no
+    consumer can mistake "we did not look" for "we looked and saw nothing".
+    """
+
+    def observe(self, frame: FramePacket) -> VisionObservation:
+        return _lost_observation(frame, ReasonCode.ERROR)
+
+    def close(self) -> None:
+        return None
+
+
 def head_pose_from_transformation_matrix(matrix: object) -> HeadPose | None:
     """Convert a 4x4 facial transform to pitch/yaw/roll degrees.
 

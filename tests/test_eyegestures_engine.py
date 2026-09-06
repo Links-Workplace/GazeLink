@@ -28,6 +28,7 @@ from gazelink.eyegestures_engine import (
     EyeGesturesGazePredictor,
     build_calibration_map,
     frame_to_rgb_array,
+    gate_would_accept,
 )
 from gazelink.gaze_engine import normalized_to_pixel
 
@@ -555,3 +556,246 @@ def test_calibration_points_must_be_a_positive_integer() -> None:
         EyeGesturesGazePredictor(
             screen_geometry=_GEOMETRY, gestures=_FakeGestures(), calibration_points=0
         )
+
+
+# --- opting out of our gate, for measurement only ---------------------------
+
+
+def _calibrated_pair(**kwargs: Any) -> tuple[_FakeGestures, EyeGesturesGazePredictor]:
+    """A calibrated predictor plus its double, scripted to emit one point."""
+
+    gestures = _FakeGestures(
+        [
+            (None, _FakeCalibrationEvent((10.0, 10.0))),
+            (None, _FakeCalibrationEvent((20.0, 20.0))),
+            (_FakeGazeEvent((500.0, 250.0)), _FakeCalibrationEvent((20.0, 20.0))),
+        ]
+    )
+    predictor = EyeGesturesGazePredictor(
+        screen_geometry=_GEOMETRY, gestures=gestures, calibration_points=1, **kwargs
+    )
+    _drive_calibration(gestures, predictor)
+    assert predictor.is_calibrated
+    return gestures, predictor
+
+
+def test_the_gate_is_on_by_default() -> None:
+    """Every existing caller must keep the gate; opting out is deliberate only."""
+
+    _, predictor = _calibrated_pair()
+
+    result = predictor.predict(
+        frame=_frame(),
+        observation=_observation(
+            state=TrackingState.LOW_CONFIDENCE, reason_codes=(ReasonCode.LOW_CONFIDENCE,)
+        ),
+        now_monotonic_ms=1_000.0,
+    )
+
+    assert result.sample is None
+
+
+def test_opting_out_emits_the_prediction_and_keeps_the_gate_verdict() -> None:
+    """Measurement needs the library's real output, not our filtered view of it.
+
+    Suppressing the sample would remove the very frames a measurement exists to
+    characterise, so the verdict is preserved as reason codes on an emitted
+    sample instead of erasing the sample.
+    """
+
+    _, predictor = _calibrated_pair(require_tracked_observation=False)
+    observation = _observation(
+        state=TrackingState.LOW_CONFIDENCE, reason_codes=(ReasonCode.LOW_CONFIDENCE,)
+    )
+
+    result = predictor.predict(frame=_frame(), observation=observation, now_monotonic_ms=1_000.0)
+
+    assert result.sample is not None
+    assert result.sample.raw_normalized == GazePoint(0.5, 0.25)
+    assert ReasonCode.LOW_CONFIDENCE in result.sample.reason_codes
+    assert result.sample.valid_for_control is False
+    assert not gate_would_accept(observation)
+
+
+def test_opting_out_survives_a_missing_observation_without_inventing_confidence() -> None:
+    _, predictor = _calibrated_pair(require_tracked_observation=False)
+
+    result = predictor.predict(frame=_frame(), observation=None, now_monotonic_ms=1_000.0)
+
+    assert result.sample is not None
+    assert result.sample.confidence == 0.0
+    assert ReasonCode.FACE_NOT_FOUND in result.sample.reason_codes
+
+
+def test_opting_out_does_not_relax_the_calibration_guard() -> None:
+    """The [0, 0] trap is a different safety property and must survive the opt-out."""
+
+    gestures = _FakeGestures([(_FakeGazeEvent((0.0, 0.0)), _FakeCalibrationEvent((10.0, 10.0)))])
+    predictor = EyeGesturesGazePredictor(
+        screen_geometry=_GEOMETRY,
+        gestures=gestures,
+        calibration_points=5,
+        require_tracked_observation=False,
+    )
+
+    result = predictor.predict(frame=_frame(), observation=_observation(), now_monotonic_ms=1_000.0)
+
+    assert result.sample is None
+    assert ReasonCode.CALIBRATION_INVALID in result.reason_codes
+
+
+def test_an_off_screen_prediction_is_emitted_unclamped() -> None:
+    """Clamping a wild prediction to the edge would shrink its measured error.
+
+    ``screen_position`` is clamped because it is for drawing; ``raw_normalized``
+    is what gets scored and must keep the value the library actually produced.
+    """
+
+    gestures = _FakeGestures(
+        [
+            (None, _FakeCalibrationEvent((10.0, 10.0))),
+            (None, _FakeCalibrationEvent((20.0, 20.0))),
+            (_FakeGazeEvent((1400.0, -300.0)), _FakeCalibrationEvent((20.0, 20.0))),
+        ]
+    )
+    predictor = EyeGesturesGazePredictor(
+        screen_geometry=_GEOMETRY, gestures=gestures, calibration_points=1
+    )
+    _drive_calibration(gestures, predictor)
+
+    result = predictor.predict(frame=_frame(), observation=_observation(), now_monotonic_ms=1_000.0)
+
+    assert result.sample is not None
+    assert result.sample.raw_normalized == GazePoint(1.4, -0.3)
+    assert ReasonCode.OUT_OF_RANGE in result.sample.reason_codes
+    # The drawn position is clamped; the scored one is not.
+    assert result.sample.screen_position == normalized_to_pixel(GazePoint(1.4, -0.3), _GEOMETRY)
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        (TrackingState.TRACKED, True),
+        (TrackingState.LOW_CONFIDENCE, False),
+        (TrackingState.LOST, False),
+        (TrackingState.MULTIPLE_FACES, False),
+    ],
+)
+def test_gate_would_accept_has_one_definition(state: TrackingState, expected: bool) -> None:
+    assert gate_would_accept(_observation(state=state)) is expected
+
+
+def test_gate_would_accept_rejects_a_missing_observation() -> None:
+    assert gate_would_accept(None) is False
+
+
+# --- freezing the library's continuous learning ------------------------------
+
+
+class _FakeRidge:
+    def __init__(self, coef: list[float], intercept: float) -> None:
+        self.coef_ = np.array(coef)
+        self.intercept_ = intercept
+
+
+class _FakeCalibrator:
+    """Only the three attributes the freeze verification reads."""
+
+    def __init__(self, *, live_threads: int = 0) -> None:
+        self.reg_x = _FakeRidge([1.0, 2.0], 0.5)
+        self.reg_y = _FakeRidge([3.0, 4.0], 1.5)
+        self.fit_coroutines = [_FakeThread(alive=index < live_threads) for index in range(3)]
+
+
+class _FakeThread:
+    def __init__(self, *, alive: bool) -> None:
+        self._alive = alive
+
+    def is_alive(self) -> bool:
+        return self._alive
+
+
+def test_freezing_stops_the_library_being_told_to_calibrate() -> None:
+    """The `calibration` argument is the only real switch (radius is not).
+
+    While it is True the library adds a sample and refits on every frame, so a
+    measurement taken without freezing is measuring a model that is still
+    changing underneath it.
+    """
+
+    gestures = _FakeGestures([(None, _FakeCalibrationEvent((10.0, 10.0)))] * 4)
+    predictor = EyeGesturesGazePredictor(
+        screen_geometry=_GEOMETRY, gestures=gestures, calibration_points=99
+    )
+
+    predictor.predict(frame=_frame(), observation=_observation(), now_monotonic_ms=1.0)
+    assert gestures.calibration_flags[-1] is True
+
+    predictor.freeze_calibration()
+    predictor.predict(frame=_frame(), observation=_observation(), now_monotonic_ms=2.0)
+
+    assert gestures.calibration_flags[-1] is False
+    assert predictor.is_frozen is True
+
+
+def test_freezing_is_irreversible() -> None:
+    """Resuming training mid-measurement would make the number uninterpretable."""
+
+    gestures = _FakeGestures([(None, _FakeCalibrationEvent((10.0, 10.0)))] * 4)
+    predictor = EyeGesturesGazePredictor(
+        screen_geometry=_GEOMETRY, gestures=gestures, calibration_points=99
+    )
+    predictor.freeze_calibration()
+
+    for step in range(3):
+        predictor.predict(frame=_frame(), observation=_observation(), now_monotonic_ms=float(step))
+
+    assert all(flag is False for flag in gestures.calibration_flags)
+
+
+def test_the_model_fingerprint_reflects_the_libraries_fitted_coefficients() -> None:
+    gestures = _FakeGestures()
+    gestures.clb = {"gazelink": _FakeCalibrator()}  # type: ignore[attr-defined]
+    predictor = EyeGesturesGazePredictor(screen_geometry=_GEOMETRY, gestures=gestures)
+
+    assert predictor.calibration_fingerprint() == (1.0, 2.0, 0.5, 3.0, 4.0, 1.5)
+
+
+def test_a_changed_fingerprint_is_how_late_training_is_detected() -> None:
+    """A fit launched before the freeze can still land after it.
+
+    There is no public join, so the honest check is to compare the model before
+    and after and refuse to report accuracy if it moved.
+    """
+
+    gestures = _FakeGestures()
+    calibrator = _FakeCalibrator()
+    gestures.clb = {"gazelink": calibrator}  # type: ignore[attr-defined]
+    predictor = EyeGesturesGazePredictor(screen_geometry=_GEOMETRY, gestures=gestures)
+    before = predictor.calibration_fingerprint()
+
+    calibrator.reg_x.intercept_ = 0.6  # a late thread landing
+
+    assert predictor.calibration_fingerprint() != before
+
+
+@pytest.mark.parametrize(("live", "expected"), [(0, 0), (1, 1), (3, 3)])
+def test_pending_fit_threads_counts_only_live_ones(live: int, expected: int) -> None:
+    gestures = _FakeGestures()
+    gestures.clb = {"gazelink": _FakeCalibrator(live_threads=live)}  # type: ignore[attr-defined]
+    predictor = EyeGesturesGazePredictor(screen_geometry=_GEOMETRY, gestures=gestures)
+
+    assert predictor.pending_fit_threads() == expected
+
+
+def test_unreadable_internals_report_none_rather_than_a_confident_zero() -> None:
+    """`None` means "could not verify" and must never be read as "verified".
+
+    If a future EyeGestures renames these attributes, the run has to say the
+    freeze was unverified instead of silently claiming it held.
+    """
+
+    predictor = EyeGesturesGazePredictor(screen_geometry=_GEOMETRY, gestures=_FakeGestures())
+
+    assert predictor.calibration_fingerprint() is None
+    assert predictor.pending_fit_threads() is None

@@ -14,6 +14,7 @@ from gazelink.correction_diagnostic import (
 )
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
 from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
+from gazelink.eyegestures_engine import EXTERNAL_ENGINE_TIMER_INTERVAL_MS
 from gazelink.gaze_correction import CorrectionStore
 from gazelink.gaze_engine import (
     CalibrationStore,
@@ -30,6 +31,7 @@ from gazelink.gaze_predictor import (
     NativeGazePredictor,
 )
 from gazelink.runtime import VisionRuntime
+from gazelink.screen_mapping import centered_top_left
 
 _WINDOW_TITLE = "GAZELINK — M2 raw gaze check"
 _INFO_PANEL_WIDTH = 1200
@@ -41,7 +43,6 @@ _INFO_PANEL_HEIGHT = 174
 # against the default 16 ms interval, which already overruns; adding an
 # external engine's own face mesh (~15 ms) pushes it to ~47 ms and the window
 # visibly stops updating. Give that path an interval with real slack instead.
-EXTERNAL_ENGINE_TIMER_INTERVAL_MS = 66
 
 
 def clamp_panel_position(
@@ -86,7 +87,9 @@ def format_gaze_status(
     )
 
 
-def run_gaze_check(*, camera_index: int = 0, engine: str = NATIVE_ENGINE) -> int:
+def run_gaze_check(
+    *, camera_index: int = 0, engine: str = NATIVE_ENGINE, smoothing: bool = True
+) -> int:
     """Display live vetted predictions from the selected engine.
 
     ``engine="native"`` is the unchanged path: load this project's latest
@@ -94,6 +97,12 @@ def run_gaze_check(*, camera_index: int = 0, engine: str = NATIVE_ENGINE) -> int
     diagnostics available.  ``engine="eyegestures"`` instead routes prediction
     through the external library, which owns its own calibration and has no
     model of ours -- so the correction diagnostic is not offered there.
+
+    ``smoothing=False`` removes the One-Euro stability filter from the display
+    path. Smoothing hides exactly the behaviour a measurement is trying to
+    characterise -- jitter and lag -- so it must be possible to see the engine
+    without it. It changes only what this screen draws; nothing is recorded
+    here either way.
     """
 
     if engine not in ENGINE_CHOICES:
@@ -170,6 +179,7 @@ def run_gaze_check(*, camera_index: int = 0, engine: str = NATIVE_ENGINE) -> int
         predictor,
         diagnostic,
         correction_store,
+        smoothing_enabled=smoothing,
         interval_ms=(
             EXTERNAL_ENGINE_TIMER_INTERVAL_MS
             if engine == EYEGESTURES_ENGINE
@@ -193,6 +203,7 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         correction_store: CorrectionStore | None,
         *,
         interval_ms: int = DEFAULT_TIMER_INTERVAL_MS,
+        smoothing_enabled: bool = True,
     ) -> None:
         from PySide6.QtCore import Qt, QTimer  # noqa: PLC0415
         from PySide6.QtGui import QFont  # noqa: PLC0415
@@ -209,7 +220,10 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         )
         self._closed = False
         self._last_now_ms: float | None = None
-        self._stability = GazeStabilityFilter()
+        # None means "draw what the engine produced". The filter is not merely
+        # bypassed downstream -- it is never constructed, so no retained state
+        # can leak into the drawn point.
+        self._stability = GazeStabilityFilter() if smoothing_enabled else None
         self._jitter = RollingJitterMonitor(predictor.screen_geometry)
         self._correction_map_visible = False
         self._widget = QWidget()
@@ -448,7 +462,8 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
             self._shutdown()
             raise
         if tick is None or tick.accepted_observation is None:
-            self._stability.reset()
+            if self._stability is not None:
+                self._stability.reset()
             self._jitter.reset()
             self._raw_dot.hide()
             self._corrected_dot.hide()
@@ -487,7 +502,11 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
                 if self._diagnostic is None
                 else self._diagnostic.engine.apply_to_sample(result.sample)
             )
-            filtered_point = self._stability.update(corrected.corrected_normalized, now_ms)
+            filtered_point = (
+                corrected.corrected_normalized
+                if self._stability is None
+                else self._stability.update(corrected.corrected_normalized, now_ms)
+            )
             filtered = replace(
                 corrected,
                 filtered_normalized=filtered_point,
@@ -539,8 +558,18 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         self._render_diagnostic(self._diagnostic.view())
 
     def _place(self, dot: Any, normalized_x: float, normalized_y: float) -> None:
-        x = round(min(1.0, max(0.0, normalized_x)) * max(0, self._widget.width() - dot.width()))
-        y = round(min(1.0, max(0.0, normalized_y)) * max(0, self._widget.height() - dot.height()))
+        """Centre ``dot`` on the scored pixel for this normalized point.
+
+        Shared with the measured screen so a dot never lands somewhere the
+        error metric would not agree with. See ``screen_mapping``.
+        """
+
+        x, y = centered_top_left(
+            GazePoint(normalized_x, normalized_y),
+            self._predictor.screen_geometry,
+            glyph_width_px=dot.width(),
+            glyph_height_px=dot.height(),
+        )
         dot.move(x, y)
         dot.show()
         dot.raise_()

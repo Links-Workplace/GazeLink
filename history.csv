@@ -6,3 +6,12 @@ timestamp,note,model_id,calib_median,test_median,test_median_interp,test_median_
 2026-09-03T09:43:27.085361+00:00,"eyegestures v2 held-out, 10 points",predictions:predictions,,508.7,518.3,394.2,,TEST_7,N/A
 2026-09-03T10:20:34.700577+00:00,"tobii nexus, 1200x337.5mm, camera below screen",predictions:predictions,,1004.5,980.9,1204.7,,TEST_1,N/A
 2026-09-03T11:55:10.574860+00:00,"tobii nexus, held-out seed 771155, affine correction fitted on seed 20260903",predictions:predictions_validate,,101.8,101.8,,,TEST_6,N/A
+2026-09-06T07:48:21.674256+00:00,"eyegestures 3.2.4, 36-point calibration, freeze verified",predictions:predictions_eyegestures_2188715020,,434.0,430.1,517.1,,TEST_5,N/A
+2026-09-06T07:48:28.202328+00:00,"same run, filtered by our confidence gate",predictions:predictions_eyegestures_2188715020_gated,,441.9,431.7,517.1,,TEST_6,N/A
+2026-09-06T08:58:17.446274+00:00,"run 2: transit separated, rate + head pose recorded, free head movement",predictions:predictions_eyegestures_2192945397,,310.1,285.8,1130.3,,TEST_1,N/A
+2026-09-06T09:02:26.133479+00:00,"run 3: --no-own-vision, free head movement",predictions:predictions_eyegestures_2193198965,,816.0,828.0,703.4,,TEST_3,DIAGNOSTIC
+2026-09-06T09:09:22.909167+00:00,"run 4: freeze check corrected, free head movement",predictions:predictions_eyegestures_2193609626,,856.2,799.8,1148.3,,TEST_5,N/A
+2026-09-06T09:14:36.012604+00:00,"run 5: third valid run, free head movement",predictions:predictions_eyegestures_2193934994,,336.1,299.9,1098.3,,TEST_1,N/A
+2026-09-06T10:34:48.045512+00:00,"gazefollower 1.0.2, 7M model, 9-point cal, camera 30cm below screen",predictions:predictions_gf_run1,,388.5,353.9,499.3,,TEST_0,N/A
+2026-09-06T10:35:05.802985+00:00,"gazefollower 1.0.2, 7M model, 9-point cal, camera 30cm below screen",predictions:predictions_gf_run1,,388.5,353.9,499.3,,TEST_0,N/A
+2026-09-06T10:58:10.230840+00:00,"gazefollower run2, fresh calibration, same camera position",predictions:predictions_gf_run2,,381.1,355.6,529.6,,TEST_1,N/A

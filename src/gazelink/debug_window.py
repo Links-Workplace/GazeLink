@@ -22,7 +22,11 @@ from gazelink.config import ConfidenceThresholds
 from gazelink.errors import ErrorCode, UserFacingError, user_facing_error
 from gazelink.overlay import CircleCommand, OverlayCommand, RectangleCommand, TextCommand
 from gazelink.runtime import RuntimeTick, VisionRuntime
-from gazelink.vision import DEFAULT_FACE_LANDMARKER_MODEL, FaceLandmarkerAdapter
+from gazelink.vision import (
+    DEFAULT_FACE_LANDMARKER_MODEL,
+    FaceLandmarkerAdapter,
+    NoOpVisionEngine,
+)
 
 DEFAULT_TIMER_INTERVAL_MS = 16
 MIN_DIAGNOSTICS_PRINT_INTERVAL_S = 1.0
@@ -33,12 +37,23 @@ def build_runtime(
     *,
     camera_index: int = 0,
     confidence_settings: ConfidencePolicySettings | None = None,
+    own_vision: bool = True,
 ) -> VisionRuntime:
-    """Assemble the real capture/vision/policy stack for a live session."""
+    """Assemble the real capture/vision/policy stack for a live session.
+
+    ``own_vision=False`` swaps our face-landmark stage for a no-op. Only a
+    measurement of an external engine should do that, and only deliberately:
+    it removes the second per-frame model so the cost of running it can be
+    measured, at the price of losing head pose and our confidence signal.
+    """
 
     return VisionRuntime(
         source=OpenCVCameraSource(camera_index),
-        engine=FaceLandmarkerAdapter(model_path=DEFAULT_FACE_LANDMARKER_MODEL),
+        engine=(
+            FaceLandmarkerAdapter(model_path=DEFAULT_FACE_LANDMARKER_MODEL)
+            if own_vision
+            else NoOpVisionEngine()
+        ),
         recovery_settings=TrackingRecoverySettings(
             confidence=confidence_settings
             or ConfidencePolicySettings(thresholds=ConfidenceThresholds())

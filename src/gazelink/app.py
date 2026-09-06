@@ -103,6 +103,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="camera index for live debug, calibration, or gaze-check modes (default: 0)",
     )
     parser.add_argument(
+        "--no-own-vision",
+        action="store_true",
+        help=(
+            "for --gaze-test --engine eyegestures only: skip GAZELINK's own "
+            "face-landmark stage, so the camera frame is processed once instead "
+            "of twice. Removes the cost of the second model, and with it head "
+            "pose and our confidence signal -- run both ways to measure the trade"
+        ),
+    )
+    parser.add_argument(
+        "--no-smoothing",
+        action="store_true",
+        help=(
+            "disable the One-Euro stability filter on --gaze-check, so the "
+            "engine's own output is shown unsmoothed. Smoothing hides jitter "
+            "and lag, which is exactly what a measurement needs to see"
+        ),
+    )
+    parser.add_argument(
         "--engine",
         choices=ENGINE_CHOICES,
         default=NATIVE_ENGINE,
@@ -110,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
             "which gaze engine produces the screen point (default: native). "
             "'eyegestures' routes prediction through the optional external "
             "EyeGestures library instead of this project's model; it runs its own "
-            "calibration, is currently supported only with --gaze-check, and needs "
+            "calibration, is supported with --gaze-check and --gaze-test, and needs "
             'the optional extra: pip install -e ".[eyegestures]". EyeGestures is '
             "GPL-3.0 licensed -- see TASKS.md before distributing"
         ),
@@ -129,33 +148,61 @@ def run(*, smoke: bool = False) -> BootstrapStatus:
     return BootstrapStatus(mode=mode)
 
 
+# The one ordering that both the engine guard and the dispatch read from.
+# They used to be written out twice, in DIFFERENT orders: the guard tested only
+# ``not args.gaze_check`` while dispatch checked --guided-calibration first, so
+# ``--gaze-check --guided-calibration --engine eyegestures`` passed the guard
+# and then silently ran calibration on the NATIVE engine -- exactly the outcome
+# the guard exists to prevent. One tuple cannot disagree with itself.
+_SCREEN_ORDER: tuple[str, ...] = (
+    "guided_calibration",
+    "gaze_test",
+    "gaze_feature_check",
+    "gaze_check",
+    "gaze_validation",
+    "debug_overlay",
+)
+# Screens that actually honour --engine. Both drive a predictor directly, so
+# the flag reaching them changes what runs; adding a screen here before it can
+# honour the flag would make the CLI promise something the code cannot do.
+_ENGINE_AWARE_SCREENS = frozenset({"gaze_check", "gaze_test"})
+
+
+def selected_screen(args: argparse.Namespace) -> str | None:
+    """Which live screen this invocation will actually open, or ``None``.
+
+    Pure and argument-only so the guard can ask the same question the dispatch
+    will answer, without opening a camera to find out.
+    """
+
+    return next((name for name in _SCREEN_ORDER if getattr(args, name, False)), None)
+
+
 def cli(argv: Sequence[str] | None = None) -> int:
     """CLI entry point; a camera opens only for an explicit live-mode flag."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    # An alternative engine is only wired into --gaze-check so far. Fail loudly
-    # rather than silently running the native engine under an --engine flag the
-    # user believed had taken effect.
-    if args.engine != NATIVE_ENGINE and not args.gaze_check:
-        parser.error(f"--engine {args.engine} is currently supported only with --gaze-check")
-    if (
-        args.debug_overlay
-        or args.guided_calibration
-        or args.gaze_check
-        or args.gaze_validation
-        or args.gaze_feature_check
-        or args.gaze_test
-    ):
+    screen = selected_screen(args)
+    # Fail loudly rather than silently running the native engine under an
+    # --engine flag the user believed had taken effect. The error names the
+    # screen that actually won, not the flag the user may have expected.
+    if args.engine != NATIVE_ENGINE and screen not in _ENGINE_AWARE_SCREENS:
+        parser.error(
+            f"--engine {args.engine} is supported only with --gaze-check or "
+            f"--gaze-test; this invocation would open "
+            f"{'no live screen' if screen is None else '--' + screen.replace('_', '-')}"
+        )
+    if screen is not None:
         if args.camera_index < 0:
             raise SystemExit("--camera-index must be non-negative")
-        if args.guided_calibration:
+        if screen == "guided_calibration":
             from gazelink.calibration_window import run_guided_calibration
 
             return run_guided_calibration(
                 camera_index=args.camera_index, overlay_model_path=args.overlay_model
             )
-        if args.gaze_test:
+        if screen == "gaze_test":
             from gazelink.test_window import run_gaze_test
 
             return run_gaze_test(
@@ -163,16 +210,22 @@ def cli(argv: Sequence[str] | None = None) -> int:
                 overlay_model_path=args.overlay_model,
                 seed=args.test_seed,
                 point_count=args.test_points,
+                engine=args.engine,
+                own_vision=not args.no_own_vision,
             )
-        if args.gaze_feature_check:
+        if screen == "gaze_feature_check":
             from gazelink.feature_check_window import run_gaze_feature_check
 
             return run_gaze_feature_check(camera_index=args.camera_index)
-        if args.gaze_check:
+        if screen == "gaze_check":
             from gazelink.gaze_window import run_gaze_check
 
-            return run_gaze_check(camera_index=args.camera_index, engine=args.engine)
-        if args.gaze_validation:
+            return run_gaze_check(
+                camera_index=args.camera_index,
+                engine=args.engine,
+                smoothing=not args.no_smoothing,
+            )
+        if screen == "gaze_validation":
             from gazelink.validation_window import run_gaze_validation
 
             return run_gaze_validation(camera_index=args.camera_index)

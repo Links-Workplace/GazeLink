@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Sequence
 
 from gazelink.calibration import targets_for_screen_geometry
 from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
@@ -96,12 +97,24 @@ def generate_test_targets(
     ),
     min_distance_from_calibration_px: float = MIN_DISTANCE_FROM_CALIBRATION_PX,
     min_distance_between_points_px: float = MIN_DISTANCE_BETWEEN_TEST_POINTS_PX,
+    avoid_points: Sequence[GazePoint] | None = None,
 ) -> tuple[LiveValidationTarget, ...]:
     """Return ``count`` reproducible held-out targets, or raise.
 
     Uses a private :class:`random.Random` seeded with ``seed`` -- never the
     global ``random`` module -- so the same seed yields byte-identical points
     no matter what else in the process has drawn random numbers.
+
+    ``avoid_points`` is the set these targets must be held out FROM.  It
+    defaults to GAZELINK's own 9 calibration targets, which is correct only
+    while GAZELINK's model is the thing being measured.  An external engine
+    calibrates on its own grid -- EyeGestures uses 36 points -- and against
+    that grid the default set is the wrong one: measured on the fixed seed and
+    a 4096x1152 screen, 4 of the 10 default targets sit within 250px of an
+    EyeGestures calibration point.  Proximity is not proof that a prediction
+    was memorised, but it does mean the run cannot claim to be measuring
+    generalisation, which is the whole purpose of a held-out set.  Pass that
+    engine's grid (union with ours, if both matter) so the claim holds.
 
     Raises :class:`ContractValidationError` if it cannot place ``count``
     points under the separation constraints.  It deliberately does NOT return
@@ -126,10 +139,15 @@ def generate_test_targets(
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0.0:
             raise ContractValidationError(f"{name} must be a non-negative number")
 
-    calibration = tuple(
-        GazePoint(target.screen_position.x, target.screen_position.y)
-        for target in targets_for_screen_geometry(geometry)
-    )
+    if avoid_points is None:
+        calibration = tuple(
+            GazePoint(target.screen_position.x, target.screen_position.y)
+            for target in targets_for_screen_geometry(geometry)
+        )
+    else:
+        calibration = tuple(avoid_points)
+        if any(not isinstance(point, GazePoint) for point in calibration):
+            raise ContractValidationError("avoid_points must contain GazePoint values")
     generator = random.Random(seed)
     chosen: list[GazePoint] = []
     for _attempt in range(MAX_PLACEMENT_ATTEMPTS):
@@ -153,7 +171,13 @@ def generate_test_targets(
     if len(chosen) != count:
         raise ContractValidationError(
             f"could only place {len(chosen)} of {count} test points in "
-            f"{MAX_PLACEMENT_ATTEMPTS} attempts; widen the working area or lower "
-            f"the separation thresholds -- do not silently measure fewer points"
+            f"{MAX_PLACEMENT_ATTEMPTS} attempts, keeping "
+            f"{min_distance_from_calibration_px:.0f}px from {len(calibration)} calibration "
+            f"points and {min_distance_between_points_px:.0f}px from each other on a "
+            f"{geometry.width_px}x{geometry.height_px} screen. There may genuinely be no "
+            f"room: a dense calibration grid can cover the whole working area at this "
+            f"separation. Widen the area, lower the thresholds, or use a coarser grid -- "
+            f"but do not silently measure fewer points, which would look identical in "
+            f"the output while being a weaker measurement."
         )
     return tuple(LiveValidationTarget(f"TEST_{index}", point) for index, point in enumerate(chosen))

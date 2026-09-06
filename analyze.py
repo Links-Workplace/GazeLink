@@ -40,10 +40,12 @@ import argparse
 import csv
 import json
 import math
-from dataclasses import dataclass, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import median
+from typing import Any
 
 from gazelink.calibration import CalibrationSample, CalibrationSessionResult
 from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
@@ -110,6 +112,9 @@ class PredictionSample:
     predicted: GazePoint
     timestamp: float
     accepted: bool
+    collection_phase: str | None = None
+    fps: float | None = None
+    head_pose: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +122,40 @@ class PredictionResult:
     targets: tuple[LiveValidationTarget, ...]
     screen_geometry: ScreenGeometry
     samples: tuple[PredictionSample, ...]
+    # Optional, so files written before these existed still load unchanged.
+    run: Mapping[str, Any] = field(default_factory=dict)
+    timings: tuple[Mapping[str, Any], ...] = ()
+
+    @property
+    def freeze_claimed(self) -> bool:
+        """Does this file come from an engine that had to stop learning?
+
+        Only engines that keep training during use need a freeze. A file with
+        no such claim -- an external tracker scored offline, say -- is not
+        suspect merely for lacking a field that never applied to it, and
+        marking it diagnostic would retroactively invalidate every comparison
+        already recorded.
+        """
+
+        return "freeze_verified" in self.run
+
+    @property
+    def freeze_verified(self) -> bool:
+        """Did the run PROVE the engine stopped learning before measuring?"""
+
+        return self.run.get("freeze_verified") is True
+
+    @property
+    def report_as_verified(self) -> bool:
+        """May these numbers be presented as a real accuracy result?
+
+        Yes when no freeze was ever required, or when one was required and was
+        proven. A run that needed a freeze and could not confirm it is
+        diagnostic -- the writer always records the field, so omitting it is
+        not a way to escape this.
+        """
+
+        return self.freeze_verified if self.freeze_claimed else True
 
     @classmethod
     def from_dict(cls, value: object) -> PredictionResult:
@@ -150,9 +189,141 @@ class PredictionResult:
                     predicted=GazePoint(entry["predicted_x"], entry["predicted_y"]),
                     timestamp=float(entry["timestamp"]),
                     accepted=bool(entry["accepted"]),
+                    collection_phase=_optional_str(entry.get("collection_phase")),
+                    fps=_optional_float(entry.get("fps")),
+                    head_pose=_pose_from_entry(entry),
                 )
             )
-        return cls(targets=targets, screen_geometry=screen_geometry, samples=tuple(samples))
+        run = value.get("run")
+        timings = value.get("timings")
+        return cls(
+            targets=targets,
+            screen_geometry=screen_geometry,
+            samples=tuple(samples),
+            run=run if isinstance(run, dict) else {},
+            timings=tuple(entry for entry in (timings or ()) if isinstance(entry, dict)),
+        )
+
+
+# The controller displays a target, the eyes travel to it, and only then does
+# it start collecting. Rows from the travelling part answer "how fast did the
+# gaze arrive"; rows from the resting part answer "how accurately did it rest".
+# Averaging both gives a number that answers neither question, so accuracy is
+# scored on the resting window and transit is reported beside it.
+RESTING_PHASE = "COLLECTING"
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _pose_from_entry(entry: Mapping[str, Any]) -> tuple[float, float, float] | None:
+    values = [
+        _optional_float(entry.get("head_yaw_deg")),
+        _optional_float(entry.get("head_pitch_deg")),
+        _optional_float(entry.get("head_roll_deg")),
+    ]
+    if any(value is None for value in values):
+        return None
+    return (values[0], values[1], values[2])  # type: ignore[return-value]
+
+
+def split_by_collection_phase(
+    result: PredictionResult,
+) -> tuple[PredictionResult, PredictionResult] | None:
+    """Split into (resting, transit), or None when the file does not say.
+
+    A file written before the phase was recorded cannot be split, and guessing
+    would silently change what its number means. Such a file keeps its original
+    all-samples meaning and says so.
+    """
+
+    if not any(sample.collection_phase is not None for sample in result.samples):
+        return None
+    resting = tuple(sample for sample in result.samples if sample.collection_phase == RESTING_PHASE)
+    transit = tuple(sample for sample in result.samples if sample.collection_phase != RESTING_PHASE)
+    return (
+        replace(result, samples=resting),
+        replace(result, samples=transit),
+    )
+
+
+def format_axis_breakdown(file_errors: FileErrors, result: PredictionResult) -> list[str]:
+    """Horizontal and vertical error side by side, plus off-screen counts.
+
+    A single euclidean median hides the case where one axis works and the other
+    does not, which is exactly the failure seen here: horizontal predictions
+    stay on screen while vertical ones leave it entirely. Those are different
+    faults with different causes, and averaging them into one number describes
+    neither.
+
+    Off-screen counts are reported per axis because a prediction outside [0, 1]
+    is not a near miss -- it is the model producing a coordinate that cannot be
+    looked at, and its frequency says more than its magnitude.
+    """
+
+    if not file_errors.errors:
+        return []
+    horizontal = sorted(abs(error.dx_px) for error in file_errors.errors)
+    vertical = sorted(abs(error.dy_px) for error in file_errors.errors)
+    lines = [
+        "  error by axis (a single median hides one axis failing alone)",
+        f"    {'axis':<12} {'median':>9} {'p95':>9}",
+        f"    {'horizontal':<12} {median(horizontal):>8.0f}px "
+        f"{horizontal[min(len(horizontal) - 1, int(0.95 * len(horizontal)))]:>8.0f}px",
+        f"    {'vertical':<12} {median(vertical):>8.0f}px "
+        f"{vertical[min(len(vertical) - 1, int(0.95 * len(vertical)))]:>8.0f}px",
+    ]
+
+    samples = result.samples
+    if samples:
+        off_x = sum(1 for s in samples if not 0.0 <= s.predicted.x <= 1.0)
+        off_y = sum(1 for s in samples if not 0.0 <= s.predicted.y <= 1.0)
+        total = len(samples)
+        lines.append(
+            f"    predictions off screen: horizontal {off_x}/{total}, vertical {off_y}/{total}"
+        )
+        if off_y > total // 4 and off_x <= total // 20:
+            lines.append(
+                "    ONE AXIS IS FAILING ALONE: vertical predictions leave the screen "
+                "while horizontal ones do not."
+            )
+    return lines
+
+
+def format_processing_rate(result: PredictionResult) -> list[str]:
+    """The rate actually achieved, which is what the library's lag depends on.
+
+    EyeGestures averages a fixed number of FRAMES, so the same buffer is a
+    different number of milliseconds at every rate. A nominal timer interval
+    does not establish what the run actually ran at.
+    """
+
+    rates = [sample.fps for sample in result.samples if sample.fps is not None]
+    nominal = result.run.get("timer_interval_ms")
+    lines = ["  processing rate actually achieved"]
+    if not rates:
+        lines.append("    not recorded in this file")
+        return lines
+    ordered = sorted(rates)
+    p05 = ordered[max(0, int(0.05 * len(ordered)) - 1)]
+    lines.append(
+        f"    median {median(ordered):.1f} fps   slowest 5% below {p05:.1f} fps   "
+        f"({len(ordered)} samples)"
+    )
+    if isinstance(nominal, (int, float)) and not isinstance(nominal, bool) and nominal > 0:
+        asked = 1000.0 / float(nominal)
+        lines.append(
+            f"    timer asked for {asked:.1f} fps ({float(nominal):.0f}ms); "
+            f"achieved/asked = {median(ordered) / asked:.2f}"
+        )
+    return lines
 
 
 def load_predictions(path: Path) -> PredictionResult:
@@ -427,6 +598,32 @@ def _fmt_deg(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}deg"
 
 
+def units_note(geometry: ScreenGeometry) -> str:
+    """State the unit once, plainly, instead of leaving "px" ambiguous.
+
+    Every pixel number in this report is a Qt LOGICAL pixel, because that is
+    what ``screen.geometry()`` reports and what widget coordinates use -- so
+    the drawn surface and the scored ruler already share one unit. On a display
+    with devicePixelRatio 1.25 the same distance is 1.25x larger in device
+    pixels, which is worth saying out loud: a reader comparing against a spec
+    quoted in physical pixels would otherwise be off by 25% and never know.
+
+    Converting instead of labelling was considered and rejected: it would
+    invalidate every historical row and the fixed 120px threshold, for no
+    measurement gain, and would introduce a SECOND unit to confuse.
+    """
+
+    scale = geometry.dpi_scale
+    if scale == 1.0:
+        return "All px below are Qt logical pixels (devicePixelRatio 1.00, so also device pixels)."
+    return (
+        f"All px below are Qt logical pixels. This display's devicePixelRatio is "
+        f"{scale:.2f}, so multiply by {scale:.2f} for device pixels "
+        f"({geometry.width_px}x{geometry.height_px} logical = "
+        f"{round(geometry.width_px * scale)}x{round(geometry.height_px * scale)} device)."
+    )
+
+
 # --- Rendering ---------------------------------------------------------
 
 
@@ -441,6 +638,92 @@ def format_point_table(rows: list[PointRow]) -> str:
             f"{row.spread_mad:>13.1f}{row.n:>5}{('yes' if row.extrap else ''):>8}"
         )
     return "\n".join(lines)
+
+
+# Four practical target sizes rather than one vague "accuracy" figure. On a
+# 4096px-wide screen 800px is about a fifth of the width -- a large gaze
+# keyboard tile -- and 100px is a small web control.
+BUTTON_SIZES_PX: tuple[int, ...] = (100, 200, 400, 800)
+
+
+def hit_rate_at_button_sizes(
+    file_errors: FileErrors, sizes: Sequence[int] = BUTTON_SIZES_PX
+) -> list[tuple[int, float, int, int]]:
+    """Share of samples landing inside a square button centred on the target.
+
+    A square box test (``|dx| <= S/2`` AND ``|dy| <= S/2``), not a radius: a
+    button is a rectangle, and a radius test would credit a diagonal miss that
+    falls outside the actual control.
+
+    This replaces any single "accuracy %", which cannot be interpreted without
+    saying what counted as success. Returns ``(size, rate, hits, total)`` so a
+    reader can see the sample count behind each rate.
+    """
+
+    total = len(file_errors.errors)
+    rows: list[tuple[int, float, int, int]] = []
+    for size in sizes:
+        half = size / 2.0
+        hits = sum(
+            1
+            for error in file_errors.errors
+            if abs(error.dx_px) <= half and abs(error.dy_px) <= half
+        )
+        rows.append((size, 0.0 if total == 0 else hits / total, hits, total))
+    return rows
+
+
+def format_button_table(rows: Sequence[tuple[int, float, int, int]]) -> list[str]:
+    lines = [
+        "  hit rate for a square button of side S, centred on the target",
+        "  (logical px; a hit needs |dX| and |dY| both within S/2)",
+        f"  {'side':>6}  {'hit rate':>9}  {'hits':>6} / total",
+    ]
+    for size, rate, hits, total in rows:
+        lines.append(f"  {size:>6}  {rate * 100:>8.1f}%  {hits:>6} / {total}")
+    return lines
+
+
+def format_arrival_times(timings: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Median and p95 time to reach each radius, plus the never-reached share.
+
+    Reported separately from accuracy and never merged into it: settling before
+    measuring is what makes a stationary-accuracy number meaningful, and it is
+    also exactly what would hide a slow response.
+    """
+
+    if not timings:
+        return []
+    per_radius: dict[str, list[float]] = {}
+    never: dict[str, int] = {}
+    for timing in timings:
+        arrivals = timing.get("time_to_target_ms") or {}
+        if not isinstance(arrivals, Mapping):
+            continue
+        for radius, value in arrivals.items():
+            key = str(radius)
+            per_radius.setdefault(key, [])
+            never.setdefault(key, 0)
+            if value is None:
+                never[key] += 1
+            elif isinstance(value, (int, float)):
+                per_radius[key].append(float(value))
+    if not per_radius:
+        return []
+    lines = [
+        "  time to reach the target, measured from when it appeared",
+        f"  {'radius':>7}  {'median':>8}  {'p95':>8}  never reached",
+    ]
+    for key in sorted(per_radius, key=lambda item: float(item)):
+        values = sorted(per_radius[key])
+        misses = never[key]
+        attempts = len(values) + misses
+        if not values:
+            lines.append(f"  {key:>7}  {'n/a':>8}  {'n/a':>8}  {misses}/{attempts}")
+            continue
+        p95 = values[min(len(values) - 1, int(0.95 * len(values)))]
+        lines.append(f"  {key:>7}  {median(values):>7.0f}ms  {p95:>7.0f}ms  {misses}/{attempts}")
+    return lines
 
 
 def _format_file_section(label: str, file_errors: FileErrors) -> list[str]:
@@ -496,6 +779,10 @@ def format_predictions_report(
     predictions: FileErrors,
     source_label: str,
     geometry_warnings: list[str],
+    freeze_verified: bool = True,
+    freeze_detail: str | None = None,
+    timings: Sequence[Mapping[str, Any]] = (),
+    extra_sections: Sequence[Sequence[str]] = (),
 ) -> str:
     """Predictions-mode report: TEST_MEDIAN and the extrap breakdown only.
 
@@ -513,20 +800,57 @@ def format_predictions_report(
         lines.append("")
 
     lines.append(f"PREDICTIONS SOURCE   {source_label}")
+    lines.append(units_note(predictions.geometry))
     lines.append("")
 
+    # An engine that may still have been learning while it was measured has not
+    # been measured. The numbers are kept -- they are useful for diagnosis --
+    # but this report must not let them be read as a verified accuracy result,
+    # and a label in the file that the reader has to notice is not enough.
+    if not freeze_verified:
+        lines.append("=" * 72)
+        lines.append("DIAGNOSTIC ONLY - learning freeze not verified")
+        lines.append("  The engine may still have been training while these samples were")
+        lines.append("  taken, so every number below describes a model that was moving.")
+        if freeze_detail:
+            lines.append(f"  reason: {freeze_detail}")
+        lines.append("  Every value is prefixed with ~ and MUST NOT be quoted as accuracy.")
+        lines.append("=" * 72)
+        lines.append("")
+
+    mark = "" if freeze_verified else "~"
     lines.append("CALIB_MEDIAN   n/a (predictions mode: no calibration file of our own)")
     test_median = overall_median(predictions)
     if test_median is None:
         lines.append("TEST_MEDIAN    n/a (no usable prediction samples)")
     else:
         test_deg = _fmt_deg(px_to_deg(test_median, predictions.geometry))
-        lines.append(f"TEST_MEDIAN    {test_median:.0f} px   ({test_deg})")
+        lines.append(f"TEST_MEDIAN    {mark}{test_median:.0f} px   ({test_deg})")
     lines.append("GAP            n/a (predictions mode: no calibration file of our own)")
     lines.append("")
 
     lines.extend(_format_diagnostic_breakdown(predictions))
     lines.extend(_format_file_section("Predictions file", predictions))
+
+    # Withheld entirely when unverified: a hit rate is the single easiest number
+    # to lift out of a report and quote on its own, so it must not exist in one
+    # that cannot stand behind it.
+    if freeze_verified:
+        lines.extend(format_button_table(hit_rate_at_button_sizes(predictions)))
+    else:
+        lines.append("  button hit-rate table withheld: freeze not verified")
+    lines.append("")
+
+    for section in extra_sections:
+        lines.extend(section)
+        lines.append("")
+
+    arrival_lines = format_arrival_times(timings)
+    if arrival_lines:
+        lines.extend(arrival_lines)
+        lines.append("")
+        lines.append("  reaction time and accuracy are reported separately, never combined.")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -552,6 +876,8 @@ def format_report(
     )
     lines.append("")
 
+    lines.append(units_note(test.geometry))
+    lines.append("")
     if calib_median is None:
         lines.append("CALIB_MEDIAN   n/a (no usable calibration samples)")
     else:
@@ -708,12 +1034,52 @@ def _run_predictions(args: argparse.Namespace) -> int:
             f"pixel math below uses the file's own geometry, not the constants"
         )
 
-    pred_errors = compute_prediction_errors(result, include_rejected=args.include_rejected)
+    # Accuracy is a property of gaze at REST on a target. Samples taken while
+    # the eyes were still travelling to it belong to the reaction-time
+    # question, and mixing them in produces a median that answers neither. The
+    # split is only applied when the file actually recorded which is which.
+    split = split_by_collection_phase(result)
+    scored = result
+    extra_sections: list[list[str]] = []
+    if split is not None:
+        resting, transit = split
+        if resting.samples:
+            scored = resting
+            transit_errors = compute_prediction_errors(
+                transit, include_rejected=args.include_rejected
+            )
+            transit_median = overall_median(transit_errors)
+            extra_sections.append(
+                [
+                    "  measurement window",
+                    f"    scored (gaze at rest on the target) : {len(resting.samples)} samples",
+                    f"    excluded (eyes still travelling)    : {len(transit.samples)} samples"
+                    + (f", median {transit_median:.0f} px" if transit_median is not None else ""),
+                    "    transit samples are not accuracy; see the arrival table below.",
+                ]
+            )
+        else:
+            extra_sections.append(
+                [
+                    "  measurement window: NO samples fell in the resting window.",
+                    "    Every row was recorded while the eyes were still travelling, so the",
+                    "    number below is not a resting-accuracy figure. Treat it as transit.",
+                ]
+            )
+
+    pred_errors = compute_prediction_errors(scored, include_rejected=args.include_rejected)
+    extra_sections.append(format_axis_breakdown(pred_errors, scored))
+    extra_sections.append(format_processing_rate(result))
+    freeze_detail = result.run.get("freeze_detail")
     print(
         format_predictions_report(
             predictions=pred_errors,
             source_label=str(args.predictions),
             geometry_warnings=geometry_warnings,
+            freeze_verified=result.report_as_verified,
+            freeze_detail=freeze_detail if isinstance(freeze_detail, str) else None,
+            timings=result.timings,
+            extra_sections=extra_sections,
         )
     )
 
@@ -733,7 +1099,9 @@ def _run_predictions(args: argparse.Namespace) -> int:
         test_median_extrap=test_extrap,
         gap=None,
         worst_point_label=worst_label,
-        verdict="N/A",
+        # DIAGNOSTIC, not N/A: the row must stay marked for good, so a future
+        # reader scanning history.csv cannot mistake it for a valid result.
+        verdict="N/A" if result.report_as_verified else "DIAGNOSTIC",
     )
     print(f"History appended to: {args.history}")
     return 0
