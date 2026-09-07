@@ -1,0 +1,99 @@
+{
+  "region": {
+    "note": "held-out test targets, central band only",
+    "x_range": [
+      0.3,
+      0.7
+    ]
+  },
+  "screen_geometry": {
+    "dpi_scale": 1.25,
+    "height_px": 1152,
+    "orientation": "LANDSCAPE",
+    "screen_id": "LS49C95xU",
+    "width_px": 4096
+  },
+  "seed": 20260907,
+  "targets": [
+    {
+      "index": 0,
+      "name": "C_0",
+      "screen_position": {
+        "x": 0.46430891516223766,
+        "y": 0.7518597681168476
+      }
+    },
+    {
+      "index": 1,
+      "name": "C_1",
+      "screen_position": {
+        "x": 0.544449338069545,
+        "y": 0.28793607867578214
+      }
+    },
+    {
+      "index": 2,
+      "name": "C_2",
+      "screen_position": {
+        "x": 0.40293805853709563,
+        "y": 0.7766046192233418
+      }
+    },
+    {
+      "index": 3,
+      "name": "C_3",
+      "screen_position": {
+        "x": 0.34996949131725746,
+        "y": 0.2761897390308395
+      }
+    },
+    {
+      "index": 4,
+      "name": "C_4",
+      "screen_position": {
+        "x": 0.6212705787876875,
+        "y": 0.7587881115147123
+      }
+    },
+    {
+      "index": 5,
+      "name": "C_5",
+      "screen_position": {
+        "x": 0.4035303437426909,
+        "y": 0.58087462573021
+      }
+    },
+    {
+      "index": 6,
+      "name": "C_6",
+      "screen_position": {
+        "x": 0.387975201971342,
+        "y": 0.11874173200229997
+      }
+    },
+    {
+      "index": 7,
+      "name": "C_7",
+      "screen_position": {
+        "x": 0.40819534816652836,
+        "y": 0.3722731195393539
+      }
+    },
+    {
+      "index": 8,
+      "name": "C_8",
+      "screen_position": {
+        "x": 0.5461133356510092,
+        "y": 0.7955971288817899
+      }
+    },
+    {
+      "index": 9,
+      "name": "C_9",
+      "screen_position": {
+        "x": 0.5791451119972402,
+        "y": 0.13110139709244745
+      }
+    }
+  ]
+}

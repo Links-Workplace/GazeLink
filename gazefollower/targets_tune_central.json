@@ -1,0 +1,83 @@
+{
+  "region": {
+    "note": "tuning targets, central band; clear of the calibration grid and of targets_central",
+    "x_range": [
+      0.3,
+      0.7
+    ]
+  },
+  "screen_geometry": {
+    "dpi_scale": 1.25,
+    "height_px": 1152,
+    "orientation": "LANDSCAPE",
+    "screen_id": "LS49C95xU",
+    "width_px": 4096
+  },
+  "seed": 20260912,
+  "targets": [
+    {
+      "index": 0,
+      "name": "C_0",
+      "screen_position": {
+        "x": 0.5779776098684412,
+        "y": 0.4891944108596268
+      }
+    },
+    {
+      "index": 1,
+      "name": "C_1",
+      "screen_position": {
+        "x": 0.6431430631630558,
+        "y": 0.3488364326995829
+      }
+    },
+    {
+      "index": 2,
+      "name": "C_2",
+      "screen_position": {
+        "x": 0.3330556058444267,
+        "y": 0.6995928637344057
+      }
+    },
+    {
+      "index": 3,
+      "name": "C_3",
+      "screen_position": {
+        "x": 0.4771239262415292,
+        "y": 0.2614424207703208
+      }
+    },
+    {
+      "index": 4,
+      "name": "C_4",
+      "screen_position": {
+        "x": 0.6377170046653127,
+        "y": 0.5380372842187573
+      }
+    },
+    {
+      "index": 5,
+      "name": "C_5",
+      "screen_position": {
+        "x": 0.6442934273454758,
+        "y": 0.1750232951271085
+      }
+    },
+    {
+      "index": 6,
+      "name": "C_6",
+      "screen_position": {
+        "x": 0.6941822832406503,
+        "y": 0.7321993934868504
+      }
+    },
+    {
+      "index": 7,
+      "name": "C_7",
+      "screen_position": {
+        "x": 0.6922019142396192,
+        "y": 0.2716261887920817
+      }
+    }
+  ]
+}

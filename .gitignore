@@ -36,3 +36,9 @@ tobi/
 .env.*
 !.env.example
 
+
+# GazeFollower experiment recordings: per-frame model embeddings derived from
+# the face and eye crops, plus fitted SVR models whose support vectors ARE
+# those rows. Deleted by gazefollower/gf_purge.py; never committed.
+gazefollower/recordings/
+gazefollower/results/

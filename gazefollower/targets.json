@@ -1,0 +1,91 @@
+{
+  "screen_geometry": {
+    "dpi_scale": 1.25,
+    "height_px": 1152,
+    "orientation": "LANDSCAPE",
+    "screen_id": "LS49C95xU",
+    "width_px": 4096
+  },
+  "targets": [
+    {
+      "index": 0,
+      "name": "TEST_0",
+      "screen_position": {
+        "x": 0.7138729342376308,
+        "y": 0.30702393867789907
+      }
+    },
+    {
+      "index": 1,
+      "name": "TEST_1",
+      "screen_position": {
+        "x": 0.8762901363417741,
+        "y": 0.7454518308957053
+      }
+    },
+    {
+      "index": 2,
+      "name": "TEST_2",
+      "screen_position": {
+        "x": 0.48650903183302985,
+        "y": 0.2859609500566671
+      }
+    },
+    {
+      "index": 3,
+      "name": "TEST_3",
+      "screen_position": {
+        "x": 0.3735172407461666,
+        "y": 0.5040142110915036
+      }
+    },
+    {
+      "index": 4,
+      "name": "TEST_4",
+      "screen_position": {
+        "x": 0.28083930884545316,
+        "y": 0.8824446567212564
+      }
+    },
+    {
+      "index": 5,
+      "name": "TEST_5",
+      "screen_position": {
+        "x": 0.6251854007894747,
+        "y": 0.09557256177190811
+      }
+    },
+    {
+      "index": 6,
+      "name": "TEST_6",
+      "screen_position": {
+        "x": 0.7063969625027242,
+        "y": 0.7388947315687209
+      }
+    },
+    {
+      "index": 7,
+      "name": "TEST_7",
+      "screen_position": {
+        "x": 0.2962110086101166,
+        "y": 0.3748728921774018
+      }
+    },
+    {
+      "index": 8,
+      "name": "TEST_8",
+      "screen_position": {
+        "x": 0.6473088045025992,
+        "y": 0.5856123489691487
+      }
+    },
+    {
+      "index": 9,
+      "name": "TEST_9",
+      "screen_position": {
+        "x": 0.1467988674970873,
+        "y": 0.35131643885670866
+      }
+    }
+  ]
+}
