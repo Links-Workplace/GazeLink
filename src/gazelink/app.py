@@ -218,12 +218,32 @@ def cli(argv: Sequence[str] | None = None) -> int:
 
             return run_gaze_feature_check(camera_index=args.camera_index)
         if screen == "gaze_check":
-            from gazelink.gaze_window import run_gaze_check
+            from gazelink.gaze_window import RECALIBRATE_REQUESTED_EXIT_CODE, run_gaze_check
 
-            return run_gaze_check(
+            # Captures the display the request was made from: after a drag
+            # that is not the primary one, and calibrating the wrong monitor
+            # while reporting success is worse than refusing outright.
+            requested_screen: list[str | None] = []
+            result = run_gaze_check(
                 camera_index=args.camera_index,
                 engine=args.engine,
                 smoothing=not args.no_smoothing,
+                on_recalibration_request=requested_screen.append,
+            )
+            if result != RECALIBRATE_REQUESTED_EXIT_CODE:
+                return result
+            # The display changed and the user asked, by eye gesture, to
+            # calibrate for the screen they are now on. Carrying that out is
+            # the whole point of offering it: returning the code and stopping
+            # would leave a hands-free user with an option that announces a
+            # recalibration and never performs one.
+            from gazelink.calibration_window import run_guided_calibration
+
+            print("Starting calibration for the current display...")
+            return run_guided_calibration(
+                camera_index=args.camera_index,
+                overlay_model_path=args.overlay_model,
+                screen_name=requested_screen[0] if requested_screen else None,
             )
         if screen == "gaze_validation":
             from gazelink.validation_window import run_gaze_validation

@@ -67,13 +67,35 @@ def replay(
     return output, (elapsed_ns / measured / 1e6 if measured else float("nan"))
 
 
+def _presentation_windows(indexes: np.ndarray, target_id: np.ndarray) -> list[np.ndarray]:
+    """Split ``indexes`` into contiguous runs of one target id: one per showing.
+
+    A target id is not a presentation.  ``--repeat-first`` re-shows the first
+    targets at the end of the run keeping their ids, so grouping by id alone
+    pools two visits separated by half a minute into a single "fixation" --
+    which hides exactly the drift those runs were recorded to expose, and
+    inflates the dispersion of every repeated target.  Capture order is
+    monotonic, so each showing is one contiguous run of rows.
+    """
+
+    if indexes.size == 0:
+        return []
+    ids = target_id[indexes]
+    starts = np.flatnonzero(np.r_[True, ids[1:] != ids[:-1]])
+    bounds = [int(v) for v in starts] + [int(indexes.size)]
+    return [indexes[bounds[i] : bounds[i + 1]] for i in range(len(starts))]
+
+
 def jitter_metrics(
     points_norm: np.ndarray,
     rec: S.Recording,
     width: int,
     height: int,
 ) -> dict[str, Any]:
-    """Scatter around each stationary target's own median, without target bias.
+    """Scatter around each presentation's own median, without target bias.
+
+    One fixation is one contiguous showing of a target, not one target id: a
+    repeated target is two fixations, measured separately.
 
     Two summaries are returned, and they are not interchangeable.
 
@@ -97,10 +119,9 @@ def jitter_metrics(
     jumps: list[float] = []
     per_fixation_p95: list[float] = []
     per_fixation_median: list[float] = []
-    targets = np.unique(rec.target_id[collecting])
-    for target_id in targets:
-        valid = np.all(np.isfinite(points_norm), axis=1)
-        indexes = np.flatnonzero(collecting & (rec.target_id == target_id) & valid)
+    valid = np.all(np.isfinite(points_norm), axis=1)
+    for window in _presentation_windows(np.flatnonzero(collecting), rec.target_id):
+        indexes = window[valid[window]]
         if indexes.size < 3:
             continue
         points_px = points_norm[indexes] * scale
@@ -146,23 +167,25 @@ def support_activation(
     rather than a fabricated number.
     """
 
-    if model.config.kind != "svr" or model._svr_x is None:
-        return {"available": False, "reason": "not an SVR; no support vectors"}
-    vectors = model._svr_x.getSupportVectors()
-    gamma = float(model.schema.svr["gamma"])
     index = np.arange(rec.n_rows) if rows is None else np.flatnonzero(rows)
-    design = S.assemble(rec.features[index], None, (), ())
-    scaled = model.schema.features.transform(design.astype(np.float64)).astype(np.float32)
-    activation = np.empty(scaled.shape[0], dtype=np.float64)
-    # Chunked so a long recording does not build an (n x sv x dim) tensor.
-    for start in range(0, scaled.shape[0], 256):
-        block = scaled[start : start + 256]
-        squared = ((block[:, None, :] - vectors[None, :, :]) ** 2).sum(-1)
-        activation[start : start + block.shape[0]] = np.exp(-gamma * squared).max(axis=1)
+    # The design must carry the head columns the model was fitted with, or the
+    # schema check rejects it outright.  Hardcoding "no head columns" made
+    # this function usable only for embedding-only models, which is not a
+    # property the caller can see from the outside.
+    head_names = model.schema.head_names
+    design = S.assemble(
+        rec.features[index],
+        rec.head[index] if head_names else None,
+        head_names,
+        H.HEAD6_NAMES,
+    )
+    activation = model.support_activation(design)
+    if activation is None:
+        return {"available": False, "reason": "not an SVR; no support vectors"}
     return {
         "available": True,
-        "gamma": gamma,
-        "n_support_vectors": int(vectors.shape[0]),
+        "gamma": float(model.schema.svr["gamma"]),
+        "n_support_vectors": int(model._svr_x.getSupportVectors().shape[0]),
         "median_activation": float(np.median(activation)),
         "min_activation": float(activation.min()),
         "fraction_below_0p01": float(np.mean(activation < 0.01)),
@@ -293,27 +316,29 @@ def recorded_transition_ms(
     collect_indexes = np.flatnonzero(collecting)
     if onset_indexes.size and collect_indexes.size:
 
-        def windows_for(indexes: np.ndarray) -> list[np.ndarray]:
-            ids = rec.target_id[indexes]
-            starts = np.flatnonzero(np.r_[True, ids[1:] != ids[:-1]])
-            out = []
-            for position, start in enumerate(starts):
-                stop = starts[position + 1] if position + 1 < starts.size else indexes.size
-                out.append(indexes[start:stop])
-            return out
-
         def median_px(window: np.ndarray) -> np.ndarray | None:
             points = points_norm[window]
             valid = points[np.all(np.isfinite(points), axis=1)]
             return None if valid.size == 0 else np.median(valid * scale, axis=0)
 
-        steady = {int(rec.target_id[w[0]]): median_px(w) for w in windows_for(collect_indexes)}
-        search = {int(rec.target_id[w[0]]): w for w in windows_for(onset_indexes)}
-        ordered = [int(rec.target_id[w[0]]) for w in windows_for(collect_indexes)]
+        # Indexed by presentation, not keyed by target id.  With
+        # --repeat-first a dict keyed by id keeps only the second visit, so
+        # the first transition into that target would be timed against an
+        # anchor recorded half a minute later.
+        collect_windows = _presentation_windows(collect_indexes, rec.target_id)
+        onset_windows = _presentation_windows(onset_indexes, rec.target_id)
+        steady = [median_px(w) for w in collect_windows]
 
-        for previous_id, target_id in zip(ordered, ordered[1:], strict=False):
-            start_px, end_px = steady.get(previous_id), steady.get(target_id)
-            window = search.get(target_id)
+        def onset_window_for(collect_window: np.ndarray) -> np.ndarray | None:
+            first = int(collect_window[0])
+            for candidate in onset_windows:
+                if int(candidate[0]) <= first <= int(candidate[-1]):
+                    return candidate
+            return None
+
+        for position in range(1, len(collect_windows)):
+            start_px, end_px = steady[position - 1], steady[position]
+            window = onset_window_for(collect_windows[position])
             if start_px is None or end_px is None or window is None:
                 continue
             move = end_px - start_px

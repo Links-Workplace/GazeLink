@@ -30,6 +30,15 @@ from gazelink.camera import CameraError
 from gazelink.confidence import ConfidencePolicySettings
 from gazelink.config import ConfidenceThresholds
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
+from gazelink.display_watch import (
+    DisplayGuard,
+    DisplayWatcher,
+    OutputFreeze,
+    describe_screen,
+    ensure_high_dpi_policy,
+    identify_screen,
+    pick_screen,
+)
 from gazelink.domain import ContractValidationError, NormalizedPoint, ScreenGeometry
 from gazelink.gaze_engine import (
     CalibrationEngine,
@@ -252,6 +261,7 @@ def run_guided_calibration(
     camera_index: int = 0,
     target_order: Sequence[int] | None = None,
     overlay_model_path: str | None = None,
+    screen_name: str | None = None,
 ) -> int:
     """Run calibration on the primary display; open camera before Qt on Windows.
 
@@ -278,20 +288,16 @@ def run_guided_calibration(
 
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415
 
+    ensure_high_dpi_policy()
     application = QApplication.instance() or QApplication([])
-    screen = application.primaryScreen()  # type: ignore[attr-defined]
+    screen = pick_screen(application, screen_name)
     if screen is None:
         runtime.close()
         print("No primary display is available for calibration.")
         return 1
-    geometry = screen.geometry()
     camera_id = f"camera-{camera_index}"
-    screen_geometry = ScreenGeometry(
-        screen_id=screen.name() or "primary",
-        width_px=geometry.width(),
-        height_px=geometry.height(),
-        dpi_scale=float(screen.devicePixelRatio()),
-    )
+    screen_geometry = describe_screen(screen)
+    display_guard = DisplayGuard(screen_geometry, expected_identity=identify_screen(screen))
     overlay_estimator: GazeEstimator | None = None
     if overlay_model_path is not None:
         try:
@@ -308,6 +314,8 @@ def run_guided_calibration(
         target_order=target_order,
     )
     window = _CalibrationWindow(
+        display_guard,
+        screen,
         runtime,
         CalibrationUiController(session),
         camera_id=camera_id,
@@ -326,6 +334,8 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
 
     def __init__(
         self,
+        display_guard: DisplayGuard,
+        screen: Any,
         runtime: VisionRuntime,
         controller: CalibrationUiController,
         *,
@@ -344,6 +354,12 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         )
 
         self._runtime = runtime
+        self._display_guard = display_guard
+        # The SAME QScreen the geometry came from. Reading
+        # `self._widget.screen()` in show() instead sized the window by the
+        # default display while every target was positioned for another --
+        # the exact mismatch test_window already documents.
+        self._screen = screen
         self._controller = controller
         self._camera_id = camera_id
         self._screen_geometry = screen_geometry
@@ -352,6 +368,7 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._artifacts_written = False
         self._overlay_estimator = overlay_estimator
         self._widget = QWidget()
+        self._display = DisplayWatcher(display_guard, self._widget.screen, self._on_display_change)
         self._widget.setWindowTitle(_WINDOW_TITLE)
         self._widget.setStyleSheet("background: #101820; color: white;")
         self._widget.setWindowState(Qt.WindowState.WindowFullScreen)
@@ -411,6 +428,14 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._timer.start(DEFAULT_TIMER_INTERVAL_MS)
         self._render(self._controller.view())
 
+        self._freeze = OutputFreeze(
+            self._timer.stop,
+            self._target.hide,
+            lambda: (
+                None if self._prediction_overlay is None else self._prediction_overlay.update(None)
+            ),
+        )
+
     def show(self) -> None:
         """Show visibly even if Windows initially declines a fullscreen request.
 
@@ -424,9 +449,8 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
 
         from PySide6.QtCore import QTimer  # noqa: PLC0415
 
-        screen = self._widget.screen()
-        if screen is not None:
-            self._widget.setGeometry(screen.geometry())
+        if self._screen is not None:
+            self._widget.setGeometry(self._screen.geometry())
         self._widget.show()
         self._widget.raise_()
         self._widget.activateWindow()
@@ -456,6 +480,13 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
             event.ignore()
 
     def _on_tick(self) -> None:
+        # The ruler these measurements are scored against must still exist.
+        # Recording numbers for a screen that has changed is worse than
+        # recording nothing, so this aborts rather than warns.
+        if self._display.poll() is not None:
+            self._freeze_for_display()
+            return
+
         if self._controller.session.state is not CalibrationSessionState.COLLECTING:
             # The session finished (complete, cancelled, or failed): stop
             # driving the camera and MediaPipe pipeline. A live session was
@@ -529,6 +560,16 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._prediction_overlay.update(result)
 
     def _on_retry(self) -> None:
+        if self._freeze.engaged:
+            # Restarting cannot help: the calibration would be collected
+            # against a display this session can no longer describe. Say so
+            # again rather than re-arming a timer that immediately stops.
+            change = self._display.guard.tripped
+            self._feedback.setText(
+                f"{change.message if change is not None else 'The display changed.'} "
+                "Restart GAZELINK to calibrate for this screen."
+            )
+            return
         # `CalibrationSession.retry_current_target()` raises once the session
         # has left COLLECTING (there is no "current target" to retry). The
         # Retry button and its "R" shortcut have no state-based disabling, so
@@ -539,6 +580,16 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
             self._render(self._controller.retry())
 
     def _on_restart(self) -> None:
+        if self._freeze.engaged:
+            # Restarting cannot help: the calibration would be collected
+            # against a display this session can no longer describe. Say so
+            # again rather than re-arming a timer that immediately stops.
+            change = self._display.guard.tripped
+            self._feedback.setText(
+                f"{change.message if change is not None else 'The display changed.'} "
+                "Restart GAZELINK to calibrate for this screen."
+            )
+            return
         # A restart is a new calibration run, not an extension of the
         # completed run. Give it its own log, dataset, calibration identity,
         # and persisted model when it completes.
@@ -630,10 +681,25 @@ class _CalibrationWindow:  # pragma: no cover - requires a display server and li
         self._target.move(x, y)
         self._target.raise_()
 
+    def _on_display_change(self, change: object) -> None:
+        self._feedback.setText(getattr(change, "message", "The display changed."))
+
+    def _freeze_for_display(self) -> None:
+        """Abandon this session: its numbers describe a screen that is gone.
+
+        Unlike the live gaze screen, there is nothing to resume here -- every
+        sample already collected was scored against the old geometry, so the
+        honest outcome is to stop and say so rather than to blend two rulers
+        into one dataset.
+        """
+
+        self._freeze.engage()
+
     def _shutdown(self) -> None:
         if self._closed:
             return
         self._closed = True
+        self._display.detach()
         self._timer.stop()
         self._runtime.close()
         self._write_log()

@@ -230,6 +230,51 @@ class FittedModel:
         out[valid] = self.schema.labels.inverse(Zs)
         return out
 
+    def support_activation(self, X_raw: np.ndarray) -> np.ndarray | None:
+        """Per row: how strongly this model's calibration covers that input.
+
+        An RBF SVR answers with its constant bias once a query sits far from
+        every support vector, so a model used outside the conditions it was
+        calibrated in does not degrade gracefully -- its output stops moving
+        and freezes on a fixed wrong point.  That failure is invisible from
+        the outside: the camera works, the face is found, and the dot simply
+        stops following the eye.
+
+        1.0 means the input sits on a support vector, 0.0 that the prediction
+        carries no calibration information at all.  Measured: healthy sessions
+        run 0.86-0.98, while every recording whose dot had frozen sat at
+        0.000 across every sample.
+
+        Returns None for a model with no kernel to measure (ridge), rather
+        than inventing a number that would read as confidence.
+        """
+
+        if self.config.kind != "svr" or self._svr_x is None:
+            return None
+        X_raw = np.asarray(X_raw, dtype=np.float64)
+        if X_raw.ndim == 1:
+            X_raw = X_raw.reshape(1, -1)
+        self.schema.check_columns(
+            X_raw.shape[1], H.BUILDER_VERSION if self.schema.head_names else None
+        )
+        vectors = self._svr_x.getSupportVectors()
+        if vectors is None or vectors.size == 0:
+            return None
+        gamma = float(self.schema.svr["gamma"])
+        out = np.full(X_raw.shape[0], np.nan)
+        valid = np.all(np.isfinite(X_raw), axis=1)
+        if not np.any(valid):
+            return out
+        scaled = self.schema.features.transform(X_raw[valid]).astype(np.float32)
+        activation = np.empty(scaled.shape[0], dtype=np.float64)
+        # Chunked so a long recording never builds an (n x sv x dim) tensor.
+        for start in range(0, scaled.shape[0], 256):
+            block = scaled[start : start + 256]
+            squared = ((block[:, None, :] - vectors[None, :, :]) ** 2).sum(-1)
+            activation[start : start + block.shape[0]] = np.exp(-gamma * squared).max(axis=1)
+        out[valid] = activation
+        return out
+
     def predict_norm(self, X_raw: np.ndarray, rig: C.RigGeometry) -> np.ndarray:
         cm = self.predict_cm(X_raw)
         out = np.full_like(cm, np.nan)
@@ -1072,6 +1117,49 @@ def goal_status(eye_distance_cm: float | None, camera_pitch_deg: float | None) -
     }
 
 
+def existing_model_dirs(recording_dir: Path) -> list[str]:
+    """Names of the fitted models already saved under this recording."""
+
+    root = Path(recording_dir) / "models"
+    if not root.exists():
+        return []
+    return sorted(p.name for p in root.iterdir() if p.is_dir())
+
+
+def refuse_to_overwrite_models(recording_dir: Path) -> None:
+    """Stop before fitting if this recording already has saved models.
+
+    ``phase0`` writes every swept configuration into
+    ``<recording>/models/<name>``, replacing whatever was there under the same
+    name.  A model directory is not scratch space: it is what a profile points
+    at and what a live session loads, so replacing it in place destroys the
+    thing someone is relying on, and the replacement is not obviously
+    different -- same path, same filenames, same config name, different
+    weights.
+
+    This is not hypothetical.  Refitting round18 with head features to run an
+    experiment silently replaced the baseline every accuracy number that day
+    had been measured against; it was recoverable only because the fit is
+    deterministic and the numbers could be reproduced afterwards to prove the
+    restore was faithful.  Refusing costs one flag; not refusing cost that.
+
+    Raised before any fitting happens, so a refusal never wastes the sweep.
+    """
+
+    existing = existing_model_dirs(recording_dir)
+    if not existing:
+        return
+    more = f", ... ({len(existing)} total)" if len(existing) > 3 else ""
+    shown = ", ".join(existing[:3]) + more
+    raise FileExistsError(
+        f"{Path(recording_dir) / 'models'} already holds fitted models: {shown}. "
+        "Fitting again would replace them in place, and anything pointing at them -- a saved "
+        "profile, a live session -- would silently load different weights from the same path. "
+        "Pass --overwrite-models to replace them on purpose, or --no-save-models to fit and "
+        "score without writing any model."
+    )
+
+
 def run_phase0(
     recording_dir: Path,
     out_dir: Path,
@@ -1081,6 +1169,7 @@ def run_phase0(
     filter_factory: Any = None,
     replay_filter: bool = True,
     save_models: bool = True,
+    overwrite_models: bool = False,
     camera_pitch_deg: float | None = None,
     preset: str | None = None,
     thresholds: SEL.ScreeningThresholds | None = None,
@@ -1088,6 +1177,8 @@ def run_phase0(
 ) -> dict[str, Any]:
     recording_dir = Path(recording_dir)
     out_dir = Path(out_dir)
+    if save_models and not overwrite_models:
+        refuse_to_overwrite_models(recording_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rec_a = S.Recording.load(recording_dir, "A")
     rec_tune = S.Recording.load(recording_dir, "TUNE")
@@ -1510,6 +1601,15 @@ def build_parser() -> argparse.ArgumentParser:
     p0.add_argument("--head", choices=("none", "head3", "head6"), default="none", help="append head columns (default none: arm A)")
     p0.add_argument("--no-filter-replay", action="store_true", help="skip the HeuristicFilter replay (avoids importing gazefollower)")
     p0.add_argument("--no-save-models", action="store_true")
+    p0.add_argument(
+        "--overwrite-models",
+        action="store_true",
+        help=(
+            "replace fitted models already saved under this recording. Without it, fitting a "
+            "recording that already has models is refused before the sweep starts, so a model "
+            "a profile or a live session points at cannot be replaced by accident."
+        ),
+    )
     p0.add_argument("--preset", default=None, help="use this named preset instead of the ranked winner (still screened)")
     p0.add_argument("--no-screening", action="store_true", help="rank on the median alone, as the old selector did (diagnostic)")
     p0.add_argument("--list-presets", action="store_true", help="print the preset registry and exit")
@@ -1531,16 +1631,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(PRE.describe_all())
             return 0
         head = {"none": (), "head3": H.HEAD3_NAMES, "head6": H.HEAD6_NAMES}[args.head]
-        report = run_phase0(
-            args.recording,
-            args.out,
-            head_names=head,
-            replay_filter=not args.no_filter_replay,
-            save_models=not args.no_save_models,
-            camera_pitch_deg=args.camera_pitch_deg,
-            preset=args.preset,
-            screening=not args.no_screening,
-        )
+        try:
+            report = run_phase0(
+                args.recording,
+                args.out,
+                head_names=head,
+                replay_filter=not args.no_filter_replay,
+                save_models=not args.no_save_models,
+                overwrite_models=args.overwrite_models,
+                camera_pitch_deg=args.camera_pitch_deg,
+                preset=args.preset,
+                screening=not args.no_screening,
+            )
+        except FileExistsError as exc:
+            # A refusal is an answer, not a crash: print it as one, so the
+            # operator reads what to do instead of reading a stack trace.
+            print(f"REFUSED: {exc}")
+            return 2
         print((args.out / "phase0_report.md").read_text(encoding="utf-8"))
         sel = report["selection"]
         if sel.get("no_acceptable_calibration"):

@@ -197,6 +197,11 @@ class GestureTimingConfig:
     intentional_hold_min_ms: int = 700
     cooldown_ms: int = 800
     dwell_duration_ms: int = 900
+    # Held longer than this, a close means "confirm" rather than "next".
+    # NOT VALIDATED AGAINST REAL USERS: chosen to sit clear of a natural
+    # blink and of the intentional bar above, and to be reachable without
+    # strain. It must be measured on real video before it is trusted.
+    recovery_confirm_ms: int = 1500
 
     def __post_init__(self) -> None:
         natural = _integer(self.natural_blink_max_ms, "profile.gesture.natural_blink_max_ms")
@@ -205,12 +210,16 @@ class GestureTimingConfig:
         )
         cooldown = _integer(self.cooldown_ms, "profile.gesture.cooldown_ms")
         dwell = _integer(self.dwell_duration_ms, "profile.gesture.dwell_duration_ms")
+        confirm = _integer(self.recovery_confirm_ms, "profile.gesture.recovery_confirm_ms")
         if intentional <= natural:
             raise ConfigurationError("intentional_hold_min_ms must exceed natural_blink_max_ms")
+        if confirm <= intentional:
+            raise ConfigurationError("recovery_confirm_ms must exceed intentional_hold_min_ms")
         object.__setattr__(self, "natural_blink_max_ms", natural)
         object.__setattr__(self, "intentional_hold_min_ms", intentional)
         object.__setattr__(self, "cooldown_ms", cooldown)
         object.__setattr__(self, "dwell_duration_ms", dwell)
+        object.__setattr__(self, "recovery_confirm_ms", confirm)
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -218,6 +227,7 @@ class GestureTimingConfig:
             "intentional_hold_min_ms": self.intentional_hold_min_ms,
             "cooldown_ms": self.cooldown_ms,
             "dwell_duration_ms": self.dwell_duration_ms,
+            "recovery_confirm_ms": self.recovery_confirm_ms,
         }
 
     @classmethod
@@ -228,6 +238,7 @@ class GestureTimingConfig:
             intentional_hold_min_ms=data.get("intentional_hold_min_ms", 700),
             cooldown_ms=data.get("cooldown_ms", 800),
             dwell_duration_ms=data.get("dwell_duration_ms", 900),
+            recovery_confirm_ms=data.get("recovery_confirm_ms", 1500),
         )
 
 

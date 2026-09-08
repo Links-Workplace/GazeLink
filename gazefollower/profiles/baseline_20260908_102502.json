@@ -1,0 +1,49 @@
+{
+  "name": "baseline_20260908_102502",
+  "model_dir": "C:\\Users\\User\\Desktop\\focus\\gazefollower\\recordings\\round4\\models\\svr_fzscore_lnone_C100_g0.0005",
+  "rig": {
+    "camera_x_cm": 60.0,
+    "camera_y_cm": 63.6,
+    "screen_w_cm": 120.0,
+    "screen_h_cm": 33.75,
+    "device_w_px": 5120,
+    "device_h_px": 1440
+  },
+  "filter": {
+    "kind": "one-euro",
+    "reset_gap_ms": 250.0,
+    "ema_cutoff_hz": 2.0,
+    "one_euro_min_cutoff_hz": 0.4,
+    "one_euro_beta_hz_per_px_s": 0.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "kalman_acceleration_noise_px2_s4": 400.0,
+    "kalman_measurement_noise_px2": 900.0
+  },
+  "calibration": {
+    "recording": "C:\\Users\\User\\Desktop\\focus\\gazefollower\\recordings\\round4",
+    "protocol": "A",
+    "round_id": 4,
+    "session": "20260908_132336"
+  },
+  "pose": {
+    "roll_deg": 8.615648184164113,
+    "yaw_ratio": -0.03281106928476955,
+    "pitch_a": -0.21992818671454217,
+    "eye_mid_x": 0.50234375,
+    "eye_mid_y": 0.45625,
+    "iod_norm": 0.15695155004809605
+  },
+  "scores": {
+    "heldout_filtered_px": 230.23722356862137,
+    "heldout_unfiltered_px": 270.10465583188585,
+    "paired_vs_previous_px": 41.177905959110376,
+    "previous_profile": "baseline",
+    "measured_utc": "20260908_102502"
+  },
+  "x_range": [
+    0.3,
+    0.7
+  ],
+  "created_utc": "2026-09-08T10:25:02+00:00",
+  "version": "profile-1"
+}

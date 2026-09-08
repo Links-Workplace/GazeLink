@@ -1,0 +1,63 @@
+{
+  "name": "baseline",
+  "model_dir": "recordings\\round18\\models\\svr_fzscore_lnone_C100_g0.0005",
+  "rig": {
+    "camera_x_cm": 60.0,
+    "camera_y_cm": 63.6,
+    "screen_w_cm": 120.0,
+    "screen_h_cm": 33.75,
+    "device_w_px": 5120,
+    "device_h_px": 1440
+  },
+  "filter": {
+    "kind": "one-euro",
+    "reset_gap_ms": 250.0,
+    "ema_cutoff_hz": 2.0,
+    "one_euro_min_cutoff_hz": 0.4,
+    "one_euro_beta_hz_per_px_s": 0.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "kalman_acceleration_noise_px2_s4": 400.0,
+    "kalman_measurement_noise_px2": 900.0
+  },
+  "screen": {
+    "screen_id": "LS49C95xU",
+    "connector": "\\\\.\\DISPLAY1",
+    "width_px": 5120,
+    "height_px": 1440,
+    "width_mm": 1192.0,
+    "height_mm": 336.0
+  },
+  "cursor": {
+    "smoothing": 0.6,
+    "dead_zone_px": 6,
+    "max_step_px": 400,
+    "chosen_by": "operator, live, 8.9.2026: 0.35/12 felt jumpy, 0.6/6 felt right"
+  },
+  "calibration": {
+    "recording": "C:\\Users\\User\\Desktop\\focus\\gazefollower\\recordings\\round18",
+    "protocol": "A",
+    "round_id": 18,
+    "session": "20260908_092305"
+  },
+  "pose": {
+    "roll_deg": 6.4698199851731735,
+    "yaw_ratio": -0.01706838259352165,
+    "pitch_a": -0.1886195995785037,
+    "eye_mid_x": 0.47578125,
+    "eye_mid_y": 0.49166666666666664,
+    "iod_norm": 0.15236578366303244
+  },
+  "scores": {
+    "tune_median_px": 136.9,
+    "heldout_t1_unfiltered_px": 175.3,
+    "heldout_t1_filtered_px": 167.3,
+    "measured_utc": "2026-09-08",
+    "note": "same model measured 171.7/152.4 on round19 and 186.1/194.1 on round28/T1"
+  },
+  "x_range": [
+    0.3,
+    0.7
+  ],
+  "created_utc": "2026-09-08T09:48:21+00:00",
+  "version": "profile-1"
+}

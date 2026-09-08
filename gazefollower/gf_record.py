@@ -32,6 +32,8 @@ Safety and privacy: no OS input of any kind; no frames, images or landmarks
 are written -- only derived scalars and the model's feature vector, under
 ``recordings/`` (gitignored). ``Esc`` aborts; partial recordings are saved
 with ``aborted=true`` so nothing is silently lost or silently reused.
+``--no-save`` runs the same protocols and overlay but writes nothing at all,
+for showing the model to someone without spending a round number on it.
 
 ``gazefollower`` is imported only inside the functions that need it (its
 import initialises native components), so the protocol logic here is unit
@@ -44,6 +46,7 @@ import argparse
 import datetime as _dt
 import json
 import math
+import random
 import statistics
 import sys
 import threading
@@ -67,6 +70,11 @@ import gf_schema as S  # noqa: E402
 PACKAGE_DIR = Path(__file__).resolve().parent
 RECORDINGS_DIR = PACKAGE_DIR / "recordings"
 
+# A --no-save run writes nothing, so it spends no round number and the
+# operator has none to invent. The id below only labels in-memory metadata; it
+# is negative so a demo can never be mistaken for round 0 wherever it surfaces.
+DEMO_ROUND_ID = -1
+
 WATCHDOG_S = 5.0  # no frame for this long -> abort the run
 # A subscriber that keeps throwing produces frames that advance the watchdog
 # while no row is ever stored, so counting errors is not enough: after this
@@ -81,6 +89,17 @@ MAX_CONSECUTIVE_ERRORS = 10
 # is not a run, so it stops loudly instead. Blinks and brief look-aways are
 # far shorter than this; at ~32 fps it is about ten seconds.
 MAX_CONSECUTIVE_INVALID_FRAMES = 320
+# A calibrated model only answers meaningfully for inputs near the conditions
+# it was trained on. Outside them the SVR returns its constant bias, so the
+# overlay point stops following the eye and freezes -- with the camera, the
+# face detector and every other check still reporting success. That failure
+# cost a full afternoon of recordings before it was identified, so the model
+# is now checked against live frames before a protocol is spent on it.
+# Measured: healthy sessions sit at 0.86-0.98 median activation, and every
+# session whose point had frozen sat at 0.000. The threshold is deliberately
+# far below the healthy band -- this refuses only the unmistakable case.
+PREFLIGHT_MIN_ACTIVATION = 0.20
+PREFLIGHT_MAX_FRAMES = 240
 # Library cleanup calls join() with no timeout; every step gets its own bound
 # so one stalled thread cannot prevent the capture release or the CSV close.
 SHUTDOWN_STEP_TIMEOUT_S = 3.0
@@ -105,7 +124,38 @@ INSTRUCTIONS = {
     "GRID16": "16-point grid. Keep your head still and look at each dot.",
     "T1": "Held-out targets. Keep your head still and look at each dot.",
     "T2": "Keep your EYES on the dot and NOD your head SLOWLY up and down.",
+    "B": "Same targets, several head positions. Follow the pose prompt before each block.",
 }
+
+
+# Pose blocks for protocol B, in presentation order.  Two properties matter
+# and both come from the ORDER, not from any single pose:
+#
+#   * The centre pose recurs between every other pose, so "which pose" and
+#     "how far into the session" are not the same thing.  Without the returns,
+#     the last pose would also be the most fatigued and the two could not be
+#     told apart -- the same confound that made the elapsed-time reading
+#     unresolvable in round19..round26.
+#   * Every block shows the SAME targets.  Pose therefore carries no
+#     information about which target is on screen, which is the confound that
+#     made head columns useless when fitted on protocol A: there pitch_a
+#     correlated with target_y at r=+0.871, so the head numbers could be
+#     learned as a shortcut to the answer instead of as a correction.
+#
+# The instructions are deliberately in plain language and deliberately vague
+# about magnitude ("a little"): the operator cannot see their own yaw_ratio,
+# and asking for a number they cannot observe would produce a guess recorded
+# as a measurement.  Whether the poses actually covered the needed range is
+# decided afterwards, from the recording, by pose_coverage().
+POSE_SEQUENCE: tuple[tuple[str, str], ...] = (
+    ("centre", "Sit comfortably and face the screen straight on."),
+    ("left", "Turn your head a LITTLE to the left. Stay comfortable."),
+    ("centre_2", "Face the screen straight on again."),
+    ("right", "Turn your head a LITTLE to the right. Stay comfortable."),
+    ("centre_3", "Face the screen straight on again."),
+    ("chin_down", "Tip your chin down a LITTLE. Keep your eyes on the dots."),
+    ("centre_4", "Face the screen straight on again."),
+)
 
 
 # --- Gates: per-target state machines, driven by frame arrival --------------
@@ -132,14 +182,20 @@ class CollectionGate:
     full_time_s: float | None = None
     done: bool = False
 
-    def observe(self, now_s: float, gaze_status: bool, left_openness: float, right_openness: float) -> tuple[str, bool]:
+    def observe(
+        self, now_s: float, gaze_status: bool, left_openness: float, right_openness: float
+    ) -> tuple[str, bool]:
         if self.done:
             return (S.PHASE_WAIT if self.stored else S.PHASE_WARMUP), False
         if now_s - self.onset_s < self.prepare_s:
             return (S.PHASE_PREPARE if self.stored else S.PHASE_WARMUP), False
         accepted = False
         if self.n_accepted < self.n_frames:
-            ok = bool(gaze_status) and left_openness > self.blink_threshold and right_openness > self.blink_threshold
+            ok = (
+                bool(gaze_status)
+                and left_openness > self.blink_threshold
+                and right_openness > self.blink_threshold
+            )
             if ok:
                 self.n_accepted += 1
                 accepted = self.stored
@@ -205,18 +261,190 @@ def protocol_a(grid_x: tuple[float, float, float] | None = None) -> ProtocolSpec
     return ProtocolSpec("A", targets, "calibration", instruction=INSTRUCTIONS["A"])
 
 
-def protocol_timed(name: str, targets_file: Path, settle_s: float, collect_s: float) -> ProtocolSpec:
+def protocol_b(
+    grid_x: tuple[float, float, float] | None = None,
+    *,
+    n_blocks: int = len(POSE_SEQUENCE),
+    order_seed: int = 0,
+) -> ProtocolSpec:
+    """Multi-pose calibration: the A grid, repeated once per head pose.
+
+    Protocol A holds the head still, so a model fitted on it has never seen
+    the same gaze from two different poses and cannot learn to separate the
+    two.  Measured on round18/A the entire yaw range was 0.060 wide while the
+    drift observed between later sessions reached 0.061 -- as wide as
+    everything the model was ever shown.  B exists to supply the missing
+    examples: the same target from several poses, so gaze and pose vary
+    independently.
+
+    Targets keep their ids across blocks; ``block`` says which pose a row
+    came from, and the schema already carries it.  The order is reshuffled
+    per block so that target order and pose are not locked together either.
+    """
+
+    if not 1 <= n_blocks <= len(POSE_SEQUENCE):
+        raise ValueError(f"n_blocks must be 1..{len(POSE_SEQUENCE)}, got {n_blocks}")
+    sequence = C.NINE_POINT_SEQUENCE if grid_x is None else C.nine_point_sequence(grid_x)
+    points = list(sequence[1:])
+    targets: list[Target] = []
+    for block in range(n_blocks):
+        # A warm-up opens every block, not only the session: the pose has just
+        # changed and the tracker needs the same settling it gets at the start.
+        targets.append(Target(-1, f"WARMUP_B{block}", *sequence[0], block=block))
+        ordered = list(enumerate(points))
+        random.Random(order_seed + block).shuffle(ordered)
+        targets += [Target(i, f"CAL_{i}", x, y, block=block) for i, (x, y) in ordered]
+    return ProtocolSpec("B", targets, "calibration", instruction=INSTRUCTIONS["B"])
+
+
+def protocol_timed(
+    name: str,
+    targets_file: Path,
+    settle_s: float,
+    collect_s: float,
+    *,
+    order_seed: int | None = None,
+    repeat_first: int = 0,
+) -> ProtocolSpec:
     raw, _ = C.load_targets(targets_file)
-    targets = [Target(int(t["index"]), str(t["name"]), float(t["screen_position"]["x"]), float(t["screen_position"]["y"])) for t in raw]
-    return ProtocolSpec(name, targets, "timed", settle_s=settle_s, collect_s=collect_s, instruction=INSTRUCTIONS[name])
+    targets = [
+        Target(
+            int(t["index"]),
+            str(t["name"]),
+            float(t["screen_position"]["x"]),
+            float(t["screen_position"]["y"]),
+        )
+        for t in raw
+    ]
+    return ProtocolSpec(
+        name,
+        order_targets(targets, order_seed=order_seed, repeat_first=repeat_first),
+        "timed",
+        settle_s=settle_s,
+        collect_s=collect_s,
+        instruction=INSTRUCTIONS[name],
+    )
+
+
+def order_targets(
+    targets: Sequence[Target],
+    *,
+    order_seed: int | None = None,
+    repeat_first: int = 0,
+) -> list[Target]:
+    """Presentation order, optionally shuffled and with an anchor repeat.
+
+    Every T1 recording so far showed targets 0..9 in that same fixed order, so
+    "later in the run" and "a different place on the screen" were the same
+    thing and no measurement could separate them. Measured over six runs, 53%
+    of the horizontal error variance sits in that confounded term, which is
+    why it matters.
+
+    ``order_seed`` shuffles the order, seeded so it is reproducible and
+    recorded in the manifest. Two runs with different seeds show whether the
+    error travels with the position or stays with the elapsed time. This is
+    the same device ``gf_targets.build_grid16`` already uses, for the same
+    stated reason.
+
+    ``repeat_first`` re-shows the first N targets again at the end, keeping
+    their ids. That gives the same screen positions at two separated times
+    inside ONE run, so position and time are separated without comparing runs
+    at all -- a stronger design, because nothing else about the session can
+    differ between the two visits.
+
+    Ids are preserved on the repeat: the id names the position, and the two
+    visits are told apart by presentation order, which the recording already
+    carries as separate contiguous segments.
+    """
+
+    ordered = list(targets)
+    if order_seed is not None:
+        random.Random(order_seed).shuffle(ordered)
+    if repeat_first < 0:
+        raise ValueError("repeat_first must not be negative")
+    if repeat_first > len(ordered):
+        raise ValueError(
+            f"repeat_first {repeat_first} exceeds the {len(ordered)} targets available"
+        )
+    return ordered + ordered[:repeat_first]
 
 
 def protocol_t2() -> ProtocolSpec:
     targets = [Target(i, f"T2_{i}", x, y) for i, (x, y) in enumerate(T2_TARGETS)]
-    return ProtocolSpec("T2", targets, "timed", settle_s=T2_SETTLE_S, collect_s=T2_SECONDS - T2_SETTLE_S, instruction=INSTRUCTIONS["T2"])
+    return ProtocolSpec(
+        "T2",
+        targets,
+        "timed",
+        settle_s=T2_SETTLE_S,
+        collect_s=T2_SECONDS - T2_SETTLE_S,
+        instruction=INSTRUCTIONS["T2"],
+    )
 
 
 # --- The runner: all protocol logic on the camera thread, like the library --
+
+
+def predict_one(
+    model: Any, features: np.ndarray, head: np.ndarray | None, rig: C.RigGeometry
+) -> tuple[float, float] | None:
+    """One frame through one fitted model, in screen fractions.
+
+    Module level rather than a method because the live view runs the same
+    prediction with no protocol, no targets and no recording around it. Two
+    copies of this would be two ways for the dot on screen to disagree with
+    the numbers scored afterwards.
+    """
+
+    head_names = model.schema.head_names
+    if head_names:
+        if head is None:
+            return None
+        design = S.assemble(features.reshape(1, -1), head.reshape(1, -1), head_names, H.HEAD6_NAMES)
+    else:
+        design = features.reshape(1, -1)
+    point = model.predict_norm(design, rig)[0]
+    if not np.all(np.isfinite(point)):
+        return None
+    return float(point[0]), float(point[1])
+
+
+def predict_overlay_point(
+    model: Any,
+    model_y: Any,
+    features: np.ndarray | None,
+    head: np.ndarray | None,
+    rig: C.RigGeometry,
+) -> tuple[float, float] | None:
+    """Run this frame through the loaded overlay model, if any.
+
+    With a second model supplied for the vertical axis, x comes from the
+    primary model and y from that one. The two feature-scaling families are
+    each accurate on a different axis -- measured offline, ``zscore`` gives x
+    median 72.9px with the vertical compressed to slope 0.717, while ``none``
+    reaches y slope 0.850 with x median 277.7px -- so a model per axis takes
+    the better half of each. Both run on the same frame, so the pair cannot
+    drift apart in time.
+
+    Never raises into the camera thread: a bad frame for the overlay is a
+    missing dot, not a crashed recording.
+    """
+
+    if model is None or features is None:
+        return None
+    try:
+        point = predict_one(model, features, head, rig)
+        if point is None:
+            return None
+        if model_y is None:
+            return point
+        vertical = predict_one(model_y, features, head, rig)
+        if vertical is None:
+            # Half a point is not a point: showing x with a stale or absent y
+            # would put the dot somewhere neither model claims.
+            return None
+        return point[0], vertical[1]
+    except Exception:  # noqa: BLE001 - a visual aid must never break recording
+        return None
 
 
 @dataclass
@@ -277,6 +505,7 @@ class ProtocolRunner:
         head_builder: Callable[[Any], np.ndarray | None] = H.build,
         pnp: Callable[[Any], tuple[float, float, float] | None] = H.pnp_degrees,
         overlay_model: Any = None,
+        overlay_model_y: Any = None,
         overlay_filter_settings: GF.FilterSettings | None = None,
     ) -> None:
         self.spec = spec
@@ -290,10 +519,19 @@ class ProtocolRunner:
         # can be drawn as a moving dot this session. It is a visual sanity
         # check, not a claim that this session is calibrated by it.
         self.overlay_model = overlay_model
+        # Optional second model supplying only the vertical axis; see
+        # _predict_overlay for why the axes come from different models.
+        self.overlay_model_y = overlay_model_y
         self.overlay_filter = (
-            None if overlay_model is None or overlay_filter_settings is None else GF.GazePointFilter(overlay_filter_settings)
+            None
+            if overlay_model is None or overlay_filter_settings is None
+            else GF.GazePointFilter(overlay_filter_settings)
         )
         self.lock = threading.Lock()
+        # Set by the camera thread when a pose block boundary is reached,
+        # cleared by the display thread once the operator has moved and
+        # confirmed.  While it is set no gate is armed, so no rows are stored.
+        self.awaiting_block: int | None = None
         self._index = -1  # -1: idle, before first target
         self._gate: CollectionGate | TimedGate | None = None
         self._onset_s: float | None = None
@@ -327,13 +565,48 @@ class ProtocolRunner:
         with self.lock:
             self._advance(self.clock())
 
+    def resume_block(self) -> None:
+        """Arm the target the pose prompt was holding, timed from now.
+
+        The onset must be taken here and not when the boundary was reached:
+        the elapsed time in between is the operator moving their head, and
+        counting it toward the settle window would score frames recorded
+        mid-movement as if the pose were already held.
+        """
+
+        with self.lock:
+            if self.awaiting_block is None:
+                return
+            self.awaiting_block = None
+            target = self.current_target()
+            if target is None:
+                return
+            now_s = self.clock()
+            self._onset_s = now_s
+            self._gate = CollectionGate(
+                onset_s=now_s,
+                stored=target.index >= 0,
+                prepare_s=C.PREPARE_S / self.speed,
+                wait_s=C.WAIT_S / self.speed,
+            )
+
     def _advance(self, now_s: float) -> None:
+        previous = self.current_target()
         self._index += 1
         if self._index >= len(self.spec.targets):
             self._gate = None
             self.finished = True
             return
         target = self.spec.targets[self._index]
+        if previous is not None and target.block != previous.block:
+            # A pose change needs the person to move, which cannot be timed
+            # from here.  Park with no gate -- _on_frame already treats a
+            # missing gate as idle, so nothing is stored and no embedding is
+            # kept -- and let the display thread prompt and resume.
+            self.awaiting_block = target.block
+            self._gate = None
+            self._onset_s = None
+            return
         self._onset_s = now_s
         if self.spec.kind == "calibration":
             self._gate = CollectionGate(
@@ -343,7 +616,9 @@ class ProtocolRunner:
                 wait_s=C.WAIT_S / self.speed,
             )
         else:
-            self._gate = TimedGate(now_s, self.spec.settle_s / self.speed, self.spec.collect_s / self.speed)
+            self._gate = TimedGate(
+                now_s, self.spec.settle_s / self.speed, self.spec.collect_s / self.speed
+            )
 
     def current_target(self) -> Target | None:
         if 0 <= self._index < len(self.spec.targets):
@@ -385,7 +660,9 @@ class ProtocolRunner:
             raw = getattr(gaze_info, "raw_gaze_coordinates", None) if gaze_status else None
             raw_cm = None if raw is None else (float(raw[0]), float(raw[1]))
             state_obj = getattr(gaze_info, "tracking_state", None)
-            tracking = getattr(state_obj, "name", None) or (str(state_obj) if state_obj is not None else "UNKNOWN")
+            tracking = getattr(state_obj, "name", None) or (
+                str(state_obj) if state_obj is not None else "UNKNOWN"
+            )
 
             # A frame carrying no gaze is normal in ones and twos -- a blink,
             # a glance away. An unbroken run of them means the camera is not
@@ -428,10 +705,7 @@ class ProtocolRunner:
             overlay_norm = None
             overlay_updated_s = None
             overlay_valid = (
-                not idle
-                and gaze_status
-                and left > C.BLINK_THRESHOLD
-                and right > C.BLINK_THRESHOLD
+                not idle and gaze_status and left > C.BLINK_THRESHOLD and right > C.BLINK_THRESHOLD
             )
             if overlay_valid:
                 overlay_raw_norm = self._predict_overlay(features, head)
@@ -454,7 +728,9 @@ class ProtocolRunner:
 
             self.builder.append(
                 frame_seq=self.frames - 1,
-                timestamp_ns=int(getattr(gaze_info, "timestamp", 0) or getattr(face_info, "timestamp", 0) or 0),
+                timestamp_ns=int(
+                    getattr(gaze_info, "timestamp", 0) or getattr(face_info, "timestamp", 0) or 0
+                ),
                 elapsed_ms=elapsed_ms,
                 target_id=-1 if target is None else target.index,
                 block=0 if target is None else target.block,
@@ -491,29 +767,12 @@ class ProtocolRunner:
                 overlay_updated_s=overlay_updated_s,
             )
 
-    def _predict_overlay(self, features: np.ndarray | None, head: np.ndarray | None) -> tuple[float, float] | None:
-        """Run this frame through the loaded overlay model, if any.
-
-        Never raises into the camera thread: a bad frame for the overlay is a
-        missing dot, not a crashed recording.
-        """
-
-        if self.overlay_model is None or features is None:
-            return None
-        try:
-            head_names = self.overlay_model.schema.head_names
-            if head_names:
-                if head is None:
-                    return None
-                design = S.assemble(features.reshape(1, -1), head.reshape(1, -1), head_names, H.HEAD6_NAMES)
-            else:
-                design = features.reshape(1, -1)
-            point = self.overlay_model.predict_norm(design, self.rig)[0]
-            if not np.all(np.isfinite(point)):
-                return None
-            return float(point[0]), float(point[1])
-        except Exception:  # noqa: BLE001 - a visual aid must never break recording
-            return None
+    def _predict_overlay(
+        self, features: np.ndarray | None, head: np.ndarray | None
+    ) -> tuple[float, float] | None:
+        return predict_overlay_point(
+            self.overlay_model, self.overlay_model_y, features, head, self.rig
+        )
 
     def fps_recent(self, window: int = 30) -> float | None:
         times = self._frame_times[-window:]
@@ -528,7 +787,9 @@ class ProtocolRunner:
         return None if not gaps else 1.0 / statistics.median(gaps)
 
     def integrity(self, *, watchdog_tripped: bool, aborted: bool) -> dict[str, Any]:
-        duration = (self._frame_times[-1] - self._frame_times[0]) if len(self._frame_times) > 1 else 0.0
+        duration = (
+            (self._frame_times[-1] - self._frame_times[0]) if len(self._frame_times) > 1 else 0.0
+        )
         return {
             "frames": self.frames,
             "duration_s": duration,
@@ -770,7 +1031,10 @@ def check_px2cm_against_library(rig: C.RigGeometry) -> None:
             (rig.screen_w_cm, rig.screen_h_cm),
             (rig.device_w_px, rig.device_h_px),
         )
-        if not (math.isclose(ours[0], theirs[0], abs_tol=1e-9) and math.isclose(ours[1], theirs[1], abs_tol=1e-9)):
+        if not (
+            math.isclose(ours[0], theirs[0], abs_tol=1e-9)
+            and math.isclose(ours[1], theirs[1], abs_tol=1e-9)
+        ):
             raise RuntimeError(f"px2cm mismatch at ({nx}, {ny}): ours {ours} vs library {theirs}")
 
 
@@ -803,7 +1067,13 @@ def make_dry_run_components(fps: float = 30.0) -> tuple[Any, Any, Any]:
                 with self.callback_and_param_lock:
                     cb = self.callback_func
                 if cb is not None and self.camera_running_state != CameraRunningState.CLOSING:
-                    cb(self.camera_running_state, time.time_ns(), frame, *self.callback_args, **self.callback_kwargs)
+                    cb(
+                        self.camera_running_state,
+                        time.time_ns(),
+                        frame,
+                        *self.callback_args,
+                        **self.callback_kwargs,
+                    )
                 time.sleep(1.0 / fps)
 
         def close(self) -> None:
@@ -925,7 +1195,9 @@ class Display:
         self.dot = None
         self.beep = None
         try:
-            self.dot = pygame.transform.smoothscale(pygame.image.load(str(res / "image" / "dot.png")), (70, 70))
+            self.dot = pygame.transform.smoothscale(
+                pygame.image.load(str(res / "image" / "dot.png")), (70, 70)
+            )
         except Exception:  # noqa: BLE001
             self.dot = None
         try:
@@ -1013,15 +1285,22 @@ class Display:
             else:
                 self.pg.draw.circle(self.screen, (30, 30, 30), (cx, cy), 24)
                 self.pg.draw.circle(self.screen, (255, 255, 255), (cx, cy), 6)
-            if state.protocol in S.CALIBRATION_PROTOCOLS and state.phase in (S.PHASE_COLLECT, S.PHASE_WAIT):
+            if state.protocol in S.CALIBRATION_PROTOCOLS and state.phase in (
+                S.PHASE_COLLECT,
+                S.PHASE_WAIT,
+            ):
                 label = self.font.render(str(state.progress), True, (255, 255, 255))
                 self.screen.blit(label, (cx - label.get_width() // 2, cy - label.get_height() // 2))
-        raw = visible_point(state.raw_norm, state.frame_updated_s, self._clock(), self._overlay_stale_s)
+        raw = visible_point(
+            state.raw_norm, state.frame_updated_s, self._clock(), self._overlay_stale_s
+        )
         self._draw_live_point(raw, (255, 160, 0), radius=6)  # raw model output: orange
         overlay = visible_overlay_point(state, self._clock(), self._overlay_stale_s)
         if self._show_unfiltered_overlay and overlay is not None:
             self._draw_live_point(state.overlay_raw_norm, (150, 70, 180), radius=7, cross=True)
-        self._draw_live_point(overlay, (30, 110, 255), radius=10, cross=True)  # filtered calibrated: blue
+        self._draw_live_point(
+            overlay, (30, 110, 255), radius=10, cross=True
+        )  # filtered calibrated: blue
         y = 20
         for line in hud:
             surf = self.font.render(line, True, (60, 60, 60))
@@ -1029,11 +1308,16 @@ class Display:
             y += 40
         legend_y = self.height - 60
         self.pg.draw.circle(self.screen, (255, 160, 0), (30, legend_y), 6)
-        self.screen.blit(self.font.render("raw model output (no calibration)", True, (90, 90, 90)), (46, legend_y - 12))
+        self.screen.blit(
+            self.font.render("raw model output (no calibration)", True, (90, 90, 90)),
+            (46, legend_y - 12),
+        )
         self.pg.draw.circle(self.screen, (30, 110, 255), (30, legend_y + 28), 6)
         self.screen.blit(
             self.font.render(
-                "filtered calibrated" if self._overlay_available else "calibrated: no --overlay-model loaded",
+                "filtered calibrated"
+                if self._overlay_available
+                else "calibrated: no --overlay-model loaded",
                 True,
                 (90, 90, 90),
             ),
@@ -1041,7 +1325,126 @@ class Display:
         )
         self.pg.display.flip()
 
-    def _draw_live_point(self, point_norm: tuple[float, float] | None, colour: tuple[int, int, int], *, radius: int, cross: bool = False) -> None:
+    def draw_live(
+        self,
+        point: tuple[float, float] | None,
+        raw_model: tuple[float, float] | None,
+        unfiltered: tuple[float, float] | None,
+        hud: Sequence[str],
+        *,
+        tracking: bool,
+    ) -> None:
+        """The free-running view: no target on screen, just what is reported.
+
+        "Not tracking" is drawn as an explicit banner rather than as an absent
+        dot.  With nothing on screen, a frozen prediction and a lost face look
+        identical, and the whole point of watching the dot is to be able to
+        tell those apart.
+        """
+
+        if self.headless:
+            return
+        self.screen.fill((255, 255, 255))
+        self._draw_live_point(raw_model, (255, 160, 0), radius=6)
+        if self._show_unfiltered_overlay:
+            self._draw_live_point(unfiltered, (150, 70, 180), radius=7, cross=True)
+        self._draw_live_point(point, (30, 110, 255), radius=10, cross=True)
+        if not tracking:
+            banner = self.big.render("tracking lost", True, (200, 40, 40))
+            self.screen.blit(banner, (self.width // 2 - banner.get_width() // 2, 60))
+        y = 20
+        for line in hud:
+            surf = self.font.render(line, True, (60, 60, 60))
+            self.screen.blit(surf, (20, y))
+            y += 40
+        self.pg.display.flip()
+
+    def draw_practice(
+        self,
+        buttons: Sequence[Any],
+        point: tuple[float, float] | None,
+        *,
+        hovered: str | None,
+        progress: float,
+        prompt: Sequence[str],
+        flash: str | None = None,
+        tracking: bool,
+    ) -> None:
+        """The dwell practice screen: targets, the gaze point, and a ring.
+
+        Every target is drawn identically. The prompt names the one to look
+        at, in text, away from the targets themselves -- nothing about the
+        requested target changes its appearance, position or size, because a
+        target that stood out would measure attention capture rather than
+        whether the gaze can be put where the person intends.
+
+        The ring fills on whichever target the gaze is actually resting on,
+        which makes a wrong selection visible while it happens instead of only
+        in the report afterwards.
+        """
+
+        if self.headless:
+            return
+        self.screen.fill((250, 250, 250))
+        for button in buttons:
+            rect = self.pg.Rect(
+                int(button.x0 * self.width),
+                int(button.y0 * self.height),
+                int(button.width * self.width),
+                int(button.height * self.height),
+            )
+            filled = flash == button.key
+            self.pg.draw.rect(self.screen, (210, 228, 246) if filled else (232, 232, 236), rect)
+            self.pg.draw.rect(self.screen, (120, 130, 140), rect, 3)
+            label = self.big.render(button.key, True, (60, 60, 70))
+            self.screen.blit(
+                label,
+                (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2),
+            )
+            if hovered == button.key and progress > 0.0:
+                self._draw_progress_ring(rect.centerx, rect.centery + 140, progress)
+        self._draw_live_point(point, (30, 110, 255), radius=12, cross=True)
+        if not tracking:
+            banner = self.big.render("tracking lost", True, (200, 40, 40))
+            self.screen.blit(banner, (self.width // 2 - banner.get_width() // 2, 30))
+        # The instruction goes in the CENTRE, in the dead zone between the
+        # targets -- never in a corner. Reading it is itself a gaze, and a
+        # corner prompt puts that gaze inside whichever target is nearest:
+        # measured, every wrong activation fired deep inside the wrong target
+        # (x 0.300-0.392 or 0.579-0.641), never at a boundary, and the target
+        # nearest the top-left prompt was chosen twice as often as the other.
+        # Whoever reaches 900 ms first wins, so where the person must look to
+        # READ the task decides the answer before they can act on it.
+        y = 40
+        for line in prompt:
+            surf = self.big.render(line, True, (40, 40, 50))
+            self.screen.blit(surf, (self.width // 2 - surf.get_width() // 2, y))
+            y += 70
+        self.pg.display.flip()
+
+    def _draw_progress_ring(self, cx: int, cy: int, fraction: float, radius: int = 60) -> None:
+        """Dwell progress, as an arc filling clockwise from the top.
+
+        CLAUDE.md 4.5 requires visible feedback for dwell progress: without
+        it, waiting for an activation and waiting for nothing look identical.
+        """
+
+        self.pg.draw.circle(self.screen, (200, 205, 210), (cx, cy), radius, 6)
+        span = max(0.0, min(1.0, fraction)) * 2.0 * math.pi
+        if span <= 0.0:
+            return
+        rect = self.pg.Rect(cx - radius, cy - radius, radius * 2, radius * 2)
+        start = math.pi / 2.0
+        self.pg.draw.arc(self.screen, (30, 110, 255), rect, start - span, start, 8)
+
+    def _draw_live_point(
+        self,
+        point_norm: tuple[float, float] | None,
+        colour: tuple[int, int, int],
+        *,
+        radius: int,
+        cross: bool = False,
+    ) -> None:
         """One moving dot: what the system currently reports, on or off screen.
 
         A point outside [0, 1] is drawn clamped to the edge with a ring, so
@@ -1108,10 +1511,39 @@ def _library_dir() -> str:
 @dataclass
 class SessionResult:
     recordings: dict[str, Path] = field(default_factory=dict)
+    # Every protocol that ran to a frozen recording, saved or not. In a normal
+    # run these are exactly the keys of ``recordings``; in a --no-save demo
+    # nothing reaches the disk, so this is the only evidence a protocol ran and
+    # the only thing the exit code can be judged on.
+    protocols_run: list[str] = field(default_factory=list)
+    saved: bool = True
     aborted: bool = False
     watchdog_tripped: bool = False
     failure: str | None = None
     shutdown: dict[str, Any] = field(default_factory=dict)
+
+
+def band_target_files(targets: Path, targets_tune: Path) -> tuple[Path, Path]:
+    """Swap the default target sets for their central-band versions.
+
+    A banded run narrows the CALIBRATION grid, but the held-out targets live
+    in their own file and are not narrowed by the flag. Scoring full-width
+    targets against a model calibrated on the central band measures the model
+    outside everything it was ever shown: measured on round4, the targets
+    outside the band read 964 px against 234 px for those inside it, and the
+    all-targets median was mostly describing the ones the model had never
+    seen.
+
+    Shared with anything that drives run_session directly, because that is
+    exactly how the swap gets missed -- it lived only in the CLI, and a
+    programmatic caller silently recorded the wrong target set.
+    """
+
+    if targets == PACKAGE_DIR / "targets.json":
+        targets = PACKAGE_DIR / "targets_central.json"
+    if targets_tune == PACKAGE_DIR / "targets_tune.json":
+        targets_tune = PACKAGE_DIR / "targets_tune_central.json"
+    return targets, targets_tune
 
 
 def run_session(
@@ -1132,20 +1564,28 @@ def run_session(
     monitor: Any = None,
     device_size: tuple[int, int] | None = None,
     overlay_model_dir: Path | None = None,
+    overlay_model_y_dir: Path | None = None,
     overlay_filter_settings: GF.FilterSettings | None = None,
     show_unfiltered_overlay: bool = False,
     allow_overwrite: bool = False,
+    skip_model_check: bool = False,
+    target_order_seed: int | None = None,
+    repeat_first: int = 0,
+    pose_blocks: int = len(POSE_SEQUENCE),
+    advance_timeout_s: float | None = None,
+    no_save: bool = False,
 ) -> SessionResult:
     import gazefollower  # noqa: PLC0415  (initialises native components; unavoidable for the live path)
     from gazefollower import GazeFollower  # noqa: PLC0415
     from gazefollower.misc import DefaultConfig  # noqa: PLC0415
 
-    result = SessionResult()
+    result = SessionResult(saved=not no_save)
     session_stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_root = resolve_output_root(out_root)
-    _ensure_gitignore(out_root)
-    round_dir = out_root / f"round{round_id}"
-    guard_existing_round(round_dir, allow_overwrite=allow_overwrite)
+    # None means this session persists nothing: every write below is guarded on
+    # it, so a demo cannot leave a half-written round behind.
+    round_dir = prepare_output_dir(
+        out_root, round_id, allow_overwrite=allow_overwrite, no_save=no_save
+    )
 
     if not dry_run:
         check_px2cm_against_library(rig)
@@ -1177,12 +1617,37 @@ def run_session(
     for name in protocols:
         if name == "A":
             specs.append(protocol_a(grid_x))
+        elif name == "B":
+            specs.append(protocol_b(grid_x, n_blocks=pose_blocks))
         elif name == "TUNE":
-            specs.append(protocol_timed("TUNE", targets_tune, C.DEFAULT_SETTLE_MS / 1000.0, C.DEFAULT_COLLECT_MS / 1000.0))
+            specs.append(
+                protocol_timed(
+                    "TUNE",
+                    targets_tune,
+                    C.DEFAULT_SETTLE_MS / 1000.0,
+                    C.DEFAULT_COLLECT_MS / 1000.0,
+                )
+            )
         elif name == "GRID16":
-            specs.append(protocol_timed("GRID16", targets_grid16, C.DEFAULT_SETTLE_MS / 1000.0, C.DEFAULT_COLLECT_MS / 1000.0))
+            specs.append(
+                protocol_timed(
+                    "GRID16",
+                    targets_grid16,
+                    C.DEFAULT_SETTLE_MS / 1000.0,
+                    C.DEFAULT_COLLECT_MS / 1000.0,
+                )
+            )
         elif name == "T1":
-            specs.append(protocol_timed("T1", targets_t1, C.DEFAULT_SETTLE_MS / 1000.0, C.DEFAULT_COLLECT_MS / 1000.0))
+            specs.append(
+                protocol_timed(
+                    "T1",
+                    targets_t1,
+                    C.DEFAULT_SETTLE_MS / 1000.0,
+                    C.DEFAULT_COLLECT_MS / 1000.0,
+                    order_seed=target_order_seed,
+                    repeat_first=repeat_first,
+                )
+            )
         elif name in ("FULL", "MOVE"):
             # Generated for the display actually in use, so a change of monitor
             # cannot leave the targets describing the previous one.
@@ -1192,7 +1657,12 @@ def run_session(
                 calibration=calibration_grid,
             )
             targets = [
-                Target(int(t["index"]), str(t["name"]), float(t["screen_position"]["x"]), float(t["screen_position"]["y"]))
+                Target(
+                    int(t["index"]),
+                    str(t["name"]),
+                    float(t["screen_position"]["x"]),
+                    float(t["screen_position"]["y"]),
+                )
                 for t in coverage
             ]
             specs.append(
@@ -1210,7 +1680,7 @@ def run_session(
         else:
             raise ValueError(
                 f"protocol {name!r} is not known "
-                "(A, TUNE, GRID16, T1, T2 for phase 0; FULL, MOVE for the full-screen sessions)"
+                "(A, TUNE, GRID16, T1, T2 for phase 0; B for the multi-pose calibration; FULL, MOVE for the full-screen sessions)"
             )
 
     kwargs: dict[str, Any] = {"config": config, "calibration": make_pass_through_calibration()}
@@ -1226,7 +1696,11 @@ def run_session(
         "setup": None if manifest is None else manifest.to_dict(),
         "monitor": None if monitor is None else monitor.to_dict(),
         "target_geometry": dict(target_geometry),
-        "library": {"name": "gazefollower", "version": getattr(gazefollower, "__version__", "1.0.2"), "screen_size": [lib_w, lib_h]},
+        "library": {
+            "name": "gazefollower",
+            "version": getattr(gazefollower, "__version__", "1.0.2"),
+            "screen_size": [lib_w, lib_h],
+        },
         "versions": S.environment_versions(),
         "builder_version": H.BUILDER_VERSION,
         "head_names": list(H.HEAD6_NAMES),
@@ -1245,15 +1719,36 @@ def run_session(
         ),
         "library_tmp_files": library_tmp,
         "expected_feature_dim": EXPECTED_FEATURE_DIM,
-        "overlay_filter": None if overlay_filter_settings is None else asdict(overlay_filter_settings),
+        "overlay_filter": None
+        if overlay_filter_settings is None
+        else asdict(overlay_filter_settings),
     }
 
     overlay_model = None
+    overlay_model_y = None
     if overlay_model_dir is not None:
         import gf_fit as FIT  # noqa: PLC0415 - only needed when an overlay is requested
 
         overlay_model = FIT.FittedModel.load(overlay_model_dir)
-        print(f"overlay model loaded from {overlay_model_dir} (columns: {len(overlay_model.schema.columns)})")
+        print(
+            f"overlay model loaded from {overlay_model_dir} (columns: {len(overlay_model.schema.columns)})"
+        )
+        if overlay_model_y_dir is not None:
+            overlay_model_y = FIT.FittedModel.load(overlay_model_y_dir)
+            print(f"vertical overlay model loaded from {overlay_model_y_dir}")
+    # Which model produced the point is not recoverable from the recording
+    # otherwise -- only the filter settings were stored, so a later reader
+    # could not tell which model an operator actually watched.
+    # The presentation order is the experiment here, so it is recorded rather
+    # than left to be inferred from the frames.
+    base_meta["target_order_seed"] = target_order_seed
+    base_meta["repeat_first"] = repeat_first
+    base_meta["pose_blocks"] = pose_blocks if "B" in protocols else None
+    base_meta["pose_sequence"] = (
+        [label for label, _ in POSE_SEQUENCE[:pose_blocks]] if "B" in protocols else None
+    )
+    base_meta["overlay_model"] = None if overlay_model_dir is None else str(overlay_model_dir)
+    base_meta["overlay_model_y"] = None if overlay_model_y_dir is None else str(overlay_model_y_dir)
 
     origin = (0, 0) if monitor is None else monitor.origin
     display = Display(
@@ -1266,10 +1761,24 @@ def run_session(
     )
     runner_ref: dict[str, ProtocolRunner | None] = {"runner": None}
 
+    preflight: list[np.ndarray] = []
+
     def subscriber(face_info: Any, gaze_info: Any) -> None:
         runner = runner_ref["runner"]
-        if runner is not None:
-            runner.on_frame(face_info, gaze_info)
+        if runner is None:
+            # Before the first protocol installs a runner, the warm-up frames
+            # are otherwise thrown away. Keep their design rows so the overlay
+            # model can be checked against today's conditions before the
+            # operator spends a protocol on it. The row is assembled exactly
+            # as ProtocolRunner._predict_overlay assembles it, head columns
+            # included, or the check would not be measuring what will run.
+            if overlay_model is not None and getattr(gaze_info, "status", False):
+                if len(preflight) < PREFLIGHT_MAX_FRAMES:
+                    row = _overlay_design_row(overlay_model, face_info, gaze_info)
+                    if row is not None:
+                        preflight.append(row)
+            return
+        runner.on_frame(face_info, gaze_info)
 
     gf.add_subscriber(subscriber)
 
@@ -1280,16 +1789,43 @@ def run_session(
         display.draw_message(["Camera warming up..."])
         _sleep_with_escape(display, CAMERA_WARMUP_S / speed)
         # No runner is installed yet, so nothing is recorded during this wait.
-        if display.wait_for_key(
-            [
-                "Ready.",
-                "",
-                f"{len(specs)} protocols: {', '.join(s.name for s in specs)}",
-                "",
-                "Each one waits for you before it starts, so take the time to",
-                "read what it asks for. Esc aborts at any point.",
-            ]
-        ) == "abort":
+        if overlay_model is not None and not skip_model_check:
+            # Both models are checked: a fresh x model paired with a stale y
+            # model would freeze the vertical axis alone, which reads as a
+            # dot sliding along a horizontal line rather than as a failure.
+            ok, message = True, "no frames to check the model against; skipping"
+            for label, candidate in (("x", overlay_model), ("y", overlay_model_y)):
+                if candidate is None:
+                    continue
+                try:
+                    activation = (
+                        candidate.support_activation(np.vstack(preflight)) if preflight else None
+                    )
+                except Exception as exc:  # noqa: BLE001 - a check must not abort a good session
+                    activation = None
+                    print(f"overlay {label} model check could not run ({exc!r}); continuing")
+                ok, message = preflight_verdict(activation)
+                print(f"overlay {label} model check: {message}")
+                if not ok:
+                    break
+            if not ok:
+                display.draw_message(
+                    ["Model does not fit current conditions.", "", "See the console."]
+                )
+                raise SystemExit(f"ABORTED before recording: {message}")
+        if (
+            display.wait_for_key(
+                [
+                    "Ready.",
+                    "",
+                    f"{len(specs)} protocols: {', '.join(s.name for s in specs)}",
+                    "",
+                    "Each one waits for you before it starts, so take the time to",
+                    "read what it asks for. Esc aborts at any point.",
+                ]
+            )
+            == "abort"
+        ):
             result.aborted = True
             specs = []
 
@@ -1323,6 +1859,7 @@ def run_session(
                 rig,
                 speed=speed,
                 overlay_model=overlay_model,
+                overlay_model_y=overlay_model_y,
                 overlay_filter_settings=overlay_filter_settings,
             )
             remaining = [s.name for s in specs[specs.index(spec) :]]
@@ -1332,16 +1869,30 @@ def run_session(
             # subscriber discards those frames instead of storing a face
             # embedding for every one of them for as long as the person is
             # away from the desk.
-            if display.wait_for_key(
-                [
-                    f"{spec.name}   ({specs.index(spec) + 1} of {len(specs)})",
-                    "",
-                    spec.instruction,
-                    "",
-                    f"{len(spec.exported_targets())} targets, about {_estimate_seconds(spec):.0f} seconds",
-                    f"still to come: {', '.join(remaining[1:]) or 'nothing, this is the last one'}",
-                ]
-            ) == "abort":
+            # With a timeout the protocol starts on its own, which is what
+            # makes an unattended, hands-free sequence possible at all. Esc
+            # still aborts, so there is always a way out that needs no timing.
+            start_line = (
+                "Press SPACE or ENTER to start   (Esc to abort)"
+                if advance_timeout_s is None
+                else f"starts on its own in {advance_timeout_s:.0f}s   (Esc to abort)"
+            )
+            if (
+                display.wait_for_key(
+                    [
+                        f"{spec.name}   ({specs.index(spec) + 1} of {len(specs)})",
+                        "",
+                        spec.instruction,
+                        "",
+                        f"{len(spec.exported_targets())} targets, about {_estimate_seconds(spec):.0f} seconds",
+                        f"still to come: {', '.join(remaining[1:]) or 'nothing, this is the last one'}",
+                        "",
+                        start_line,
+                    ],
+                    timeout_s=advance_timeout_s,
+                )
+                == "abort"
+            ):
                 result.aborted = True
                 break
             runner_ref["runner"] = runner
@@ -1351,6 +1902,7 @@ def run_session(
             dog = FrameWatchdog(limit_s=WATCHDOG_S, started_s=time.monotonic())
             display.play_beep()
             last_target: Target | None = runner.current_target()
+            blocks_in_spec = len({t.block for t in spec.targets})
             watchdog = False
             while not runner.finished:
                 if display.poll_escape():
@@ -1370,6 +1922,31 @@ def run_session(
                     )
                     print(f"ABORTED: {result.failure}")
                     break
+                pending = runner.awaiting_block
+                if pending is not None:
+                    label, pose_instruction = POSE_SEQUENCE[pending]
+                    if (
+                        display.wait_for_key(
+                            [
+                                f"{spec.name}   pose {pending + 1} of {blocks_in_spec}   ({label})",
+                                "",
+                                pose_instruction,
+                                "",
+                                "Hold that position for the whole block.",
+                            ]
+                        )
+                        == "abort"
+                    ):
+                        result.aborted = True
+                        break
+                    # The watchdog measures silence from the camera, and the
+                    # pose prompt is an unbounded wait during which frames are
+                    # arriving but nothing is stored. Restart its clock so the
+                    # operator taking their time cannot look like a stall.
+                    dog = FrameWatchdog(limit_s=WATCHDOG_S, started_s=time.monotonic())
+                    runner.resume_block()
+                    display.play_beep()
+                    continue
                 state = runner.state
                 now = time.monotonic()
                 dog.note(runner._frame_times)
@@ -1387,8 +1964,10 @@ def run_session(
                 hud = [
                     f"{spec.name}  target {state.target_pos}/{state.target_count}  {state.phase}",
                     f"fps {state.fps:.1f}" if state.fps else "fps --",
-                    f"head {'ok' if state.head_valid else 'INVALID'}" + (f"  pitch_a {state.pitch_a:+.3f}" if state.pitch_a is not None else ""),
-                    f"errors {runner.errors}" + (f"  LAST: {runner.last_error[:60]}" if runner.last_error else ""),
+                    f"head {'ok' if state.head_valid else 'INVALID'}"
+                    + (f"  pitch_a {state.pitch_a:+.3f}" if state.pitch_a is not None else ""),
+                    f"errors {runner.errors}"
+                    + (f"  LAST: {runner.last_error[:60]}" if runner.last_error else ""),
                     (
                         f"blue filter {overlay_filter_settings.kind.value}"
                         if overlay_model is not None and overlay_filter_settings is not None
@@ -1405,15 +1984,19 @@ def run_session(
             time.sleep(DRAIN_S)
             with runner.lock:
                 rec = runner.builder.freeze()
-            rec.meta["integrity"] = runner.integrity(watchdog_tripped=watchdog, aborted=result.aborted)
+            rec.meta["integrity"] = runner.integrity(
+                watchdog_tripped=watchdog, aborted=result.aborted
+            )
             rec.meta["integrity"]["failure"] = result.failure
             rec.meta["integrity"]["fps_median"] = runner.fps_median()
-            npz_path, _ = rec.save(round_dir)
-            result.recordings[spec.name] = npz_path
+            result.protocols_run.append(spec.name)
+            if round_dir is not None:
+                npz_path, _ = rec.save(round_dir)
+                result.recordings[spec.name] = npz_path
             dim = runner.feature_dim
             if dim is not None and dim != EXPECTED_FEATURE_DIM:
                 print(f"WARNING: feature dim {dim} != expected {EXPECTED_FEATURE_DIM}")
-            print(_summary_line(spec.name, rec))
+            print(_summary_line(spec.name, rec, saved=round_dir is not None))
             if result.aborted or watchdog:
                 break
         if not result.aborted and not result.watchdog_tripped:
@@ -1422,28 +2005,40 @@ def run_session(
                 [
                     "Done. Thank you.",
                     "",
-                    f"Recorded: {', '.join(result.recordings)}",
+                    (
+                        f"NOT SAVED (demo): {', '.join(result.protocols_run)}"
+                        if no_save
+                        else f"Recorded: {', '.join(result.recordings)}"
+                    ),
                 ],
                 timeout_s=60.0,
             )
     finally:
         # stop_sampling() reaches the library's unbounded join; bound it too.
-        result.shutdown = {"stop_sampling": _call_with_timeout(gf.camera.stop_sampling, SHUTDOWN_STEP_TIMEOUT_S)}
+        result.shutdown = {
+            "stop_sampling": _call_with_timeout(gf.camera.stop_sampling, SHUTDOWN_STEP_TIMEOUT_S)
+        }
         result.shutdown.update(shutdown_library(gf))
         display.close()
     return result
 
 
-def _summary_line(name: str, rec: S.Recording) -> str:
+def _summary_line(name: str, rec: S.Recording, *, saved: bool = True) -> str:
     integ = rec.meta.get("integrity", {})
     n_acc = int(np.sum(rec.rows_accepted()))
     n_col = int(np.sum(rec.rows_collecting()))
     gaze_rows = np.asarray(rec.gaze_status, dtype=bool)
-    head_invalid = float(np.mean(~rec.rows_head_valid()[gaze_rows])) if np.any(gaze_rows) else float("nan")
+    head_invalid = (
+        float(np.mean(~rec.rows_head_valid()[gaze_rows])) if np.any(gaze_rows) else float("nan")
+    )
     return (
         f"{name}: rows {rec.n_rows}, accepted {n_acc}, collecting {n_col}, fps {integ.get('fps_median')}, "
         f"errors {integ.get('subscriber_errors')}, head-invalid {100 * head_invalid:.1f}%, "
         f"aborted {integ.get('aborted')}, watchdog {integ.get('watchdog_tripped')}"
+        # Said on the protocol's own line, not only in the closing summary: an
+        # operator reading the scroll must not have to remember which flag the
+        # run started with to know whether these rows still exist.
+        + ("" if saved else "  [NOT SAVED]")
     )
 
 
@@ -1519,6 +2114,116 @@ def guard_existing_round(round_dir: Path, *, allow_overwrite: bool = False) -> N
     )
 
 
+def resolve_round_id(round_id: int | None, *, no_save: bool) -> int:
+    """The round id this session is labelled with, or a message to show instead.
+
+    A saving run must always name its round: an id that defaulted silently
+    could land on data an earlier session recorded. A --no-save run writes
+    nothing, spends no round number, and gets the sentinel rather than making
+    the operator invent an unused number for a demonstration.
+    """
+
+    if round_id is not None:
+        return int(round_id)
+    if no_save:
+        return DEMO_ROUND_ID
+    raise ValueError("--round is required unless --no-save is given")
+
+
+def prepare_output_dir(
+    out_root: Path,
+    round_id: int,
+    *,
+    allow_overwrite: bool = False,
+    no_save: bool = False,
+) -> Path | None:
+    """The directory this session writes into, or None when it writes nothing.
+
+    One decision point for "does this session persist?", so a demonstration
+    run cannot end up half-written: returning None skips the recordings-root
+    check, the .gitignore, the round directory, and the overwrite guard as one
+    unit. The guard is skipped rather than passed ``allow_overwrite``: it
+    protects data from being replaced, and a run that writes nothing cannot
+    replace anything, so a demo must not have to name an unused round.
+
+    Nothing here is reached in no-save mode, which is also why ``out_root`` is
+    not validated then -- there is no write for ``resolve_output_root`` to keep
+    inside the approved directory.
+    """
+
+    if no_save:
+        return None
+    root = resolve_output_root(out_root)
+    _ensure_gitignore(root)
+    round_dir = root / f"round{round_id}"
+    guard_existing_round(round_dir, allow_overwrite=allow_overwrite)
+    return round_dir
+
+
+def _overlay_design_row(
+    model: Any,
+    face_info: Any,
+    gaze_info: Any,
+    head_builder: Callable[[Any], np.ndarray | None] = H.build,
+) -> np.ndarray | None:
+    """One model-ready row from a live frame, or None if this frame cannot make one.
+
+    A model fitted with head columns needs those columns here too: feeding it
+    the bare feature vector raises on the column count, and doing that during
+    warm-up would abort the session for a configuration the recorder fully
+    supports. Never raises -- a frame the check cannot use is one fewer
+    sample, not a failed recording.
+    """
+
+    try:
+        features = getattr(gaze_info, "features", None)
+        if features is None:
+            return None
+        features = np.asarray(features, dtype=np.float64).reshape(1, -1)
+        head_names = model.schema.head_names
+        if not head_names:
+            return features.reshape(-1)
+        head = head_builder(face_info)
+        if head is None:
+            return None
+        design = S.assemble(features, head.reshape(1, -1), head_names, H.HEAD6_NAMES)
+        return np.asarray(design, dtype=np.float64).reshape(-1)
+    except Exception:  # noqa: BLE001 - a preflight sample must never break recording
+        return None
+
+
+def preflight_verdict(
+    activation: np.ndarray | None,
+    *,
+    minimum: float = PREFLIGHT_MIN_ACTIVATION,
+) -> tuple[bool, str]:
+    """Is this model usable in the conditions the camera is seeing right now?
+
+    Returns (ok, message). Answers ok for anything it cannot measure -- a
+    ridge model, no frames yet -- because refusing on absent evidence would
+    block recording for no reason. Only a measured collapse fails.
+    """
+
+    if activation is None:
+        return True, "model has no kernel to check (not an SVR); skipping"
+    finite = activation[np.isfinite(activation)]
+    if finite.size == 0:
+        return True, "no valid frames to check the model against; skipping"
+    median = float(np.median(finite))
+    frozen = float(np.mean(finite < 0.01))
+    if median >= minimum:
+        return True, f"model matches current conditions (activation {median:.3f})"
+    return False, (
+        f"this model does not fit the current conditions: median support "
+        f"activation {median:.3f} (healthy is above {minimum:.2f}), and "
+        f"{100.0 * frozen:.0f}% of frames carry no calibration information "
+        "at all.\nThe overlay point would freeze on a fixed wrong position "
+        "rather than follow your eye.\nRecalibrate (run a round with "
+        "protocol A) and fit a model from it, or pass --skip-model-check to "
+        "record anyway."
+    )
+
+
 def _holds_usable_rows(npz_path: Path) -> bool:
     """Whether a saved protocol carries gaze worth protecting.
 
@@ -1560,20 +2265,59 @@ def _ensure_gitignore(root: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--round", type=int, required=True, help="recording round id (0 = Phase 0)")
-    parser.add_argument("--protocols", default="A,TUNE,GRID16,T1,T2", help="comma-separated, in order")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--round",
+        type=int,
+        default=None,
+        help="recording round id (0 = Phase 0); required unless --no-save is given",
+    )
+    parser.add_argument(
+        "--protocols", default="A,TUNE,GRID16,T1,T2", help="comma-separated, in order"
+    )
     parser.add_argument("--camera-x-cm", type=float, required=True)
-    parser.add_argument("--camera-y-cm", type=float, required=True, help="down from the top-left corner; > screen height = below the screen")
+    parser.add_argument(
+        "--camera-y-cm",
+        type=float,
+        required=True,
+        help="down from the top-left corner; > screen height = below the screen",
+    )
     parser.add_argument("--screen-width-cm", type=float, required=True)
     parser.add_argument("--screen-height-cm", type=float, required=True)
-    parser.add_argument("--device-w", type=int, default=None, help="display width in device px (default: taken from --monitor)")
+    parser.add_argument(
+        "--device-w",
+        type=int,
+        default=None,
+        help="display width in device px (default: taken from --monitor)",
+    )
     parser.add_argument("--device-h", type=int, default=None)
-    parser.add_argument("--monitor", default=None, help="which display: an index, or part of its name (default: primary)")
-    parser.add_argument("--list-monitors", action="store_true", help="print the displays the OS reports and exit")
-    parser.add_argument("--viewing-distance-cm", type=float, default=None, help="eye to screen centre; distinct from the camera distance")
-    parser.add_argument("--dpi-scale", type=float, default=1.0, help="OS scaling of the selected display (logical px = device px / scale)")
-    parser.add_argument("--preset", default=None, help="calibration preset intended for this run; recorded in the manifest")
+    parser.add_argument(
+        "--monitor",
+        default=None,
+        help="which display: an index, or part of its name (default: primary)",
+    )
+    parser.add_argument(
+        "--list-monitors", action="store_true", help="print the displays the OS reports and exit"
+    )
+    parser.add_argument(
+        "--viewing-distance-cm",
+        type=float,
+        default=None,
+        help="eye to screen centre; distinct from the camera distance",
+    )
+    parser.add_argument(
+        "--dpi-scale",
+        type=float,
+        default=1.0,
+        help="OS scaling of the selected display (logical px = device px / scale)",
+    )
+    parser.add_argument(
+        "--preset",
+        default=None,
+        help="calibration preset intended for this run; recorded in the manifest",
+    )
     parser.add_argument(
         "--overlay-model",
         type=Path,
@@ -1591,8 +2335,73 @@ def build_parser() -> argparse.ArgumentParser:
         default=GF.FilterKind.ONE_EURO.value,
         help="temporal filter for the calibrated blue point (default: one-euro; off preserves the old behaviour)",
     )
-    parser.add_argument("--overlay-show-unfiltered", action="store_true", help="also draw the unfiltered calibrated prediction in purple for diagnosis")
-    parser.add_argument("--overlay-reset-gap-ms", type=float, default=250.0, help="reset filter history after this gap")
+    parser.add_argument(
+        "--overlay-show-unfiltered",
+        action="store_true",
+        help="also draw the unfiltered calibrated prediction in purple for diagnosis",
+    )
+    parser.add_argument(
+        "--overlay-model-y",
+        type=Path,
+        default=None,
+        help=(
+            "second fitted model supplying ONLY the vertical axis of the blue dot; "
+            "x still comes from --overlay-model. The two feature-scaling families are "
+            "each accurate on a different axis, so a model per axis takes the better "
+            "half of each. Measured offline only -- not yet validated live."
+        ),
+    )
+    parser.add_argument(
+        "--target-order-seed",
+        type=int,
+        default=None,
+        help=(
+            "shuffle T1's presentation order with this seed (recorded in the manifest). "
+            "Every T1 run so far used the same fixed order, so time and screen position "
+            "could not be told apart; two runs with different seeds separate them."
+        ),
+    )
+    parser.add_argument(
+        "--advance-timeout-s",
+        type=float,
+        default=None,
+        help=(
+            "start each protocol on its own after this many seconds instead of waiting for a "
+            "key. Required for a hands-free sequence; Esc still aborts."
+        ),
+    )
+    parser.add_argument(
+        "--pose-blocks",
+        type=int,
+        default=len(POSE_SEQUENCE),
+        help=(
+            f"protocol B only: how many of the {len(POSE_SEQUENCE)} pose blocks to run "
+            "(each block shows the whole calibration grid once, in its own order). "
+            "Fewer blocks is a shorter session and a narrower pose range; whether the "
+            "range was wide enough is decided afterwards from the recording, not here."
+        ),
+    )
+    parser.add_argument(
+        "--repeat-first",
+        type=int,
+        default=0,
+        help=(
+            "re-show the first N T1 targets again at the end, keeping their ids. Gives the "
+            "same positions at two separated times inside ONE run, so position and time are "
+            "separated without comparing runs."
+        ),
+    )
+    parser.add_argument(
+        "--skip-model-check",
+        action="store_true",
+        help="record even if the overlay model does not fit the current conditions",
+    )
+    parser.add_argument(
+        "--overlay-reset-gap-ms",
+        type=float,
+        default=250.0,
+        help="reset filter history after this gap",
+    )
     parser.add_argument("--overlay-ema-cutoff-hz", type=float, default=2.0)
     parser.add_argument("--overlay-one-euro-min-cutoff-hz", type=float, default=1.2)
     parser.add_argument(
@@ -1602,16 +2411,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="One Euro speed response in Hz per (pixel/second)",
     )
     parser.add_argument("--overlay-one-euro-derivative-cutoff-hz", type=float, default=1.0)
-    parser.add_argument("--overlay-kalman-acceleration-noise", type=float, default=400.0, help="px^2/s^4")
-    parser.add_argument("--overlay-kalman-measurement-noise", type=float, default=900.0, help="px^2")
-    parser.add_argument("--targets", type=Path, default=PACKAGE_DIR / "targets.json", help="T1 targets (analyze.py geometry)")
+    parser.add_argument(
+        "--overlay-kalman-acceleration-noise", type=float, default=400.0, help="px^2/s^4"
+    )
+    parser.add_argument(
+        "--overlay-kalman-measurement-noise", type=float, default=900.0, help="px^2"
+    )
+    parser.add_argument(
+        "--targets",
+        type=Path,
+        default=PACKAGE_DIR / "targets.json",
+        help="T1 targets (analyze.py geometry)",
+    )
     parser.add_argument("--targets-tune", type=Path, default=PACKAGE_DIR / "targets_tune.json")
     parser.add_argument("--targets-grid16", type=Path, default=PACKAGE_DIR / "targets_grid16.json")
-    parser.add_argument("--eye-distance-cm", type=float, default=None, help="operator-measured eye-to-screen distance")
+    parser.add_argument(
+        "--eye-distance-cm",
+        type=float,
+        default=None,
+        help="operator-measured eye-to-screen distance",
+    )
     parser.add_argument("--glasses", default=None, help="none | glasses | contacts")
-    parser.add_argument("--lighting", default=None, help="short description, kept constant across sessions")
+    parser.add_argument(
+        "--lighting", default=None, help="short description, kept constant across sessions"
+    )
     parser.add_argument("--note", default=None)
-    parser.add_argument("--skip-camera-probe", action="store_true", help="do not measure the camera's actual frame rate")
+    parser.add_argument(
+        "--skip-camera-probe",
+        action="store_true",
+        help="do not measure the camera's actual frame rate",
+    )
     parser.add_argument(
         "--x-range",
         nargs=2,
@@ -1630,9 +2459,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="discard an existing recording for this round id (refused by default)",
     )
-    parser.add_argument("--dry-run", action="store_true", help="fake camera/face/model through the real process_frame")
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help=(
+            "demonstration run: show the protocols and the live overlay, but write NOTHING to "
+            "disk -- no .npz, no .meta.json, no setup.json, no round directory. --round is then "
+            "unnecessary, and the overwrite guard does not apply because nothing can be "
+            "overwritten. Every safety check still runs: the overlay model preflight, the "
+            "no-face stall guard, the frame watchdog and Esc"
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="fake camera/face/model through the real process_frame",
+    )
     parser.add_argument("--headless", action="store_true", help="no window (dry-run only)")
-    parser.add_argument("--speed", type=float, default=1.0, help="time scale for dry runs (10 = ten times faster)")
+    parser.add_argument(
+        "--speed", type=float, default=1.0, help="time scale for dry runs (10 = ten times faster)"
+    )
     return parser
 
 
@@ -1642,7 +2488,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "--list-monitors" in (sys.argv[1:] if argv is None else list(argv)):
         print(GD.describe_monitors())
         return 0
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        # argparse's own required=True used to enforce this; the rule moved
+        # here because it now depends on another flag. Same exit code, same
+        # moment: before anything opens a camera or a window.
+        args.round = resolve_round_id(args.round, no_save=args.no_save)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.headless and not args.dry_run:
         print("--headless requires --dry-run")
         return 2
@@ -1656,9 +2510,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     device_w = args.device_w if args.device_w is not None else monitor.width_px
     device_h = args.device_h if args.device_h is not None else monitor.height_px
-    print(f"display [{monitor.index}] {monitor.name}: {device_w}x{device_h} px at desktop {monitor.origin}"
-          f"{' (PRIMARY)' if monitor.is_primary else ''}")
-    rig = C.RigGeometry(args.camera_x_cm, args.camera_y_cm, args.screen_width_cm, args.screen_height_cm, device_w, device_h)
+    print(
+        f"display [{monitor.index}] {monitor.name}: {device_w}x{device_h} px at desktop {monitor.origin}"
+        f"{' (PRIMARY)' if monitor.is_primary else ''}"
+    )
+    rig = C.RigGeometry(
+        args.camera_x_cm,
+        args.camera_y_cm,
+        args.screen_width_cm,
+        args.screen_height_cm,
+        device_w,
+        device_h,
+    )
     try:
         overlay_filter_settings = GF.FilterSettings(
             width_px=device_w,
@@ -1676,16 +2539,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"invalid overlay filter settings: {exc}")
         return 2
     if monitor.width_mm:
-        for label, declared, reported in (("width", args.screen_width_cm, monitor.width_mm / 10.0),
-                                          ("height", args.screen_height_cm, monitor.height_mm / 10.0)):
+        for label, declared, reported in (
+            ("width", args.screen_width_cm, monitor.width_mm / 10.0),
+            ("height", args.screen_height_cm, monitor.height_mm / 10.0),
+        ):
             if abs(declared - reported) > 2.0:
-                print(f"SETUP WARNING: declared screen {label} {declared} cm vs OS-reported {reported:.1f} cm")
+                print(
+                    f"SETUP WARNING: declared screen {label} {declared} cm vs OS-reported {reported:.1f} cm"
+                )
     if args.viewing_distance_cm:
-        geom = GD.ViewingGeometry(args.screen_width_cm, args.screen_height_cm, device_w, device_h,
-                                  args.viewing_distance_cm, args.eye_distance_cm)
+        geom = GD.ViewingGeometry(
+            args.screen_width_cm,
+            args.screen_height_cm,
+            device_w,
+            device_h,
+            args.viewing_distance_cm,
+            args.eye_distance_cm,
+        )
         h, v = geom.half_angles_deg()
-        print(f"viewing distance {args.viewing_distance_cm} cm -> half-angles h +/-{h:.1f} deg, v +/-{v:.1f} deg; "
-              f"1.5 deg = {geom.deg_to_px(1.5):.0f} px")
+        print(
+            f"viewing distance {args.viewing_distance_cm} cm -> half-angles h +/-{h:.1f} deg, v +/-{v:.1f} deg; "
+            f"1.5 deg = {geom.deg_to_px(1.5):.0f} px"
+        )
     protocols = [p.strip() for p in args.protocols.split(",") if p.strip()]
     x_range: tuple[float, float] | None = None
     if args.x_range is not None:
@@ -1695,14 +2570,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         x_range = (lo, hi)
         # Unless the operator pointed at specific files, use the central ones.
-        if args.targets == PACKAGE_DIR / "targets.json":
-            args.targets = PACKAGE_DIR / "targets_central.json"
-        if args.targets_tune == PACKAGE_DIR / "targets_tune.json":
-            args.targets_tune = PACKAGE_DIR / "targets_tune_central.json"
+        args.targets, args.targets_tune = band_target_files(args.targets, args.targets_tune)
         if "GRID16" in protocols:
             print("GRID16 spans the full width and is dropped for a banded run")
             protocols = [p for p in protocols if p != "GRID16"]
-        print(f"horizontal band {lo:.2f}..{hi:.2f}: calibration grid x = {lo:.2f}/0.50/{hi:.2f} (NOT the library's grid)")
+        print(
+            f"horizontal band {lo:.2f}..{hi:.2f}: calibration grid x = {lo:.2f}/0.50/{hi:.2f} (NOT the library's grid)"
+        )
     generated = bool({"FULL", "MOVE"} & set(protocols))
     if generated:
         # FULL/MOVE generate their own targets, so the geometry comes from the
@@ -1720,7 +2594,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _, geometry = C.load_targets(args.targets)
     # Every target file must describe the same screen, or the sets are not
     # scored on one ruler.
-    checked = () if generated else (("targets-tune", args.targets_tune), ("targets-grid16", args.targets_grid16))
+    checked = (
+        ()
+        if generated
+        else (("targets-tune", args.targets_tune), ("targets-grid16", args.targets_grid16))
+    )
     for label, path in checked:
         if label == "targets-grid16" and "GRID16" not in protocols and not path.exists():
             continue
@@ -1779,7 +2657,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             for change in comparison["critical_changes"]:
                 print(f"  {change['field']}: {change['before']} -> {change['after']}")
     if args.eye_distance_cm is None:
-        print("NOTE: no --eye-distance-cm given; angular error will be unavailable for this session")
+        print(
+            "NOTE: no --eye-distance-cm given; angular error will be unavailable for this session"
+        )
     result = run_session(
         protocols=protocols,
         round_id=args.round,
@@ -1798,15 +2678,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         device_size=(device_w, device_h),
         allow_overwrite=args.overwrite_round,
         overlay_model_dir=args.overlay_model,
+        overlay_model_y_dir=args.overlay_model_y,
         overlay_filter_settings=overlay_filter_settings,
         show_unfiltered_overlay=args.overlay_show_unfiltered,
+        skip_model_check=args.skip_model_check,
+        target_order_seed=args.target_order_seed,
+        repeat_first=args.repeat_first,
+        pose_blocks=args.pose_blocks,
+        advance_timeout_s=args.advance_timeout_s,
+        no_save=args.no_save,
     )
-    if result.recordings:
+    if result.saved and result.recordings:
         manifest.save(args.out / f"round{args.round}" / "setup.json")
+    if not result.saved:
+        print(
+            "NOTHING WAS SAVED: this was a --no-save demonstration run. No recording, "
+            "metadata or setup file was written to disk."
+        )
     print(
         json.dumps(
             {
                 "recordings": {k: str(v) for k, v in result.recordings.items()},
+                "protocols_run": result.protocols_run,
+                "saved": result.saved,
                 "aborted": result.aborted,
                 "watchdog_tripped": result.watchdog_tripped,
                 "failure": result.failure,
@@ -1815,7 +2709,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             indent=2,
         )
     )
-    return 0 if (result.recordings and not result.aborted and not result.watchdog_tripped) else 1
+    # Judged on protocols that ran, not on files: in a normal run these are the
+    # same set, and a demo that completed every protocol is not a failure just
+    # because it deliberately wrote nothing.
+    ran = result.protocols_run
+    return 0 if (ran and not result.aborted and not result.watchdog_tripped) else 1
 
 
 if __name__ == "__main__":

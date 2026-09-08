@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+from gazelink.display_watch import DisplayGuard
 from gazelink.domain import GazePoint, GazeSample, PixelPoint, ReasonCode, ScreenGeometry
 from gazelink.gaze_engine import GazeEstimationResult
 from gazelink.gaze_window import _GazeCheckWindow, clamp_panel_position, format_gaze_status
@@ -83,6 +84,8 @@ def test_real_qt_panel_centers_and_dispatches_drag_events(monkeypatch: object) -
         SimpleNamespace(screen_geometry=ScreenGeometry("primary", 1920, 1080, 1.0)),
         diagnostic,  # type: ignore[arg-type]
         object(),  # type: ignore[arg-type]
+        display_guard=DisplayGuard(ScreenGeometry("primary", 1920, 1080, 1.0)),
+        screen=None,
         interval_ms=60_000,
     )
     window._widget.resize(1920, 1080)

@@ -1,0 +1,50 @@
+{
+  "verified_utc": "2026-09-08T12:38:32+00:00",
+  "note": "The exact configuration that scored 20/20 on dwell selection. Kept so the working setup can be restored rather than reconstructed from memory.",
+  "profile": "baseline",
+  "model_dir": "recordings/round18/models/svr_fzscore_lnone_C100_g0.0005",
+  "model_sha256": "f30c7d9d4f21bf2a8e6408c944368c2950b1e796c39d218a0912168d7994ad51",
+  "filter": {
+    "kind": "one-euro",
+    "one_euro_min_cutoff_hz": 0.4,
+    "one_euro_beta_hz_per_px_s": 0.0
+  },
+  "layout": {
+    "name": "a",
+    "buttons": [
+      {
+        "key": "LEFT",
+        "x0": 0.3,
+        "y0": 0.05,
+        "x1": 0.45999999999999996,
+        "y1": 0.95
+      },
+      {
+        "key": "RIGHT",
+        "x0": 0.54,
+        "y0": 0.05,
+        "x1": 0.7,
+        "y1": 0.95
+      }
+    ],
+    "band": [
+      0.3,
+      0.7
+    ]
+  },
+  "dwell_ms": 900.0,
+  "trial_timeout_s": 8.0,
+  "neutral_timeout_s": 5.0,
+  "pattern": "alternate",
+  "result": {
+    "correct_first": 20,
+    "scored_trials": 20,
+    "time_to_select_ms_median": 1203.5000000614673,
+    "report": "results/dwell/a_20260908_123724.json"
+  },
+  "not_measured": [
+    "unintended activations at rest: this run used --idle-seconds 0, so the rest block did not run and this configuration has NO false-activation number. Earlier layouts measured 15, 19 and 24 per 60s.",
+    "the 120px accuracy target, which remains unmet and is reported separately"
+  ],
+  "command": "gf_dwell_practice.py --pattern alternate   (profile 'baseline' active; everything else default)"
+}

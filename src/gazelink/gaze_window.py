@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -13,7 +14,15 @@ from gazelink.correction_diagnostic import (
     CorrectionDiagnosticView,
 )
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
-from gazelink.domain import ContractValidationError, GazePoint, ScreenGeometry
+from gazelink.display_watch import (
+    DisplayGuard,
+    DisplayWatcher,
+    OutputFreeze,
+    describe_screen,
+    ensure_high_dpi_policy,
+    identify_screen,
+)
+from gazelink.domain import ContractValidationError, GazePoint
 from gazelink.eyegestures_engine import EXTERNAL_ENGINE_TIMER_INTERVAL_MS
 from gazelink.gaze_correction import CorrectionStore
 from gazelink.gaze_engine import (
@@ -29,6 +38,12 @@ from gazelink.gaze_predictor import (
     NATIVE_ENGINE,
     GazePredictor,
     NativeGazePredictor,
+)
+from gazelink.recovery_gesture import (
+    EyeCloseDetector,
+    RecoveryMenu,
+    RecoveryOption,
+    advance_recovery,
 )
 from gazelink.runtime import VisionRuntime
 from gazelink.screen_mapping import centered_top_left
@@ -87,8 +102,21 @@ def format_gaze_status(
     )
 
 
+#: Returned when the user asked, by eye gesture, to calibrate for the display
+#: they are now on. The caller launches calibration; this window cannot,
+#: because its own model belongs to the screen that went away.
+RECALIBRATE_REQUESTED_EXIT_CODE = 10
+
+
+_NEWLINE = "\n"
+
+
 def run_gaze_check(
-    *, camera_index: int = 0, engine: str = NATIVE_ENGINE, smoothing: bool = True
+    *,
+    camera_index: int = 0,
+    engine: str = NATIVE_ENGINE,
+    smoothing: bool = True,
+    on_recalibration_request: Callable[[str | None], None] | None = None,
 ) -> int:
     """Display live vetted predictions from the selected engine.
 
@@ -97,6 +125,12 @@ def run_gaze_check(
     diagnostics available.  ``engine="eyegestures"`` instead routes prediction
     through the external library, which owns its own calibration and has no
     model of ours -- so the correction diagnostic is not offered there.
+
+    ``on_recalibration_request`` is called with the name of the display the
+    user was actually looking at when they asked, by eye gesture, to
+    recalibrate.  It is a callback rather than a return value or a module
+    global because the caller has to open the *next* window on that same
+    screen, and after a drag it is not the primary one.
 
     ``smoothing=False`` removes the One-Euro stability filter from the display
     path. Smoothing hides exactly the behaviour a measurement is trying to
@@ -119,19 +153,15 @@ def run_gaze_check(
 
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415
 
+    ensure_high_dpi_policy()
     application = QApplication.instance() or QApplication([])
     screen = application.primaryScreen()  # type: ignore[attr-defined]
     if screen is None:
         runtime.close()
         print("No primary display is available for the gaze check.")
         return 1
-    rectangle = screen.geometry()
-    geometry = ScreenGeometry(
-        screen_id=screen.name() or "primary",
-        width_px=rectangle.width(),
-        height_px=rectangle.height(),
-        dpi_scale=float(screen.devicePixelRatio()),
-    )
+    geometry = describe_screen(screen)
+    identity = identify_screen(screen)
 
     predictor: GazePredictor
     diagnostic: CorrectionDiagnosticSession | None
@@ -179,6 +209,8 @@ def run_gaze_check(
         predictor,
         diagnostic,
         correction_store,
+        display_guard=DisplayGuard(geometry, expected_identity=identity),
+        screen=screen,
         smoothing_enabled=smoothing,
         interval_ms=(
             EXTERNAL_ENGINE_TIMER_INTERVAL_MS
@@ -188,10 +220,19 @@ def run_gaze_check(
     )
     window.show()
     try:
-        return int(application.exec())
+        exit_code = int(application.exec())
     finally:
         predictor.close()
         runtime.close()
+    if window.recovery_choice == "recalibrate":
+        if on_recalibration_request is not None:
+            on_recalibration_request(window.recovery_screen_name)
+        # The gesture asked for a recalibration this window cannot perform:
+        # its model belongs to the display that went away. Report it so the
+        # caller can start calibration on the screen the user is now on.
+        print("Recalibration requested for the current display.")
+        return RECALIBRATE_REQUESTED_EXIT_CODE
+    return exit_code
 
 
 class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
@@ -202,6 +243,8 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         diagnostic: CorrectionDiagnosticSession | None,
         correction_store: CorrectionStore | None,
         *,
+        display_guard: DisplayGuard,
+        screen: Any,
         interval_ms: int = DEFAULT_TIMER_INTERVAL_MS,
         smoothing_enabled: bool = True,
     ) -> None:
@@ -219,6 +262,8 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
             predictor.estimator if isinstance(predictor, NativeGazePredictor) else None
         )
         self._closed = False
+        # Sized by the same display its geometry describes; see calibration.
+        self._screen = screen
         self._last_now_ms: float | None = None
         # None means "draw what the engine produced". The filter is not merely
         # bypassed downstream -- it is never constructed, so no retained state
@@ -227,6 +272,10 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         self._jitter = RollingJitterMonitor(predictor.screen_geometry)
         self._correction_map_visible = False
         self._widget = QWidget()
+        # Built after the widget exists, and reading the screen through a
+        # callable rather than capturing one: the window can be dragged to
+        # another display, and the screen that matters is the current one.
+        self._display = DisplayWatcher(display_guard, self._widget.screen, self._on_display_change)
         self._widget.setWindowTitle(_WINDOW_TITLE)
         self._widget.setStyleSheet("background: #101820; color: white;")
         self._widget.setWindowState(Qt.WindowState.WindowFullScreen)
@@ -351,14 +400,35 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
                 "Follow its own calibration target first."
             )
 
+        # `_target_dot` was missed by the hand-written freeze and stayed
+        # drawn on a screen whose geometry had changed.
+        # The way out of a freeze. Built up front so a display change cannot
+        # race the construction of the only escape hatch the user has.
+        self._close_detector = EyeCloseDetector()
+        self._recovery_menu = RecoveryMenu(
+            (
+                # Least destructive first: a stray long close must not do
+                # anything drastic.
+                RecoveryOption("recalibrate", "Calibrate for this screen"),
+                RecoveryOption("exit", "Close GAZELINK"),
+            )
+        )
+        self._recovery_choice: str | None = None
+        self._recovery_message = "The display changed."
+        self._recovery_screen_name: str | None = None
+        self._freeze = OutputFreeze(
+            self._raw_dot.hide,
+            self._corrected_dot.hide,
+            self._target_dot.hide,
+        )
+
     def show(self) -> None:
         """Show reliably on Windows, then center the movable info panel."""
 
         from PySide6.QtCore import QTimer  # noqa: PLC0415
 
-        screen = self._widget.screen()
-        if screen is not None:
-            self._widget.setGeometry(screen.geometry())
+        if self._screen is not None:
+            self._widget.setGeometry(self._screen.geometry())
         self._widget.show()
         self._widget.raise_()
         self._widget.activateWindow()
@@ -369,6 +439,10 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         self._widget.raise_()
         self._widget.activateWindow()
         self._center_info_panel()
+        # Attached only once the window is really on a screen: before that,
+        # windowHandle() is None and the drag-to-another-display signal cannot
+        # be connected at all.
+        self._display.attach(self._widget)
 
     def _center_info_panel(self) -> None:
         x, y = clamp_panel_position(
@@ -452,6 +526,8 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         event.ignore()
 
     def _on_tick(self) -> None:
+        # Is the screen we score against still the one we calibrated on?
+        display_change = self._display.poll()
         try:
             tick = self._runtime.tick()
         except CameraError as error:
@@ -461,6 +537,15 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         except Exception:
             self._shutdown()
             raise
+        if display_change is not None:
+            # Withhold gaze, but only after draining the frame. Neither the
+            # timer nor the vision loop may stop here: the recovery gesture is
+            # read from the camera, so freezing the pipeline would leave a
+            # user who cannot use their hands with no way out.
+            self._freeze_for_display()
+            if tick is not None:
+                self._drive_recovery(tick)
+            return
         if tick is None or tick.accepted_observation is None:
             if self._stability is not None:
                 self._stability.reset()
@@ -658,9 +743,94 @@ class _GazeCheckWindow:  # pragma: no cover - requires display and live camera
         except OSError as error:
             self._correction_status.setText(f"Correction persistence failed: {error}")
 
+    def _drive_recovery(self, tick: Any) -> None:
+        """Let the eyelids choose an option while gaze is untrustworthy.
+
+        Reads ``tick.observation`` -- the raw one -- because the confidence
+        policy rejects closed-eye frames by construction, so a detector built
+        on ``accepted_observation`` would be blind exactly here.
+        """
+
+        gesture = advance_recovery(
+            self._close_detector,
+            tick.observation,
+            now_monotonic_ms=tick.frame.captured_at_monotonic_ms,
+        )
+        if gesture is not None:
+            chosen = self._recovery_menu.apply(gesture)
+            if chosen is not None:
+                self._act_on_recovery(chosen.key)
+                return
+        self._render_recovery_menu()
+
+    def _render_recovery_menu(self) -> None:
+        """Show the frozen state and how to leave it, every frame.
+
+        Redrawn continuously rather than once, because the highlight moves and
+        because a person who has just opened their eyes needs to see where the
+        highlight landed without having watched the transition.
+        """
+
+        lines = [
+            self._recovery_message,
+            "",
+            self._recovery_menu.describe(),
+            "Close your eyes briefly to move, or hold them closed to choose.",
+        ]
+        if self._close_detector.is_holding:
+            lines.append("Holding...")
+        self._status.setText(_NEWLINE.join(lines))
+
+    @property
+    def recovery_screen_name(self) -> str | None:
+        """Which display the recovery request was made from, if any."""
+
+        return self._recovery_screen_name
+
+    @property
+    def recovery_choice(self) -> str | None:
+        """What the user asked for by gesture, if anything."""
+
+        return self._recovery_choice
+
+    def _act_on_recovery(self, key: str) -> None:
+        """Carry out the choice. Both paths end this window."""
+
+        if key == "recalibrate":
+            self._recovery_choice = "recalibrate"
+            # The display the user is actually looking at, which after a drag
+            # is not the primary one. Without this the recalibration would open
+            # on another monitor and claim to have done what was asked.
+            current = self._widget.screen()
+            self._recovery_screen_name = (
+                None if current is None else describe_screen(current).screen_id
+            )
+        self._shutdown()
+        self._widget.close()
+
+    def _on_display_change(self, change: object) -> None:
+        """Announce the change once, in the words the module composed."""
+
+        self._recovery_message = getattr(change, "message", "The display changed.")
+        self._status.setText(self._recovery_message)
+
+    def _freeze_for_display(self) -> None:
+        """Withhold gaze while keeping the camera and the frame timer alive.
+
+        Every drawn marker is cleared rather than left where it was: a stale dot
+        on a screen whose geometry has changed is precisely the silently-wrong
+        output this whole change exists to prevent.
+        """
+
+        if self._stability is not None:
+            self._stability.reset()
+        self._jitter.reset()
+        self._freeze.engage()
+
     def _shutdown(self) -> None:
         if self._closed:
             return
         self._closed = True
+        self._display.detach()
         self._timer.stop()
         self._runtime.close()

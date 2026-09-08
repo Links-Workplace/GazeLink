@@ -1,0 +1,99 @@
+{
+  "region": {
+    "why": "the two layout-A button centres, to test whether the model can distinguish them at all when the operator is told exactly where to look",
+    "x_values": [
+      0.38,
+      0.62
+    ]
+  },
+  "screen_geometry": {
+    "dpi_scale": 1.25,
+    "height_px": 1152,
+    "orientation": "LANDSCAPE",
+    "screen_id": "LS49C95xU",
+    "width_px": 4096
+  },
+  "seed": 11,
+  "targets": [
+    {
+      "index": 0,
+      "name": "L_0.35",
+      "screen_position": {
+        "x": 0.38,
+        "y": 0.35
+      }
+    },
+    {
+      "index": 1,
+      "name": "L_0.65",
+      "screen_position": {
+        "x": 0.38,
+        "y": 0.65
+      }
+    },
+    {
+      "index": 2,
+      "name": "L_0.20",
+      "screen_position": {
+        "x": 0.38,
+        "y": 0.2
+      }
+    },
+    {
+      "index": 3,
+      "name": "R_0.20",
+      "screen_position": {
+        "x": 0.62,
+        "y": 0.2
+      }
+    },
+    {
+      "index": 4,
+      "name": "R_0.50",
+      "screen_position": {
+        "x": 0.62,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 5,
+      "name": "L_0.50",
+      "screen_position": {
+        "x": 0.38,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 6,
+      "name": "R_0.35",
+      "screen_position": {
+        "x": 0.62,
+        "y": 0.35
+      }
+    },
+    {
+      "index": 7,
+      "name": "R_0.80",
+      "screen_position": {
+        "x": 0.62,
+        "y": 0.8
+      }
+    },
+    {
+      "index": 8,
+      "name": "L_0.80",
+      "screen_position": {
+        "x": 0.38,
+        "y": 0.8
+      }
+    },
+    {
+      "index": 9,
+      "name": "R_0.65",
+      "screen_position": {
+        "x": 0.62,
+        "y": 0.65
+      }
+    }
+  ]
+}

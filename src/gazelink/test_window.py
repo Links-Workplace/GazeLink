@@ -18,6 +18,14 @@ from gazelink.calibration import targets_for_screen_geometry
 from gazelink.calibration_ui import CalibrationTimingSettings
 from gazelink.camera import CameraError
 from gazelink.debug_window import DEFAULT_TIMER_INTERVAL_MS, build_runtime
+from gazelink.display_watch import (
+    DisplayGuard,
+    DisplayWatcher,
+    OutputFreeze,
+    describe_screen,
+    ensure_high_dpi_policy,
+    identify_screen,
+)
 from gazelink.domain import (
     ContractValidationError,
     GazePoint,
@@ -209,19 +217,14 @@ def run_gaze_test(
 
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415
 
+    ensure_high_dpi_policy()
     application = QApplication.instance() or QApplication([])
     screen = application.primaryScreen()  # type: ignore[attr-defined]
     if screen is None:
         runtime.close()
         print("No primary display is available for the held-out test.")
         return 1
-    rectangle = screen.geometry()
-    geometry = ScreenGeometry(
-        screen_id=screen.name() or "primary",
-        width_px=rectangle.width(),
-        height_px=rectangle.height(),
-        dpi_scale=float(screen.devicePixelRatio()),
-    )
+    geometry = describe_screen(screen)
     effective_seed = DEFAULT_TEST_SEED if seed is None else seed
     effective_count = TEST_POINT_COUNT if point_count is None else point_count
     # An external engine calibrates on its OWN grid, so "held out" has to mean
@@ -357,6 +360,16 @@ class _TestPointWindow:  # pragma: no cover - requires display and live camera
         self._closed = False
         self._artifacts_written = False
         self._widget = QWidget()
+        # Continuous, unlike `_verify_surface_matches_ruler` below, which
+        # only fires once on entering fullscreen. A display that changes
+        # mid-collection was invisible to that check.
+        self._display = DisplayWatcher(
+            DisplayGuard(screen_geometry, expected_identity=identify_screen(screen))
+            if screen is not None
+            else DisplayGuard(screen_geometry),
+            lambda: self._widget.screen(),
+            self._on_display_change,
+        )
         self._widget.setWindowTitle(_WINDOW_TITLE)
         self._widget.setStyleSheet("background: #101820; color: white;")
         self._widget.setWindowState(Qt.WindowState.WindowFullScreen)
@@ -416,6 +429,14 @@ class _TestPointWindow:  # pragma: no cover - requires display and live camera
         self._timer.start(self._interval_ms)
         self._render(self._controller.view())
 
+        self._freeze = OutputFreeze(
+            self._timer.stop,
+            self._target.hide,
+            lambda: (
+                None if self._prediction_overlay is None else self._prediction_overlay.update(None)
+            ),
+        )
+
     def show(self) -> None:
         from PySide6.QtCore import QTimer  # noqa: PLC0415
 
@@ -460,7 +481,27 @@ class _TestPointWindow:  # pragma: no cover - requires display and live camera
             f"{self._screen_geometry.height_px}. Nothing was recorded. Press Esc."
         )
 
+    def _on_display_change(self, change: object) -> None:
+        self._feedback.setStyleSheet("color: #FF5252; background: transparent;")
+        self._feedback.setText(
+            f"{getattr(change, 'message', 'The display changed.')} "
+            "Nothing further was recorded. Press Esc."
+        )
+
+    def _refuse_for_display(self) -> None:
+        """Stop collecting: the ruler changed underneath the measurements.
+
+        Same reasoning as the surface check below -- numbers scored against a
+        screen the targets were not drawn on describe nothing, and recording
+        them is worse than recording nothing.
+        """
+
+        self._freeze.engage()
+
     def _on_tick(self) -> None:
+        if self._display.poll() is not None:
+            self._refuse_for_display()
+            return
         try:
             tick = self._runtime.tick()
         except CameraError as error:
@@ -693,6 +734,7 @@ class _TestPointWindow:  # pragma: no cover - requires display and live camera
         if self._closed:
             return
         self._closed = True
+        self._display.detach()
         self._timer.stop()
         self._runtime.close()
 

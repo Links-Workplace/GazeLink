@@ -257,6 +257,76 @@ class SelectionLeakageTests(unittest.TestCase):
         self.assertNotAlmostEqual(results[0]["t1"][s]["t1"]["median_euclid_px"], results[1]["t1"][s]["t1"]["median_euclid_px"], delta=1.0)
 
 
+class ModelOverwriteGuardTests(unittest.TestCase):
+    """A model directory is what a profile points at and what a live session
+    loads, so replacing it in place destroys something in use -- and the
+    replacement looks identical: same path, same filenames, same config name,
+    different weights. This is how the round18 baseline was lost."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.recording = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _existing_model(self, name: str = "svr_fzscore_lnone_C100_g0.0005") -> Path:
+        directory = self.recording / "models" / name
+        directory.mkdir(parents=True)
+        (directory / "config.json").write_text("{}", encoding="utf-8")
+        return directory
+
+    def test_a_recording_with_no_models_is_not_refused(self) -> None:
+        F.refuse_to_overwrite_models(self.recording)  # must not raise
+        self.assertEqual(F.existing_model_dirs(self.recording), [])
+
+    def test_an_existing_model_is_refused(self) -> None:
+        self._existing_model()
+        with self.assertRaises(FileExistsError):
+            F.refuse_to_overwrite_models(self.recording)
+
+    def test_the_refusal_names_the_model_and_the_way_out(self) -> None:
+        """A refusal nobody can act on gets bypassed with --skip-everything."""
+
+        self._existing_model("central-band-svr")
+        with self.assertRaises(FileExistsError) as caught:
+            F.refuse_to_overwrite_models(self.recording)
+        message = str(caught.exception)
+        self.assertIn("central-band-svr", message)
+        self.assertIn("--overwrite-models", message)
+        self.assertIn("--no-save-models", message)
+
+    def test_a_stray_file_beside_the_models_is_not_mistaken_for_one(self) -> None:
+        (self.recording / "models").mkdir(parents=True)
+        (self.recording / "models" / "notes.txt").write_text("x", encoding="utf-8")
+        F.refuse_to_overwrite_models(self.recording)  # must not raise
+
+    def test_the_guard_runs_before_anything_is_fitted(self) -> None:
+        """Refusing after the sweep would throw away minutes of fitting, and
+        worse, would already have written the first models before noticing."""
+
+        self._existing_model()
+        with self.assertRaises(FileExistsError):
+            # No A/TUNE/T1 exist here at all: reaching the recording load
+            # would raise something else entirely, so a FileExistsError proves
+            # the guard fired first.
+            F.run_phase0(self.recording, self.recording / "out")
+
+    def test_not_saving_models_is_allowed_over_existing_ones(self) -> None:
+        """Scoring without writing cannot destroy anything, so it must not be
+        blocked -- otherwise the guard pushes people toward --overwrite."""
+
+        self._existing_model()
+        with self.assertRaises(FileNotFoundError):
+            # Gets past the guard and fails on the missing recording instead.
+            F.run_phase0(self.recording, self.recording / "out", save_models=False)
+
+    def test_overwriting_on_purpose_is_allowed(self) -> None:
+        self._existing_model()
+        with self.assertRaises(FileNotFoundError):
+            F.run_phase0(self.recording, self.recording / "out", overwrite_models=True)
+
+
 class Phase0ReportTests(unittest.TestCase):
     def test_end_to_end_report_and_predictions_json(self) -> None:
         grid = [F.library_default_config(), F.FitConfig(name="z", feature_scaling="zscore", label_scaling="zscore", C=10.0, gamma="auto")]

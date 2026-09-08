@@ -3,6 +3,8 @@ No camera, no pygame, no gazefollower import."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -330,6 +332,94 @@ class WatchdogTests(unittest.TestCase):
         self.assertTrue(R.watchdog_tripped(100.0, 105.1))
 
 
+class TargetOrderTests(unittest.TestCase):
+    """Every T1 run so far used one fixed order, so "later in the run" and "a
+    different place on the screen" were the same thing. These two options exist
+    to break that confound, so what they must guarantee is that positions are
+    preserved exactly while only the ORDER changes."""
+
+    def _targets(self, n=10):
+        return [R.Target(i, f"T_{i}", 0.3 + 0.04 * i, 0.2 + 0.06 * i) for i in range(n)]
+
+    def test_no_options_leaves_the_order_untouched(self) -> None:
+        t = self._targets()
+        self.assertEqual(R.order_targets(t), t)
+
+    def test_a_seed_reorders_without_losing_or_inventing_targets(self) -> None:
+        t = self._targets()
+        out = R.order_targets(t, order_seed=7)
+        self.assertNotEqual([x.index for x in out], [x.index for x in t])
+        self.assertEqual(sorted(x.index for x in out), sorted(x.index for x in t))
+        # the position must travel with the id, or the experiment measures nothing
+        by_id = {x.index: (x.x, x.y) for x in t}
+        for x in out:
+            self.assertEqual((x.x, x.y), by_id[x.index])
+
+    def test_the_same_seed_gives_the_same_order(self) -> None:
+        t = self._targets()
+        self.assertEqual(
+            [x.index for x in R.order_targets(t, order_seed=20260908)],
+            [x.index for x in R.order_targets(t, order_seed=20260908)],
+        )
+
+    def test_different_seeds_give_different_orders(self) -> None:
+        t = self._targets()
+        a = [x.index for x in R.order_targets(t, order_seed=1)]
+        b = [x.index for x in R.order_targets(t, order_seed=2)]
+        self.assertNotEqual(a, b)
+
+    def test_repeat_first_reshows_the_opening_targets_at_the_end(self) -> None:
+        t = self._targets()
+        out = R.order_targets(t, repeat_first=3)
+        self.assertEqual(len(out), 13)
+        self.assertEqual([x.index for x in out[:3]], [x.index for x in out[-3:]])
+
+    def test_a_repeated_target_keeps_its_id_and_position(self) -> None:
+        """The id names the position; the two visits are told apart by order.
+        A new id would make the same place look like two different places."""
+
+        out = R.order_targets(self._targets(), repeat_first=2)
+        first, last = out[0], out[-2]
+        self.assertEqual(first.index, last.index)
+        self.assertEqual((first.x, first.y), (last.x, last.y))
+
+    def test_shuffle_happens_before_the_repeat(self) -> None:
+        out = R.order_targets(self._targets(), order_seed=5, repeat_first=2)
+        self.assertEqual([x.index for x in out[:2]], [x.index for x in out[-2:]])
+
+    def test_the_live_path_actually_accepts_every_option_main_passes_it(self) -> None:
+        """Regression: the ordering options were added to the CLI and used
+        inside run_session's body, but never added to its signature. Nothing
+        failed until a camera ran, because no test reaches that path. Compare
+        the two directly instead of exercising the loop."""
+
+        import ast
+        import inspect
+        import textwrap
+
+        accepted = set(inspect.signature(R.run_session).parameters)
+        tree = ast.parse(textwrap.dedent(inspect.getsource(R.main)))
+        passed = {
+            keyword.arg
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "run_session"
+            for keyword in node.keywords
+            if keyword.arg is not None
+        }
+        self.assertTrue(passed, "no run_session(...) call found; this test is not checking anything")
+        self.assertTrue(
+            passed <= accepted,
+            f"main() passes these to run_session, which does not accept them: {passed - accepted}",
+        )
+
+    def test_asking_for_more_repeats_than_targets_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            R.order_targets(self._targets(3), repeat_first=4)
+        with self.assertRaises(ValueError):
+            R.order_targets(self._targets(3), repeat_first=-1)
+
+
 class ProtocolSpecTests(unittest.TestCase):
     def test_protocol_a_matches_library_sequence(self) -> None:
         spec = R.protocol_a()
@@ -638,6 +728,67 @@ class RoundOverwriteGuardTests(unittest.TestCase):
             R.guard_existing_round(empty)
 
 
+class ModelFitPreflightTests(unittest.TestCase):
+    """A model used outside the conditions it was calibrated in freezes the
+    overlay point on a constant instead of degrading visibly. Every other
+    check still reports success, so this is the only thing standing between
+    the operator and a wasted protocol."""
+
+    def test_a_frozen_model_is_refused_before_recording(self) -> None:
+        activation = np.zeros(200)
+        ok, message = R.preflight_verdict(activation)
+        self.assertFalse(ok)
+        self.assertIn("freeze", message)
+        self.assertIn("Recalibrate", message)
+
+    def test_a_healthy_model_passes(self) -> None:
+        ok, message = R.preflight_verdict(np.full(200, 0.94))
+        self.assertTrue(ok)
+        self.assertIn("0.94", message)
+
+    def test_the_threshold_sits_far_below_the_measured_healthy_band(self) -> None:
+        # Healthy sessions measured 0.86-0.98; frozen ones 0.000. Refusing
+        # anywhere inside the healthy band would block good recordings.
+        self.assertLess(R.PREFLIGHT_MIN_ACTIVATION, 0.86)
+        self.assertGreater(R.PREFLIGHT_MIN_ACTIVATION, 0.01)
+
+    def test_it_never_refuses_on_evidence_it_does_not_have(self) -> None:
+        for activation in (None, np.array([]), np.full(5, np.nan)):
+            ok, _ = R.preflight_verdict(activation)
+            self.assertTrue(ok)
+
+    def test_a_head_feature_model_gets_head_columns_not_a_crash(self) -> None:
+        """Regression: the preflight collected the bare 258-column feature
+        vector, so a model fitted with head columns raised on the column
+        count and aborted the session before recording -- for a configuration
+        the recorder fully supports."""
+
+        model = SimpleNamespace(schema=SimpleNamespace(head_names=("pitch_a", "yaw_ratio")))
+        face, gaze = frame(dim=8)
+        row = R._overlay_design_row(model, face, gaze, head_builder=head_ok)
+        self.assertIsNotNone(row)
+        self.assertEqual(row.shape, (10,))  # 8 features + 2 head columns
+
+    def test_a_model_without_head_columns_gets_the_features_unchanged(self) -> None:
+        model = SimpleNamespace(schema=SimpleNamespace(head_names=()))
+        face, gaze = frame(dim=8)
+        row = R._overlay_design_row(model, face, gaze)
+        self.assertEqual(row.shape, (8,))
+
+    def test_a_frame_that_cannot_make_a_row_is_skipped_not_raised(self) -> None:
+        model = SimpleNamespace(schema=SimpleNamespace(head_names=("pitch_a",)))
+        face, gaze = frame(status=False)
+        self.assertIsNone(R._overlay_design_row(model, face, gaze, head_builder=head_ok))
+        broken = SimpleNamespace(schema=SimpleNamespace(head_names=("nope",)))
+        face, gaze = frame(dim=8)
+        self.assertIsNone(R._overlay_design_row(broken, face, gaze, head_builder=head_ok))
+
+    def test_a_partly_degraded_model_still_passes_if_the_median_holds(self) -> None:
+        mixed = np.concatenate([np.zeros(40), np.full(160, 0.9)])
+        ok, _ = R.preflight_verdict(mixed)
+        self.assertTrue(ok)
+
+
 class NoFaceStallTests(unittest.TestCase):
     """round12 recorded 903 frames in which the face was never found and still
     reported finished=true. Frames kept arriving and the subscriber never
@@ -753,6 +904,86 @@ class LiveOverlayTests(unittest.TestCase):
         runner.on_frame(*self._frame_with_raw())
         self.assertEqual(runner.state.overlay_raw_norm, (0.5, 0.5))
         self.assertEqual(runner.state.overlay_norm, (0.5, 0.5))
+
+    def _axis_model(self, point, head_names=()):
+        class FakeModel:
+            class schema:
+                pass
+
+            def predict_norm(self, X, rig):
+                return np.array([point])
+
+        FakeModel.schema.head_names = head_names
+        return FakeModel()
+
+    def test_a_second_model_supplies_only_the_vertical_axis(self) -> None:
+        """x must come from the primary model and y from the vertical one --
+        mixing them the other way round would silently swap the axis that was
+        measured as accurate for the one that was not."""
+
+        clock = FakeClock()
+        spec = R.protocol_a()
+        builder = S.RecordingBuilder("A", 0, dict(META, targets=spec.exported_targets()))
+        runner = R.ProtocolRunner(
+            spec, builder, RIG, clock=clock, head_builder=head_ok, pnp=pnp_none,
+            overlay_model=self._axis_model((0.2, 0.9)),
+            overlay_model_y=self._axis_model((0.7, 0.4)),
+        )
+        runner.start()
+        clock.tick(1.6)
+        runner.on_frame(*self._frame_with_raw())
+        self.assertEqual(runner.state.overlay_raw_norm, (0.2, 0.4))
+
+    def test_without_a_second_model_the_primary_still_supplies_both_axes(self) -> None:
+        clock = FakeClock()
+        spec = R.protocol_a()
+        builder = S.RecordingBuilder("A", 0, dict(META, targets=spec.exported_targets()))
+        runner = R.ProtocolRunner(
+            spec, builder, RIG, clock=clock, head_builder=head_ok, pnp=pnp_none,
+            overlay_model=self._axis_model((0.2, 0.9)),
+        )
+        runner.start()
+        clock.tick(1.6)
+        runner.on_frame(*self._frame_with_raw())
+        self.assertEqual(runner.state.overlay_raw_norm, (0.2, 0.9))
+
+    def test_a_failing_vertical_model_hides_the_point_rather_than_half_of_it(self) -> None:
+        """Drawing x with no y would put the dot at a position neither model
+        claims, and it would look like a working point sliding along a line."""
+
+        class DeadModel:
+            class schema:
+                head_names = ()
+
+            def predict_norm(self, X, rig):
+                return np.array([[np.nan, np.nan]])
+
+        clock = FakeClock()
+        spec = R.protocol_a()
+        builder = S.RecordingBuilder("A", 0, dict(META, targets=spec.exported_targets()))
+        runner = R.ProtocolRunner(
+            spec, builder, RIG, clock=clock, head_builder=head_ok, pnp=pnp_none,
+            overlay_model=self._axis_model((0.2, 0.9)), overlay_model_y=DeadModel(),
+        )
+        runner.start()
+        clock.tick(1.6)
+        runner.on_frame(*self._frame_with_raw())
+        self.assertIsNone(runner.state.overlay_raw_norm)
+        self.assertIsNone(runner.state.overlay_norm)
+
+    def test_a_vertical_model_needing_head_columns_is_refused_without_head(self) -> None:
+        clock = FakeClock()
+        spec = R.protocol_a()
+        builder = S.RecordingBuilder("A", 0, dict(META, targets=spec.exported_targets()))
+        runner = R.ProtocolRunner(
+            spec, builder, RIG, clock=clock, head_builder=head_none, pnp=pnp_none,
+            overlay_model=self._axis_model((0.2, 0.9)),
+            overlay_model_y=self._axis_model((0.7, 0.4), head_names=("pitch_a",)),
+        )
+        runner.start()
+        clock.tick(1.6)
+        runner.on_frame(*self._frame_with_raw())
+        self.assertIsNone(runner.state.overlay_raw_norm)
 
     def test_blue_point_is_filtered_once_per_new_frame(self) -> None:
         class MovingModel:
@@ -937,3 +1168,131 @@ class LiveOverlayTests(unittest.TestCase):
         clock.tick(1.6)
         runner.on_frame(*self._frame_with_raw())
         self.assertIsNone(runner.state.overlay_norm)
+
+
+class NoSaveDemoModeTests(unittest.TestCase):
+    """A demonstration is not a recording. Showing the blue dot to someone
+    used to force a fresh round number -- the overwrite guard refuses a used
+    one -- and left throwaway data under recordings/. --no-save runs the same
+    protocols and writes nothing, so no round number is spent and no data is
+    created that later has to be told apart from a real session."""
+
+    BASE_ARGS = [
+        "--camera-x-cm",
+        "60",
+        "--camera-y-cm",
+        "63.6",
+        "--screen-width-cm",
+        "120",
+        "--screen-height-cm",
+        "33.75",
+    ]
+
+    def test_the_flag_is_off_by_default_and_round_is_taken_as_given(self) -> None:
+        args = R.build_parser().parse_args(["--round", "7", *self.BASE_ARGS])
+        self.assertFalse(args.no_save)
+        self.assertEqual(args.round, 7)
+
+    def test_no_save_parses_without_a_round(self) -> None:
+        args = R.build_parser().parse_args(["--no-save", *self.BASE_ARGS])
+        self.assertTrue(args.no_save)
+        self.assertIsNone(args.round)
+
+    def test_a_saving_run_must_still_name_its_round(self) -> None:
+        """--round stays mandatory for a real recording: a session that
+        silently defaulted its round id could land on an earlier one's data."""
+
+        with self.assertRaises(ValueError):
+            R.resolve_round_id(None, no_save=False)
+
+    def test_no_save_gets_the_sentinel_round_instead_of_an_invented_number(self) -> None:
+        self.assertEqual(R.resolve_round_id(None, no_save=True), R.DEMO_ROUND_ID)
+        self.assertLess(R.DEMO_ROUND_ID, 0)  # never mistakable for round 0
+
+    def test_an_explicit_round_is_kept_in_either_mode(self) -> None:
+        self.assertEqual(R.resolve_round_id(7, no_save=False), 7)
+        self.assertEqual(R.resolve_round_id(7, no_save=True), 7)
+
+    def test_main_exits_before_any_device_when_round_is_missing(self) -> None:
+        """The rule moved out of argparse into main, so the wiring is checked
+        too -- and it must still fire before a camera or window is touched."""
+
+        with io.StringIO() as sink, contextlib.redirect_stderr(sink):
+            with self.assertRaises(SystemExit) as caught:
+                R.main(self.BASE_ARGS)
+            message = sink.getvalue()
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("--no-save", message)
+
+    def test_the_help_text_states_that_nothing_is_written(self) -> None:
+        action = next(a for a in R.build_parser()._actions if a.dest == "no_save")
+        self.assertEqual(action.option_strings, ["--no-save"])
+        self.assertIn("NOTHING", action.help)
+
+    def test_a_round_that_would_be_refused_is_not_refused_in_no_save_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            round_dir = root / "round9"
+            round_dir.mkdir()
+            (round_dir / "T1.npz").write_bytes(b"recorded")
+            # The same directory, both ways: the guard refuses it on its own...
+            with self.assertRaises(SystemExit):
+                R.guard_existing_round(round_dir)
+            # ...and no-save never reaches the guard, because it cannot collide.
+            self.assertIsNone(R.prepare_output_dir(root, 9, no_save=True))
+
+    def test_no_save_writes_nothing_under_the_output_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertIsNone(R.prepare_output_dir(root, 9, no_save=True))
+            # No round directory, no .gitignore, nothing at all.
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_no_save_does_not_create_a_missing_output_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "absent"
+            self.assertIsNone(R.prepare_output_dir(root, 3, no_save=True))
+            self.assertFalse(root.exists())
+
+    def test_saving_mode_still_refuses_an_output_root_outside_recordings(self) -> None:
+        """The embeddings-stay-under-recordings/ rule is skipped only because
+        no-save writes nothing at all; a saving run is still held to it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                R.prepare_output_dir(Path(tmp), 9, no_save=False)
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_the_session_result_carries_the_not_saved_verdict(self) -> None:
+        demo = R.SessionResult(saved=False)
+        demo.protocols_run.append("T1")
+        self.assertEqual(demo.recordings, {})
+        self.assertEqual(demo.protocols_run, ["T1"])
+        self.assertTrue(R.SessionResult().saved)  # a normal run still saves
+
+    def test_the_per_protocol_summary_line_is_marked_not_saved(self) -> None:
+        """An operator scrolling the console must not have to remember which
+        flag the run started with to know whether these rows still exist."""
+
+        rec = _one_frozen_recording()
+        self.assertIn("[NOT SAVED]", R._summary_line("T1", rec, saved=False))
+        self.assertNotIn("NOT SAVED", R._summary_line("T1", rec, saved=True))
+
+
+def _one_frozen_recording() -> S.Recording:
+    """A real frozen recording built from one fake frame, for summary tests."""
+
+    spec = R.ProtocolSpec(
+        "T1", [R.Target(0, "A", 0.5, 0.5)], "timed", settle_s=0.1, collect_s=0.1
+    )
+    builder = S.RecordingBuilder("T1", 0, dict(META, targets=spec.exported_targets()))
+    clock = FakeClock()
+    runner = R.ProtocolRunner(
+        spec, builder, RIG, clock=clock, head_builder=head_ok, pnp=pnp_none
+    )
+    runner.start()
+    clock.tick(0.15)
+    runner.on_frame(*frame())
+    rec = runner.builder.freeze()
+    rec.meta["integrity"] = runner.integrity(watchdog_tripped=False, aborted=False)
+    return rec
