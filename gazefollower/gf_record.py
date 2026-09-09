@@ -116,6 +116,18 @@ T2_TARGETS: tuple[tuple[float, float], ...] = ((0.5, 0.10), (0.5, 0.50), (0.5, 0
 T2_SECONDS = 20.0
 T2_SETTLE_S = 1.5
 
+# T3 holds each held-out target long enough to separate ARRIVING at it from
+# STAYING on it. Measured on round34/T1, the raw prediction was still closing
+# on the target at 2500-3000 ms after onset (median 2469 ms to settle within
+# 200 px, against 546 ms on round19), so a 3.0 s presentation ends while the
+# approach is still happening and the scored window carries it. 4.0 s leaves
+# a second of settled hold after the slowest approach seen so far.
+#
+# Same targets and same 1.5 s settle as T1 on purpose: only the hold changes,
+# so the two are comparable frame for frame over their shared first 3 s.
+T3_SETTLE_S = C.DEFAULT_SETTLE_MS / 1000.0
+T3_COLLECT_S = 2.5
+
 INSTRUCTIONS = {
     "A": "Calibration. Keep your head STILL and look at each dot.",
     "FULL": "Full-screen targets: centre, sides, top, bottom and corners. Head still.",
@@ -124,6 +136,7 @@ INSTRUCTIONS = {
     "GRID16": "16-point grid. Keep your head still and look at each dot.",
     "T1": "Held-out targets. Keep your head still and look at each dot.",
     "T2": "Keep your EYES on the dot and NOD your head SLOWLY up and down.",
+    "T3": "Held-out targets, held longer. Keep your head still and look at each dot.",
     "B": "Same targets, several head positions. Follow the pose prompt before each block.",
 }
 
@@ -378,6 +391,28 @@ def protocol_t2() -> ProtocolSpec:
         settle_s=T2_SETTLE_S,
         collect_s=T2_SECONDS - T2_SETTLE_S,
         instruction=INSTRUCTIONS["T2"],
+    )
+
+
+def protocol_t3(targets: Path) -> ProtocolSpec:
+    """T1's targets, held long enough to see the approach finish."""
+
+    loaded, _ = C.load_targets(targets)
+    return ProtocolSpec(
+        "T3",
+        [
+            Target(
+                int(t["index"]),
+                str(t["name"]),
+                float(t["screen_position"]["x"]),
+                float(t["screen_position"]["y"]),
+            )
+            for t in loaded
+        ],
+        "timed",
+        settle_s=T3_SETTLE_S,
+        collect_s=T3_COLLECT_S,
+        instruction=INSTRUCTIONS["T3"],
     )
 
 
@@ -653,6 +688,14 @@ class ProtocolRunner:
                 features = np.asarray(features, dtype=np.float32).reshape(-1)
                 if self.feature_dim is None:
                     self.feature_dim = int(features.shape[0])
+            # Stored in the LIBRARY's frame, deliberately: this is the raw
+            # capture and every existing recording is in it, so flipping here
+            # would silently change what old files mean. The camera faces the
+            # person, so the "left" column is the eye on the left of the
+            # IMAGE, which is their RIGHT one. Anything that interprets these
+            # as the person's eyes must go through
+            # gf_gesture.eyes_as_the_person_has_them first -- not doing so is
+            # what made every wink detector watch the wrong eye.
             left = float(getattr(face_info, "left_eye_openness", 0.0) or 0.0)
             right = float(getattr(face_info, "right_eye_openness", 0.0) or 0.0)
             head = self.head_builder(face_info) if gaze_status else None
@@ -1161,6 +1204,7 @@ class Display:
         headless: bool,
         origin: tuple[int, int] = (0, 0),
         overlay_available: bool = False,
+        click_through: bool = False,
         show_unfiltered_overlay: bool = False,
         overlay_stale_s: float = OVERLAY_STALE_S,
         clock: Callable[[], float] = time.monotonic,
@@ -1187,8 +1231,18 @@ class Display:
             pass
         self.pg = pygame
         flags = pygame.NOFRAME if origin != (0, 0) else pygame.FULLSCREEN
+        if click_through:
+            # Borderless rather than FULLSCREEN: an exclusive fullscreen
+            # window is not a thing Windows will let clicks fall through.
+            flags = pygame.NOFRAME
         self.screen = pygame.display.set_mode((width, height), flags)
         pygame.display.set_caption("GAZELINK - GazeFollower recording")
+        self.overlay = None
+        if click_through:
+            import gf_overlay as OV  # noqa: PLC0415
+
+            self.overlay = OV.make_click_through(pygame.display.get_wm_info()["window"])
+            self.transparent_key = OV.TRANSPARENT_KEY
         self.font = pygame.font.Font(None, 44)
         self.big = pygame.font.Font(None, 64)
         res = Path(_library_dir()) / "res"
@@ -1212,6 +1266,23 @@ class Display:
             if event.type == self.pg.KEYDOWN and event.key == self.pg.K_ESCAPE:
                 return True
         return False
+
+    def poll_keys(self) -> set[str]:
+        """Every key pressed since the last call, by name.
+
+        Separate from :meth:`poll_escape` because that one drains the queue
+        and reports only one key, so a caller that needs a second key cannot
+        use both. Screens that only care about Esc keep using poll_escape.
+        """
+
+        if self.headless:
+            return set()
+        names = {self.pg.K_ESCAPE: "escape", self.pg.K_SPACE: "space"}
+        pressed: set[str] = set()
+        for event in self.pg.event.get():
+            if event.type == self.pg.KEYDOWN and event.key in names:
+                pressed.add(names[event.key])
+        return pressed
 
     def wait_for_key(self, lines: Sequence[str], *, timeout_s: float | None = None) -> str:
         """Hold the instruction on screen until the operator is ready.
@@ -1344,7 +1415,11 @@ class Display:
 
         if self.headless:
             return
-        self.screen.fill((255, 255, 255))
+        # In overlay mode the background is the colour Windows was told to
+        # treat as a hole, so the desktop shows through and only the dots and
+        # the text are visible. Anywhere else it is the ordinary white sheet.
+        overlay = self.overlay is not None and self.overlay.see_through
+        self.screen.fill(self.transparent_key if overlay else (255, 255, 255))
         self._draw_live_point(raw_model, (255, 160, 0), radius=6)
         if self._show_unfiltered_overlay:
             self._draw_live_point(unfiltered, (150, 70, 180), radius=7, cross=True)
@@ -1353,8 +1428,15 @@ class Display:
             banner = self.big.render("tracking lost", True, (200, 40, 40))
             self.screen.blit(banner, (self.width // 2 - banner.get_width() // 2, 60))
         y = 20
+        # Over an unknown desktop the text needs its own ground, or it is
+        # unreadable exactly when it matters -- the mode line included.
+        colour = (20, 20, 20) if overlay else (60, 60, 60)
         for line in hud:
-            surf = self.font.render(line, True, (60, 60, 60))
+            surf = self.font.render(line, True, colour)
+            if overlay:
+                plate = self.pg.Surface((surf.get_width() + 16, surf.get_height() + 8))
+                plate.fill((245, 245, 245))
+                self.screen.blit(plate, (12, y - 4))
             self.screen.blit(surf, (20, y))
             y += 40
         self.pg.display.flip()
@@ -1368,6 +1450,7 @@ class Display:
         progress: float,
         prompt: Sequence[str],
         flash: str | None = None,
+        pointer: tuple[float, float] | None = None,
         tracking: bool,
     ) -> None:
         """The dwell practice screen: targets, the gaze point, and a ring.
@@ -1403,6 +1486,13 @@ class Display:
             )
             if hovered == button.key and progress > 0.0:
                 self._draw_progress_ring(rect.centerx, rect.centery + 140, progress)
+        # The POINTER, drawn separately from the gaze point and in a
+        # different colour. Without it a simulated run shows nothing at all
+        # where the cursor would be -- the real one does not move in
+        # simulation, so "the cursor is not there" was indistinguishable from
+        # "the cursor is broken". The two dots also make the smoothing and the
+        # dead zone visible: the pointer trails the gaze on purpose.
+        self._draw_live_point(pointer, (220, 90, 30), radius=18)
         self._draw_live_point(point, (30, 110, 255), radius=12, cross=True)
         if not tracking:
             banner = self.big.render("tracking lost", True, (200, 40, 40))
@@ -1677,10 +1767,13 @@ def run_session(
             )
         elif name == "T2":
             specs.append(protocol_t2())
+        elif name == "T3":
+            specs.append(protocol_t3(targets_t1))
         else:
             raise ValueError(
                 f"protocol {name!r} is not known "
-                "(A, TUNE, GRID16, T1, T2 for phase 0; B for the multi-pose calibration; FULL, MOVE for the full-screen sessions)"
+                "(A, TUNE, GRID16, T1, T2 for phase 0; T3 for the long-hold probe; "
+                "B for the multi-pose calibration; FULL, MOVE for the full-screen sessions)"
             )
 
     kwargs: dict[str, Any] = {"config": config, "calibration": make_pass_through_calibration()}

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -147,3 +148,101 @@ class RoundIdTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MonitorIdentityTests(unittest.TestCase):
+    """A recalibration must record WHICH display it was made on.
+
+    ``run_session`` writes ``"monitor": None`` when it is not given one, and a
+    recording with no monitor block produces a profile with no connector, no
+    resolution and no physical millimetres.  ``gf_screen_check`` then refuses
+    that profile -- a panel it cannot identify is not a verified ruler -- so
+    the calibration is unusable for a cursor no matter how well it scored.
+    Measured on round32: 6 of 7 checks passed, "physical size" failed.
+    """
+
+    def _profile(self) -> Any:
+        import gf_profile as PROF  # noqa: PLC0415
+
+        return PROF.Profile(
+            name="t",
+            model_dir=str(Path(__file__).resolve().parent.parent / "models" / "cfg"),
+            rig={
+                "camera_x_cm": 60.0,
+                "camera_y_cm": 63.6,
+                "screen_w_cm": 120.0,
+                "screen_h_cm": 33.75,
+                "device_w_px": 5120,
+                "device_h_px": 1440,
+            },
+            filter={"kind": "one-euro"},
+            x_range=[0.3, 0.7],
+        )
+
+    def _capture_run_session(self) -> tuple[dict, Any]:
+        """Run the real run_sequence far enough to see what it asks for."""
+
+        captured: dict = {}
+
+        def fake_run_session(**kwargs: Any) -> Any:
+            captured.update(kwargs)
+            # Aborted, so run_sequence stops before fitting anything.
+            return SimpleNamespace(
+                aborted=True,
+                watchdog_tripped=False,
+                saved=False,
+                failure="stopped by the test",
+                recordings={},
+            )
+
+        sentinel = SimpleNamespace(name="THE-PANEL", origin=(0, 0), width_px=5120, height_px=1440)
+        real_run_session = RC.R.run_session
+        real_pick = RC.GD.pick_monitor
+        RC.R.run_session = fake_run_session
+        RC.GD.pick_monitor = lambda selector=None: sentinel
+        try:
+            with self.assertRaises(SystemExit):
+                RC.run_sequence(self._profile(), round_id=99)
+        finally:
+            RC.R.run_session = real_run_session
+            RC.GD.pick_monitor = real_pick
+        return captured, sentinel
+
+    def test_a_recalibration_records_the_display_it_ran_on(self) -> None:
+        captured, sentinel = self._capture_run_session()
+        self.assertIs(
+            captured.get("monitor"),
+            sentinel,
+            "run_sequence passed no monitor, so the recording will carry "
+            '"monitor": null and the new profile will have no ruler to verify',
+        )
+
+    def test_naming_a_display_on_the_command_line_reaches_the_session(self) -> None:
+        """--monitor was parsed and then dropped, so naming a display did nothing."""
+
+        seen: dict = {}
+        chosen = SimpleNamespace(name="SECOND-PANEL")
+
+        def fake_run_sequence(profile: Any, **kwargs: Any) -> Any:
+            seen.update(kwargs)
+            raise SystemExit("stopped by the test")
+
+        real_run_sequence = RC.run_sequence
+        real_pick = RC.GD.pick_monitor
+        real_resolve = RC.L.resolve_profile
+        RC.run_sequence = fake_run_sequence
+        RC.GD.pick_monitor = lambda selector=None: chosen
+        RC.L.resolve_profile = lambda name: self._profile()
+        try:
+            with self.assertRaises(SystemExit):
+                RC.main(["--monitor", "SECOND", "--adopt", "never"])
+        finally:
+            RC.run_sequence = real_run_sequence
+            RC.GD.pick_monitor = real_pick
+            RC.L.resolve_profile = real_resolve
+        self.assertIs(
+            seen.get("monitor"),
+            chosen,
+            "--monitor was accepted and then ignored, so the session ran on whichever "
+            "display happened to be primary",
+        )

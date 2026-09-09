@@ -28,6 +28,7 @@ Two rules carry the safety of this, and both are tested:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -205,3 +206,230 @@ class RecoveryMenu:
         chosen = self.selected
         self.close()
         return chosen
+
+
+@dataclass(frozen=True)
+class WinkConfig:
+    """What separates a deliberate one-eyed close from an ordinary blink.
+
+    Measured on a 100 s run, 6338 frames at 63 fps, while the operator winked
+    repeatedly with the right eye:
+
+    * the right eye reached **0.003** of its own baseline, so the closure is
+      unmistakable in the signal;
+    * the LEFT eye was under the gate on **658** frames against the right's
+      331 -- it closes too, every time. Requiring the left to be open was
+      therefore requiring something the person cannot do, and worse, both eyes
+      under the gate read as a blink and armed a 600 ms veto that killed the
+      wink that followed;
+    * only **112** frames looked like a clean wink, 1.77 s in total across the
+      whole run, so a single wink lasts on the order of 150 ms. A 500 ms hold
+      could never be reached.
+
+    So the test is ASYMMETRY, not closure: in a blink both eyes go together,
+    in a wink one goes far further than the other. Duration then only has to
+    exclude a momentary flicker, not carry the decision on its own.
+    """
+
+    # The right eye must be at least this closed, against its own baseline.
+    shut_ratio: float = 0.45
+    # ...and the left must be at least this many times more open than it.
+    # A blink drives both to a similar depth and fails here; a wink does not.
+    asymmetry: float = 2.5
+    # Long enough to exclude a single noisy frame, short enough to be reached
+    # by a real wink: about nine frames at 63 fps.
+    hold_ms: float = 140.0
+    # Short on purpose. A wink already cannot fire twice from one closure --
+    # ``_await_reopen`` requires the eye to open again first -- so this is only
+    # a guard against jitter around the reopening, and it does not have to be
+    # long. At 700 ms it WAS long: the soonest a second wink could fire was
+    # about reopen + 700 + 140 = 900 ms after the first, and Windows counts a
+    # double click only within 500 ms. Two deliberate winks could therefore
+    # never open anything, which is exactly what was reported.
+    cooldown_ms: float = 120.0
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.shut_ratio < 1.0:
+            raise ValueError("shut_ratio must be between 0 and 1")
+        if self.asymmetry <= 1.0:
+            raise ValueError("asymmetry must be greater than 1, or a blink qualifies")
+        for name in ("hold_ms", "cooldown_ms"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be finite and > 0")
+
+
+class RightWinkDetector:
+    """Right eye closing much further than the left, held on purpose.
+
+    Judged on each eye's ratio to its own baseline rather than on a shut/open
+    decision, because the operator's left eye narrows whenever the right one
+    closes. A rule that needed the left OPEN rejected every real wink; a rule
+    that compares the two depths does not.
+
+    Fires while the eye is still shut, like the confirm, so the person learns
+    it took effect before they open it.
+    """
+
+    def __init__(self, config: WinkConfig | None = None) -> None:
+        self.config = config or WinkConfig()
+        self._start_s: float | None = None
+        self._await_reopen = False
+        self._cooldown_until_s: float | None = None
+        self._hold_ms = 0.0
+
+    def reset(self) -> None:
+        self._start_s = None
+
+    @property
+    def holding_ms(self) -> float:
+        return self._hold_ms
+
+    def looks_like_a_wink(self, left_ratio: float, right_ratio: float) -> bool:
+        """The whole test, exposed so it can be measured without the timing.
+
+        Both ratios are the PERSON's eyes, not the image's. Callers translate
+        with :func:`eyes_as_the_person_has_them` before they get here.
+        """
+
+        cfg = self.config
+        if not (math.isfinite(left_ratio) and math.isfinite(right_ratio)):
+            return False
+        if right_ratio >= cfg.shut_ratio:
+            return False
+        # Guard the division: a right eye at exactly zero is as asymmetric as
+        # it gets, provided the left is not there with it.
+        if right_ratio <= 0.0:
+            return left_ratio > cfg.shut_ratio
+        return left_ratio >= right_ratio * cfg.asymmetry
+
+    def update(
+        self,
+        now_s: float,
+        *,
+        face_present: bool,
+        left_ratio: float,
+        right_ratio: float,
+    ) -> bool:
+        """One frame. True exactly once per deliberate wink."""
+
+        cfg = self.config
+        if not face_present:
+            self.reset()
+            self._await_reopen = False
+            self._hold_ms = 0.0
+            return False
+        if not self.looks_like_a_wink(left_ratio, right_ratio):
+            self._start_s = None
+            self._hold_ms = 0.0
+            if self._await_reopen:
+                self._await_reopen = False
+                self._cooldown_until_s = now_s + cfg.cooldown_ms / 1000.0
+            return False
+        if self._await_reopen:
+            return False
+        if self._cooldown_until_s is not None and now_s < self._cooldown_until_s:
+            return False
+        self._cooldown_until_s = None
+        if self._start_s is None:
+            self._start_s = now_s
+            return False
+        self._hold_ms = (now_s - self._start_s) * 1000.0
+        if self._hold_ms >= cfg.hold_ms:
+            self._await_reopen = True
+            self.reset()
+            return True
+        return False
+
+
+def eyes_as_the_person_has_them(library_left: float, library_right: float) -> tuple[float, float]:
+    """Translate the library's eye labels into the person's own left and right.
+
+    The camera faces the person, so the eye on the LEFT of the image is the
+    person's RIGHT eye. The library names its fields after the image -- its
+    ``left_eye_openness`` is built from MediaPipe landmarks 33/133, the
+    image-left eye -- and this project then wrote a right-wink detector that
+    watched the field named "right", which is the person's LEFT eye.
+
+    Confirmed twice over: the operator winked their right eye throughout a
+    100 s run and the library's LEFT field was under the gate on 658 frames
+    against the right's 331, and the operator said so directly.
+
+    Returns ``(person_left, person_right)``. One place, so a mirror bug cannot
+    be introduced in a second one.
+    """
+
+    return library_right, library_left
+
+
+@dataclass(frozen=True)
+class OpennessGateConfig:
+    """How far an eye must close, relative to how open it usually is."""
+
+    # Measured live on 9.9 over 627 frames: left openness ran a median of
+    # 191.5 and a minimum of 27.0, right 160.0 and 64.5. The absolute
+    # threshold is 10.0, so NOTHING reached it and no eyelid gesture could
+    # fire. As a fraction of each eye's own baseline those minima are 0.14 and
+    # 0.40, which is a signal -- just not one an absolute number can read.
+    shut_fraction: float = 0.55
+    # Above this, the eye is open enough for the gaze estimate to be worth
+    # trusting. BELOW it and above ``shut_fraction`` is the half-closed band:
+    # the blink gate still passes, so a prediction is produced and used, and it
+    # is made from an eye that is disappearing behind its own lid. That is what
+    # makes the pointer wander the moment a wink begins -- long before the
+    # closure is deep enough for anything to notice.
+    steady_fraction: float = 0.80
+    # Only open samples move the baseline, so a long closure cannot drag it
+    # down until a shut eye counts as open.
+    adapt: float = 0.02
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.shut_fraction < 1.0:
+            raise ValueError("shut_fraction must be between 0 and 1")
+        if not 0.0 < self.adapt <= 1.0:
+            raise ValueError("adapt must be in (0, 1]")
+        if not self.shut_fraction < self.steady_fraction <= 1.0:
+            raise ValueError("steady_fraction must sit above shut_fraction and at most 1")
+
+
+class OpennessGate:
+    """Is this eye shut, judged against how open it has been?
+
+    Eye openness here is polygon AREA in px^2, which scales with how close the
+    person sits and how large the image is. A fixed threshold therefore means
+    different things on different days -- measured across five sessions, the
+    same person's median ran 116 to 184 and the closure minimum ran 0.5 to 74.
+    A ratio against the eye's own recent baseline does not have that problem.
+
+    One gate per eye. Nothing here decides what a gesture is; it only answers
+    "shut or open" so the detectors above can.
+    """
+
+    def __init__(self, config: OpennessGateConfig | None = None) -> None:
+        self.config = config or OpennessGateConfig()
+        self.baseline: float | None = None
+
+    @property
+    def ratio(self) -> float | None:
+        return None if self.baseline is None else self._ratio
+
+    def is_open(self, value: float) -> bool:
+        if not math.isfinite(value) or value <= 0.0:
+            self._ratio = 0.0
+            return False
+        if self.baseline is None:
+            # The first sample is taken as an open eye. A session that began
+            # with the eyes already shut would seed low, so the baseline is
+            # allowed to rise freely below.
+            self.baseline = value
+        self._ratio = value / self.baseline if self.baseline else 0.0
+        if value >= self.baseline:
+            # Rising always updates immediately: sitting closer, or opening
+            # wider, must not read as an eye that never opens.
+            self.baseline = value
+            return True
+        if self._ratio >= self.config.shut_fraction:
+            a = self.config.adapt
+            self.baseline = self.baseline * (1.0 - a) + value * a
+            return True
+        return False

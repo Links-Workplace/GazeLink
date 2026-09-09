@@ -481,3 +481,60 @@ class SimulatedSessionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RestBlockDetailTests(unittest.TestCase):
+    """A count cannot direct a fix; where and when the target fired can.
+
+    Measured on 9.9: 4 unintended activations in 60 s of rest, on the layout
+    that scores 18-20/20 on selection. The count alone does not say whether
+    they were spread through the block or bunched at one moment, nor which
+    target fired -- and those point at different changes.
+    """
+
+    def test_the_detail_survives_into_the_summary(self) -> None:
+        records = [
+            {"key": "LEFT", "at_s": 3.2, "point": [0.44, 0.5]},
+            {"key": "RIGHT", "at_s": 41.9, "point": [0.55, 0.2]},
+        ]
+        summary = P.score([], unintended=records, idle_seconds=60.0)
+        self.assertEqual(summary["unintended_activations"], 2)
+        self.assertEqual(summary["unintended_detail"], records)
+
+    def test_a_plain_count_is_still_accepted_and_reports_no_detail(self) -> None:
+        """Older reports were written with a count; reading them must not break."""
+
+        summary = P.score([], unintended=4, idle_seconds=60.0)
+        self.assertEqual(summary["unintended_activations"], 4)
+        self.assertEqual(summary["unintended_detail"], [])
+
+    def test_an_empty_rest_block_is_not_a_missing_one(self) -> None:
+        summary = P.score([], unintended=[], idle_seconds=60.0)
+        self.assertEqual(summary["unintended_activations"], 0)
+        self.assertEqual(summary["idle_seconds"], 60.0)
+
+    def test_the_detail_can_actually_be_written_as_json(self) -> None:
+        """The engine returns an Activation, not a key.
+
+        The first version of the rest-block detail stored the Activation
+        object itself. ``json.dumps`` cannot take it, so the report would have
+        crashed at the end of any run that recorded one -- and it did not,
+        only because the run that used it recorded zero. Serialising here is
+        the assertion: a summary that cannot be written is not a summary.
+        """
+
+        import json  # noqa: PLC0415
+
+        engine = D.DwellEngine(
+            [D.Button("LEFT", 0.3, 0.05, 0.46, 0.95)], D.DwellConfig(dwell_ms=1.0)
+        )
+        fired = None
+        now = 0.0
+        while fired is None and now < 1.0:
+            fired = engine.update(now, (0.38, 0.5), fresh=True)
+            now += 0.05
+        self.assertIsNotNone(fired, "the engine never fired; this test would prove nothing")
+        record = {"key": fired.button, "at_s": 1.0, "point": [0.38, 0.5]}
+        summary = P.score([], unintended=[record], idle_seconds=60.0)
+        json.dumps(summary)
+        self.assertEqual(summary["unintended_detail"][0]["key"], "LEFT")

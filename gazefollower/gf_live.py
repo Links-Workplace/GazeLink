@@ -28,12 +28,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import gf_click as CK  # noqa: E402
 import gf_common as C  # noqa: E402
+import gf_control as CTL  # noqa: E402
 import gf_cursor as CUR  # noqa: E402
 import gf_display as GD  # noqa: E402
 import gf_gaze_filter as GF  # noqa: E402
 import gf_gesture as GEST  # noqa: E402
 import gf_head_features as H  # noqa: E402
+import gf_overlay as OV  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_record as R  # noqa: E402
 
@@ -59,6 +62,25 @@ class LiveState:
     raw_model: tuple[float, float] | None = None
     unfiltered: tuple[float, float] | None = None
     tracking: bool = False
+    # Whether a FACE is in the frame, which is not the same question as
+    # whether there is a usable gaze point. Closing the eyes ends the point
+    # and not the face, and a caller that cannot tell the two apart treats
+    # every deliberate close as a tracking failure.
+    face_present: bool = False
+    # The raw per-eye openness the gesture layer is gated on. Exposed so a
+    # screen can SHOW it: measured on round34/35/36, this signal never once
+    # fell to the blink threshold across forty seconds, which cannot be true
+    # of a person's eyelids and means every gesture silently did nothing.
+    openness: tuple[float, float] | None = None
+    # Each eye as a fraction of its own recent baseline, which is what the
+    # gesture layer actually judges. Shown on screen so a gesture that the
+    # signal could not see is visible as such.
+    openness_ratio: tuple[float, float] | None = None
+    # Both eyes open enough for the gaze estimate to be worth moving a pointer
+    # with. False through the whole of a wink, including the half-closed part
+    # at each end where the blink gate still passes and the prediction is
+    # already made from an eye behind its own lid.
+    eyes_steady: bool = False
     updated_s: float | None = None
     frames: int = 0
     fps: float | None = None
@@ -83,6 +105,8 @@ class LiveRunner:
         clock: Any = time.monotonic,
         head_builder: Any = H.build,
         gesture: GEST.GestureConfig | None = None,
+        wink: GEST.WinkConfig | None = None,
+        gate: GEST.OpennessGateConfig | None = None,
     ) -> None:
         self.model = model
         self.model_y = model_y
@@ -96,10 +120,18 @@ class LiveRunner:
         # the camera delivers -- and a hold would appear to last longer than
         # it did.
         self.detector = GEST.EyeCloseDetector(gesture)
+        self.wink_detector = GEST.RightWinkDetector(wink)
+        # One gate per eye, for the GESTURE path only. `valid` below keeps the
+        # absolute threshold, because it decides what counts as a gaze sample
+        # and every measurement in this project was made against it.
+        self.left_gate = GEST.OpennessGate(gate)
+        self.right_gate = GEST.OpennessGate(gate)
         self.gesture_events: list[tuple[float, GEST.Event]] = []
+        self.wink_events: list[tuple[float, tuple[float, float] | None]] = []
         self.lock = threading.Lock()
         self.state = LiveState()
         self.frames = 0
+        self._last_steady_point: tuple[float, float] | None = None
         self.errors = 0
         self.last_error: str | None = None
         self._frame_times: list[float] = []
@@ -120,8 +152,13 @@ class LiveRunner:
         features = getattr(gaze_info, "features", None) if gaze_status else None
         if features is not None:
             features = np.asarray(features, dtype=np.float64).reshape(-1)
-        left = float(getattr(face_info, "left_eye_openness", 0.0) or 0.0)
-        right = float(getattr(face_info, "right_eye_openness", 0.0) or 0.0)
+        # Named for the PERSON from here down. The camera faces them, so the
+        # library's "left" is the eye on the left of the IMAGE, which is their
+        # right one. Every gesture in this project watched the wrong eye.
+        left, right = GEST.eyes_as_the_person_has_them(
+            float(getattr(face_info, "left_eye_openness", 0.0) or 0.0),
+            float(getattr(face_info, "right_eye_openness", 0.0) or 0.0),
+        )
         head = self.head_builder(face_info) if gaze_status else None
 
         # Same gate as the recorder's overlay: a blink is not a gaze sample,
@@ -131,8 +168,36 @@ class LiveRunner:
         # when the gaze is unusable, because "eyes shut" is precisely when
         # there is no gaze.
         face_present = bool(getattr(face_info, "status", False))
-        eyes_shut = not (left > C.BLINK_THRESHOLD and right > C.BLINK_THRESHOLD)
+        # BOTH eyes, not either. Written as "not (left and right)" this was
+        # true during a one-eyed wink as well, so a wink drove the mode menu
+        # and a wink-to-click would have fired two mechanisms from one
+        # gesture. The two signals are now exclusive by construction.
+        # Judged against each eye's own baseline. Measured live on 9.9: over
+        # 627 frames the openness never once reached the absolute threshold of
+        # 10.0 -- minima of 27.0 and 64.5 against medians of 191.5 and 160.0 --
+        # so every eyelid gesture was silently impossible. The same minima are
+        # 0.14 and 0.40 of their own baselines, which is readable.
+        left_open = self.left_gate.is_open(left)
+        right_open = self.right_gate.is_open(right)
+        eyes_shut = not left_open and not right_open
         event = self.detector.update(now_s, face_present=face_present, eyes_shut=eyes_shut)
+        # Ratios, not the open/shut booleans: the operator's left eye narrows
+        # whenever the right one closes, so a rule that needed it OPEN rejected
+        # every real wink. Comparing the two depths does not.
+        left_ratio = self.left_gate.ratio if self.left_gate.ratio is not None else 1.0
+        right_ratio = self.right_gate.ratio if self.right_gate.ratio is not None else 1.0
+        winked = self.wink_detector.update(
+            now_s,
+            face_present=face_present,
+            left_ratio=left_ratio,
+            right_ratio=right_ratio,
+        )
+        # An eye on its way down still passes the blink gate, so a prediction
+        # is still produced -- from an eye already half behind its lid. That
+        # is what makes the pointer wander at the start of a wink, well before
+        # anything registers the closure.
+        steady = self.left_gate.config.steady_fraction
+        eyes_steady = valid and left_ratio >= steady and right_ratio >= steady
         raw = (
             R.predict_overlay_point(self.model, self.model_y, features, head, self.rig)
             if valid
@@ -162,11 +227,23 @@ class LiveRunner:
         with self.lock:
             if event is not GEST.Event.NONE:
                 self.gesture_events.append((now_s, event))
+            if winked:
+                # The point from before the eye began to close, not merely the
+                # last one that passed the blink gate: the half-closed frames
+                # pass it too, and they are the ones that put the pointer
+                # somewhere the person was never looking.
+                self.wink_events.append((now_s, self._last_steady_point))
+            if eyes_steady and point is not None:
+                self._last_steady_point = point
             self.frames += 1
             self._frame_times.append(now_s)
             if len(self._frame_times) > 60:
                 del self._frame_times[:-60]
             self.state = LiveState(
+                face_present=face_present,
+                openness=(left, right),
+                openness_ratio=(self.left_gate.ratio or 0.0, self.right_gate.ratio or 0.0),
+                eyes_steady=eyes_steady,
                 point=point,
                 raw_model=raw_model,
                 unfiltered=raw,
@@ -182,12 +259,40 @@ class LiveRunner:
             self.gesture_events = []
         return events
 
+    def drain_wink_events(self) -> list[tuple[float, tuple[float, float] | None]]:
+        """Deliberate right winks, each with the gaze point it was aimed at."""
+
+        with self.lock:
+            events = self.wink_events
+            self.wink_events = []
+        return events
+
     def _fps(self, window: int = 30) -> float | None:
         times = self._frame_times[-window:]
         if len(times) < 2:
             return None
         span = times[-1] - times[0]
         return None if span <= 0 else (len(times) - 1) / span
+
+
+def state_face_ok(runner: Any, *, stale_after_s: float = R.OVERLAY_STALE_S) -> bool:
+    """Is a face in front of the camera right now?
+
+    Not the same question as "is there a usable gaze point": closing the eyes
+    ends the point and not the face, and a caller that cannot tell them apart
+    treats every deliberate close as a tracking failure and pauses in the same
+    frame the close armed it.
+
+    Frames must still be arriving, or a dead camera leaves the last answer
+    standing and reads as a face for ever.
+    """
+
+    state = runner.state
+    if state.updated_s is None:
+        return False
+    if time.monotonic() - state.updated_s > stale_after_s:
+        return False
+    return bool(state.face_present)
 
 
 def resolve_profile(name: str | None) -> PROF.Profile:
@@ -262,10 +367,26 @@ def run_live(
     cursor_smoothing: float = 0.35,
     cursor_dead_zone_px: int = 12,
     cursor_max_step_px: int = 400,
+    click_by: str = "off",
+    wink_click: str = "double",
+    toggle_by: str = "key",
+    start_active: bool = True,
+    hold_after_click_s: float = 1.5,
 ) -> int:
     import gf_fit as FIT  # noqa: PLC0415
     import gf_screen_check as SC  # noqa: PLC0415
 
+    if click_by not in ("off", "wink"):
+        raise SystemExit(f"unknown click mode {click_by!r}: use 'off' or 'wink'")
+    if toggle_by not in ("key", "eyes"):
+        raise SystemExit(f"unknown toggle {toggle_by!r}: use 'key' or 'eyes'")
+    if wink_click not in ("single", "double"):
+        raise SystemExit(f"unknown wink action {wink_click!r}: use 'single' or 'double'")
+    if click_by == "wink" and not move_cursor:
+        raise SystemExit(
+            "--click-by wink needs --move-cursor: a click that lands wherever the pointer "
+            "was last left is not a click at what you are looking at."
+        )
     cursor_monitor = desktop = None
     if move_cursor:
         # Two separate gates, on purpose. The first is the operator saying
@@ -299,7 +420,11 @@ def run_live(
     print(f"profile {profile.name}: model {model_dir} ({len(model.schema.columns)} columns)")
 
     gf = build_gaze_follower(rig)
-    runner = LiveRunner(model, None, rig, settings)
+    # The eyelid rules come from the PROFILE: they belong to this face and
+    # this camera geometry, not to whoever last edited the defaults.
+    runner = LiveRunner(
+        model, None, rig, settings, wink=profile.wink_config(), gate=profile.gate_config()
+    )
     # The harmless option is first, so a confirm that fires when it should not
     # costs nothing. Recalibration is reachable only by cycling to it first.
     options = [GEST.MenuOption("dismiss", "Keep watching")]
@@ -332,6 +457,10 @@ def run_live(
         origin=origin,
         overlay_available=True,
         show_unfiltered_overlay=show_unfiltered,
+        # A fullscreen window IS the thing that gets clicked, so a real click
+        # over it never reaches the application underneath. Clicking on the
+        # desktop needs a window the mouse passes through.
+        click_through=click_by == "wink",
     )
     cursor = CUR.CursorAdapter(
         enabled=move_cursor,
@@ -341,6 +470,36 @@ def run_live(
             dead_zone_px=cursor_dead_zone_px,
         ),
     )
+    # Clicking on the DESKTOP is not clicking in a practice window. There the
+    # only action was a counter this window drew on itself; here a click can
+    # close, delete or send, and cannot be taken back. So it is off unless
+    # asked for twice, it starts PAUSED whatever the cursor flag says, and the
+    # mode is an explicit state rather than a side effect of the pause menu.
+    clicker = CK.ClickAdapter(enabled=click_by == "wink" and move_cursor)
+    # Starting ACTIVE is the operator's decision, asked for directly after
+    # the paused start left them with no way in: the toggle they had in the
+    # practice window was a gaze panel, and there is nowhere to put one on a
+    # desktop. The two OS gates still stand in front of this -- nothing runs
+    # without --move-cursor and --i-mean-it -- and Esc still stops it. What is
+    # given up is the beat between launching and the first click being
+    # possible, so the window opens ready to click.
+    control = (
+        CTL.ToggleMachine(start=CTL.ToggleMachine.ACTIVE if start_active else CTL.Mode.PAUSED)
+        if click_by == "wink"
+        else None
+    )
+    tally = {
+        "clicks": 0,
+        "doubles": 0,
+        # Every wink the detector produced, before any of the reasons one
+        # might not become a click. Without it, "nothing happened" cannot be
+        # told apart from "the wink was seen and then dropped", and the two
+        # need opposite fixes.
+        "winks": 0,
+        "winks_with_no_aim": 0,
+        "suppressed_while_paused": 0,
+        "cancelled": 0,
+    }
     try:
         gf.camera.start_sampling()
         display.draw_message(["Camera warming up..."])
@@ -374,22 +533,62 @@ def run_live(
                 return 2
         armed["live"] = True
         cursor.__enter__()
+        clicker.__enter__()
+        if control is not None:
+            cursor.paused = not control.mode.cursor_enabled
+            print(f"starting {control.label}")
         started = time.monotonic()
+        # Edge, not level: a key held for half a second is one instruction,
+        # and reading the level would toggle the mode on every frame it is
+        # down -- sixty times a second, ending wherever the release happened.
+        space_was_down = False
         while True:
-            if display.poll_escape():
+            # A click-through window never takes focus, so pygame stops seeing
+            # key presses the moment the overlay starts working. The stop is
+            # read from the keyboard directly, or it would fail exactly while
+            # the dangerous mode was on.
+            if display.poll_escape() or (control is not None and OV.escape_is_down()):
                 break
             if max_seconds is not None and time.monotonic() - started > max_seconds:
                 break
-            for when, event in runner.drain_gesture_events():
-                taken = menu.handle(event, when)
-                if taken is None or taken.key == "dismiss":
-                    continue
-                if taken.key == "pause" and cursor is not None:
-                    cursor.paused = not cursor.paused
-                    print(f"cursor {'paused' if cursor.paused else 'resumed'}")
-                    continue
-                chosen.append(taken.key)
-            menu.tick(time.monotonic())
+            if control is not None:
+                # ONE tick per frame, always, whether or not anything happened.
+                # The machine is a per-frame machine: it clears the guard that
+                # follows a tracking loss on the first clean frame it is GIVEN.
+                # Calling it only when there was an event meant that a face
+                # coming back, with no key pressed, never produced a call --
+                # so it sat in WAITING for ever with the face plainly in view.
+                # That is what the operator saw.
+                events: list[GEST.Event] = []
+                if toggle_by == "eyes":
+                    events = [e for _when, e in runner.drain_gesture_events()]
+                else:
+                    # Drained and dropped, so they cannot pile up and fire in
+                    # a burst if the toggle is ever switched back.
+                    runner.drain_gesture_events()
+                    down = OV.key_is_down(OV.VK_SPACE)
+                    if down and not space_was_down:
+                        events = [GEST.Event.CONFIRM]
+                    space_was_down = down
+                face_ok = state_face_ok(runner)
+                for event in events or [GEST.Event.NONE]:
+                    transition = control.update(event, tracking_ok=face_ok)
+                    if transition.changed:
+                        print(control.label)
+                    if transition.cancel_selection:
+                        tally["cancelled"] += 1
+                cursor.paused = not control.mode.cursor_enabled
+            else:
+                for when, event in runner.drain_gesture_events():
+                    taken = menu.handle(event, when)
+                    if taken is None or taken.key == "dismiss":
+                        continue
+                    if taken.key == "pause" and cursor is not None:
+                        cursor.paused = not cursor.paused
+                        print(f"cursor {'paused' if cursor.paused else 'resumed'}")
+                        continue
+                    chosen.append(taken.key)
+                menu.tick(time.monotonic())
             if chosen:
                 break
             state = runner.state
@@ -405,9 +604,64 @@ def run_live(
             # None whenever the point is missing or stale: the adapter reads
             # that as "freeze", never as "move somewhere plausible".
             if cursor.enabled and cursor_monitor is not None and desktop is not None:
+                # None means freeze. An eye on its way down still passes the
+                # blink gate, so `fresh` is a real point made from an eye that
+                # is already half behind its lid -- and following it is what
+                # makes the pointer lurch the moment a wink starts, before
+                # anything has registered a closure at all. Holding still from
+                # the first sign of a closure is also what lets the click land
+                # where the person was looking rather than where the estimate
+                # slid to on the way down.
+                steady = control is None or state.eyes_steady
                 cursor.update(
-                    None if fresh is None else SC.to_desktop_pixels(fresh, cursor_monitor, desktop)
+                    SC.to_desktop_pixels(fresh, cursor_monitor, desktop)
+                    if fresh is not None and steady
+                    else None
                 )
+                for _when, aimed_at in runner.drain_wink_events():
+                    if control is None:
+                        continue
+                    tally["winks"] += 1
+                    if not control.mode.selection_armed:
+                        tally["suppressed_while_paused"] += 1
+                        continue
+                    if aimed_at is None:
+                        # The gaze is invalid while an eye is shut, and with
+                        # nothing remembered from before it there is no place
+                        # the wink can honestly mean. Counted, because "no
+                        # wink was seen" and "a wink was seen and had nowhere
+                        # to go" are different failures with different fixes.
+                        tally["winks_with_no_aim"] += 1
+                        continue
+                    # Put the pointer where the eye was when the wink STARTED,
+                    # then click there. Clicking wherever the pointer drifted
+                    # to is how a click lands next to what was being looked at.
+                    landing = SC.to_desktop_pixels(aimed_at, cursor_monitor, desktop)
+                    # Release first: the pointer must be allowed to reach the
+                    # new place before the hold pins it there, or a second
+                    # wink would click wherever the FIRST one landed.
+                    cursor.release_hold()
+                    # jump_to, not update: smoothing would leave the pointer
+                    # 40% short of the target and the dead zone would refuse
+                    # small corrections outright, so the click would land
+                    # between where the pointer was and where it was aimed.
+                    cursor.jump_to(landing)
+                    # One wink, one whole action. Asking the person to make two
+                    # winks inside the system's 500 ms window is a timing test
+                    # they can fail through no fault of their own, and failing
+                    # it silently produces two clicks that open nothing.
+                    landed = (
+                        clicker.double_click(armed=True, at=cursor.last)
+                        if wink_click == "double"
+                        else clicker.click(armed=True, at=cursor.last)
+                    )
+                    if landed:
+                        tally["clicks"] += 1
+                        tally["doubles"] = clicker.doubles
+                        # Hold after, not before: the click has landed, and
+                        # now the person needs a moment to see what happened
+                        # and to wink again if they meant a double.
+                        cursor.hold_for(hold_after_click_s)
             display.draw_live(
                 fresh,
                 raw_fresh,
@@ -418,17 +672,54 @@ def run_live(
                     f"filter {settings.kind.value} fc={settings.one_euro_min_cutoff_hz} "
                     f"beta={settings.one_euro_beta_hz_per_px_s}",
                     (
-                        f"CURSOR {'PAUSED' if cursor.paused else 'MOVING'} -- Esc stops everything"
-                        if cursor.enabled
-                        else "Esc to stop.  Nothing is recorded and no OS input is sent."
+                        f"{control.label}   clicks {tally['clicks']}"
+                        f" (double {tally['doubles']})"
+                        + ("   HELD" if cursor.held_until_s else "")
+                        + "   -- Esc stops everything"
+                        if control is not None
+                        else (
+                            f"CURSOR {'PAUSED' if cursor.paused else 'MOVING'}"
+                            " -- Esc stops everything"
+                            if cursor.enabled
+                            else "Esc to stop.  Nothing is recorded and no OS input is sent."
+                        )
                     ),
-                    "Close your eyes about half a second to open the menu.",
+                    (
+                        (
+                            f"SPACE switches PAUSED/ACTIVE.  Wink RIGHT to {wink_click}-click."
+                            if toggle_by == "key"
+                            else "Close BOTH eyes to switch PAUSED/ACTIVE."
+                            f"  Wink RIGHT to {wink_click}-click."
+                        )
+                        if control is not None
+                        else "Close your eyes about half a second to open the menu."
+                    ),
                 ]
                 + _menu_lines(menu),
                 tracking=fresh is not None,
             )
             time.sleep(0.005)
     finally:
+        if control is not None:
+            # Printed rather than left to be guessed at. Three separate
+            # sessions were spent arguing about whether a click had happened,
+            # because nothing said what the mode was, whether the overlay was
+            # transparent, or whether the pointer had been allowed to move.
+            print("\nsession:")
+            print(f"  mode at the end        : {control.label}")
+            print(f"  toggled by             : {toggle_by}")
+            print(f"  clicks                 : {tally['clicks']} (double {tally['doubles']})")
+            print(f"  winks detected         : {tally['winks']}")
+            print(f"  winks with nowhere to go: {tally['winks_with_no_aim']}")
+            print(f"  winks while paused     : {tally['suppressed_while_paused']}")
+            print(f"  wink action            : {wink_click}")
+            print(f"  overlay                : {display.overlay}")
+            print(f"  cursor                 : {cursor.summary()}")
+            print(f"  click adapter          : {clicker.summary()}")
+        # The button first: a held left button turns every later pointer move
+        # into a drag over whatever is on screen, and unlike a stray click it
+        # does not stop happening.
+        clicker.release()
         # Released before anything else can fail: the pointer goes back where
         # it was found even if the library shutdown then misbehaves.
         cursor.release()
@@ -490,6 +781,45 @@ def build_parser() -> argparse.ArgumentParser:
         "pointer shivers while you hold still.",
     )
     parser.add_argument("--cursor-max-step-px", type=int, default=None)
+    parser.add_argument(
+        "--click-by",
+        choices=("off", "wink"),
+        default="off",
+        help="'wink' emits a REAL left click where you were looking when you winked your "
+        "right eye. Needs --move-cursor and --i-mean-it. Starts PAUSED; close BOTH eyes to "
+        "switch. On the desktop a click cannot be taken back.",
+    )
+    parser.add_argument(
+        "--wink-click",
+        choices=("single", "double"),
+        default="double",
+        help="what ONE wink does. 'double' is the default because it is what opens things, "
+        "and because asking for two winks inside Windows' 500 ms window is a timing test a "
+        "person can fail through no fault of their own.",
+    )
+    parser.add_argument(
+        "--toggle-by",
+        choices=("key", "eyes"),
+        default="key",
+        help="what switches PAUSED <-> ACTIVE. 'key' is SPACE and works whoever has focus, "
+        "which the overlay never does. 'eyes' is the two-eyed close; there is no MODE panel "
+        "on the desktop, so if that close does not register there is no way back in.",
+    )
+    parser.add_argument(
+        "--start-paused",
+        action="store_true",
+        help="open PAUSED instead of ready to click. The default is ACTIVE, because the "
+        "paused start left no way in on a desktop: the practice window's toggle was a gaze "
+        "panel and there is nowhere to draw one here.",
+    )
+    parser.add_argument(
+        "--hold-after-click-s",
+        type=float,
+        default=1.5,
+        help="how long the pointer stays where it clicked before following the gaze again. "
+        "This is also the window in which a second wink becomes a double click, because both "
+        "halves have to land on the same pixel.",
+    )
     parser.add_argument("--skip-model-check", action="store_true")
     parser.add_argument("--allow-rig-mismatch", action="store_true")
     parser.add_argument(
@@ -544,6 +874,11 @@ def main(argv: list[str] | None = None) -> int:
         cursor_smoothing=_setting(args.cursor_smoothing, profile, "smoothing", 0.35),
         cursor_dead_zone_px=int(_setting(args.cursor_dead_zone_px, profile, "dead_zone_px", 12)),
         cursor_max_step_px=int(_setting(args.cursor_max_step_px, profile, "max_step_px", 400)),
+        click_by=args.click_by,
+        wink_click=args.wink_click,
+        toggle_by=args.toggle_by,
+        start_active=not args.start_paused,
+        hold_after_click_s=args.hold_after_click_s,
         max_seconds=args.max_seconds,
     )
 

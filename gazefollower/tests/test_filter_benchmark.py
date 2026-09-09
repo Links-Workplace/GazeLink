@@ -308,3 +308,104 @@ def _tune_row(name, jitter, median, p95, worst_step):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakeModel:
+    """Predicts the feature value straight through, so a test can read it."""
+
+    def __init__(self, head_names: tuple = ()) -> None:
+        self.schema = SimpleNamespace(head_names=head_names)
+
+    def predict_norm(self, design, rig):  # noqa: ANN001, ARG002
+        col = np.asarray(design, dtype=np.float64)[:, 0]
+        return np.stack([col, col], axis=1)
+
+
+def _recording(n: int = 12, *, collecting: np.ndarray | None = None) -> SimpleNamespace:
+    """A recording where only the middle of each window is a scoring row."""
+
+    if collecting is None:
+        collecting = np.zeros(n, dtype=bool)
+        collecting[2:5] = True
+        collecting[8:11] = True
+    features = np.linspace(0.1, 0.9, n).reshape(-1, 1)
+    return SimpleNamespace(
+        n_rows=n,
+        features=features,
+        head=np.zeros((n, 6)),
+        openness=np.full((n, 2), 100.0),
+        gaze_status=np.ones(n, dtype=bool),
+        timestamp_ns=(np.arange(n) * 33_000_000).astype(np.int64),
+        target_id=np.repeat(np.arange(2), n // 2),
+        rows_collecting=lambda: collecting,
+        rows_eligible=lambda: collecting,
+        rows_head_valid=lambda: np.ones(n, dtype=bool),
+    )
+
+
+class LiveParityTests(unittest.TestCase):
+    """The filtered number in a report must come from the filter that ran.
+
+    Measured on round34/T1 before this existed: the report predicted 462 of
+    905 frames and restarted the filter 10 times, where the live view never
+    restarted it once.  Feeding a filter the SCORING window makes it a
+    different filter, so the reported number described one nobody ran.
+    """
+
+    def test_the_live_frames_are_predicted_not_only_the_scored_ones(self) -> None:
+        rec = _recording()
+        out = B.predict_live(_FakeModel(), rec, rig=None)
+        predicted = np.all(np.isfinite(out), axis=1)
+        self.assertEqual(
+            int(predicted.sum()),
+            rec.n_rows,
+            "predicting only the scoring window is what restarts the filter between targets",
+        )
+        self.assertGreater(
+            int((predicted & ~rec.rows_collecting()).sum()),
+            0,
+            "no frame outside the scoring window was predicted, so the filter will "
+            "still be fed one collect window at a time",
+        )
+
+    def test_a_blink_is_still_not_a_gaze_sample(self) -> None:
+        """Live parity means the LIVE gate, not no gate at all."""
+
+        rec = _recording()
+        rec.openness = np.full((rec.n_rows, 2), 100.0)
+        rec.openness[6] = (1.0, 100.0)  # one eye shut, below BLINK_THRESHOLD
+        out = B.predict_live(_FakeModel(), rec, rig=None)
+        self.assertTrue(np.all(np.isnan(out[6])), "predicted through a blink")
+
+    def test_the_scoring_window_no_longer_restarts_the_filter(self) -> None:
+        """The second window's first sample must remember the first window."""
+
+        rec = _recording()
+        settings = F.FilterSettings(width_px=1000, height_px=1000)
+        _, live = B.filtered_like_the_screen(_FakeModel(), rec, None, settings)
+        old_style, _ = B.replay(
+            np.where(
+                rec.rows_collecting()[:, None],
+                B.predict_live(_FakeModel(), rec, None),
+                np.nan,
+            ),
+            rec.timestamp_ns,
+            settings,
+        )
+        start_of_second = int(np.where(rec.rows_collecting())[0][3])
+        self.assertFalse(
+            np.allclose(live[start_of_second], old_style[start_of_second]),
+            "the two agree, so the filter was still being restarted by the scoring window",
+        )
+
+    def test_arrival_and_hold_together_are_exactly_the_scored_rows(self) -> None:
+        rec = _recording()
+        arrival, hold = B.split_arrival_from_hold(rec)
+        both = np.sort(np.concatenate([arrival, hold]))
+        self.assertEqual(both.tolist(), np.where(rec.rows_eligible())[0].tolist())
+        self.assertEqual(len(B.fixation_windows(rec)), 2)
+
+    def test_the_measurement_rules_are_named_in_the_output(self) -> None:
+        """A corrected number compared against an old one is a wrong comparison."""
+
+        self.assertEqual(B.MEASUREMENT_VERSION, "live-parity-1")

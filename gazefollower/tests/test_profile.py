@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import gf_common as C  # noqa: E402
 import gf_gaze_filter as GF  # noqa: E402
+import gf_gesture as GEST  # noqa: E402
 import gf_profile as P  # noqa: E402
 
 RIG = C.RigGeometry(60.0, 63.6, 120.0, 33.75, 5120, 1440)
@@ -172,3 +173,71 @@ class PoseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GestureSettingsTests(unittest.TestCase):
+    """The eyelid rule belongs to a face and a camera, not to the algorithm.
+
+    Hard-coded, the same numbers are meaningless on another rig and the
+    gesture ends up tuned for whoever last ran it.
+    """
+
+    def _profile(self, gesture: dict | None = None) -> PROF.Profile:
+        return P.Profile(
+            name="t",
+            model_dir="m",
+            rig={
+                "camera_x_cm": 60.0,
+                "camera_y_cm": 63.6,
+                "screen_w_cm": 120.0,
+                "screen_h_cm": 33.75,
+                "device_w_px": 5120,
+                "device_h_px": 1440,
+            },
+            filter={"kind": "one-euro"},
+            gesture=gesture or {},
+        )
+
+    def test_a_profile_with_no_gesture_settings_gets_the_defaults(self) -> None:
+        self.assertEqual(self._profile().wink_config(), GEST.WinkConfig())
+        self.assertEqual(self._profile().gate_config(), GEST.OpennessGateConfig())
+
+    def test_saved_values_are_used(self) -> None:
+        profile = self._profile({"wink": {"shut_ratio": 0.3, "hold_ms": 200.0}})
+        self.assertEqual(profile.wink_config().shut_ratio, 0.3)
+        self.assertEqual(profile.wink_config().hold_ms, 200.0)
+
+    def test_a_field_left_out_keeps_its_default_rather_than_becoming_zero(self) -> None:
+        profile = self._profile({"wink": {"shut_ratio": 0.3}})
+        self.assertEqual(profile.wink_config().asymmetry, GEST.WinkConfig().asymmetry)
+
+    def test_a_stale_field_from_an_older_build_does_not_break_loading(self) -> None:
+        """The wink rule has already been rewritten once; it will change again."""
+
+        profile = self._profile({"wink": {"shut_ratio": 0.3, "both_eyes_veto_ms": 600.0}})
+        self.assertEqual(profile.wink_config().shut_ratio, 0.3)
+
+    def test_saved_nonsense_is_still_refused(self) -> None:
+        """Validation must not be skipped just because a value came from disk."""
+
+        with self.assertRaises(ValueError):
+            self._profile({"wink": {"asymmetry": 1.0}}).wink_config()
+
+    def test_the_settings_survive_a_round_trip_through_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            saved = self._profile({"wink": {"shut_ratio": 0.31}, "gate": {"shut_fraction": 0.6}})
+            P.save(saved, root=root)
+            back = P.load("t", root=root)
+            self.assertEqual(back.wink_config().shut_ratio, 0.31)
+            self.assertEqual(back.gate_config().shut_fraction, 0.6)
+
+    def test_the_shipped_profile_carries_a_measured_rule(self) -> None:
+        """A rule with no evidence beside it is a guess with a home."""
+
+        baseline = P.load("baseline")
+        gesture = baseline.gesture
+        self.assertTrue(gesture, "the baseline profile has no gesture settings")
+        self.assertIn("evidence", gesture)
+        self.assertIn("source", gesture["evidence"])
+        self.assertIn("person", gesture["eye_frame"])

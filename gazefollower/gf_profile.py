@@ -32,6 +32,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_common as C  # noqa: E402
+import gf_gesture as GEST  # noqa: E402
 import gf_gaze_filter as GF  # noqa: E402
 import gf_schema as S  # noqa: E402
 
@@ -65,6 +66,12 @@ class Profile:
     # a different panel maps confidently to the wrong place. This is the
     # identity M3-00 requires before a real cursor may be moved.
     screen: dict[str, Any] = field(default_factory=dict)
+    # What counts as a deliberate eyelid gesture, for THIS person. Kept in
+    # the profile rather than in the code because it is a property of a face
+    # and a camera geometry, not of the algorithm: the same numbers that work
+    # here are meaningless on another rig, and hard-coding them is how a
+    # gesture ends up tuned for whoever last ran it.
+    gesture: dict[str, Any] = field(default_factory=dict)
     # How the POINTER should feel. Deliberately separate from ``filter``:
     # that one belongs to the model and to the configuration verified on
     # the selection task, and must not be retuned to make a cursor
@@ -110,6 +117,20 @@ class Profile:
         if "kind" in values:
             values["kind"] = GF.FilterKind(values["kind"])
         return GF.FilterSettings(width_px=rig.device_w_px, height_px=rig.device_h_px, **values)
+
+    def wink_config(self) -> GEST.WinkConfig:
+        """The person's wink rule, or the built-in default if none is saved."""
+
+        saved = (self.gesture or {}).get("wink") or {}
+        known = {f for f in GEST.WinkConfig.__dataclass_fields__}
+        return GEST.WinkConfig(**{k: v for k, v in saved.items() if k in known})
+
+    def gate_config(self) -> GEST.OpennessGateConfig:
+        """How far an eye must close, relative to its own baseline, for them."""
+
+        saved = (self.gesture or {}).get("gate") or {}
+        known = {f for f in GEST.OpennessGateConfig.__dataclass_fields__}
+        return GEST.OpennessGateConfig(**{k: v for k, v in saved.items() if k in known})
 
     def model_path(self) -> Path:
         path = Path(self.model_dir)

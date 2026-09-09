@@ -1,0 +1,64 @@
+{
+  "name": "baseline_20260909_093456",
+  "model_dir": "C:\\Users\\User\\Desktop\\focus\\gazefollower\\recordings\\round32\\models\\svr_fzscore_lnone_C100_g0.0005",
+  "rig": {
+    "camera_x_cm": 60.0,
+    "camera_y_cm": 63.6,
+    "screen_w_cm": 120.0,
+    "screen_h_cm": 33.75,
+    "device_w_px": 5120,
+    "device_h_px": 1440
+  },
+  "filter": {
+    "kind": "one-euro",
+    "reset_gap_ms": 250.0,
+    "ema_cutoff_hz": 2.0,
+    "one_euro_min_cutoff_hz": 0.4,
+    "one_euro_beta_hz_per_px_s": 0.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "kalman_acceleration_noise_px2_s4": 400.0,
+    "kalman_measurement_noise_px2": 900.0
+  },
+  "screen": {
+    "screen_id": "LS49C95xU",
+    "connector": null,
+    "width_px": null,
+    "height_px": null,
+    "width_mm": null,
+    "height_mm": null
+  },
+  "cursor": {
+    "smoothing": 0.6,
+    "dead_zone_px": 6,
+    "max_step_px": 400,
+    "chosen_by": "operator, live, 8.9.2026: 0.35/12 felt jumpy, 0.6/6 felt right"
+  },
+  "calibration": {
+    "recording": "C:\\Users\\User\\Desktop\\focus\\gazefollower\\recordings\\round32",
+    "protocol": "A",
+    "round_id": 32,
+    "session": "20260909_093456"
+  },
+  "pose": {
+    "roll_deg": 6.674469047117571,
+    "yaw_ratio": 0.06118636151331154,
+    "pitch_a": -0.13182632050134288,
+    "eye_mid_x": 0.5234375,
+    "eye_mid_y": 0.4947916666666667,
+    "iod_norm": 0.14632543460553943
+  },
+  "scores": {
+    "heldout_t1_filtered_px": 226.18937353493726,
+    "heldout_t1_unfiltered_px": 250.23368939652826,
+    "paired_vs_previous_px": 26.56028769574712,
+    "previous_profile": "baseline",
+    "measured_utc": "2026-09-09",
+    "note": "recorded round32 session 20260909_093456. Better than baseline on these frames but NOT usable: 226 px filtered against a 120 px target. Staged for live inspection; not activated."
+  },
+  "x_range": [
+    0.3,
+    0.7
+  ],
+  "created_utc": "2026-09-09T06:37:54+00:00",
+  "version": "profile-1"
+}

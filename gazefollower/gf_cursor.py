@@ -84,6 +84,7 @@ class CursorAdapter:
         limits: CursorLimits | None = None,
         setter: Any = None,
         getter: Any = None,
+        clock: Any = None,
     ) -> None:
         self.enabled = bool(enabled)
         self.limits = limits or CursorLimits()
@@ -95,8 +96,52 @@ class CursorAdapter:
         self.last: tuple[int, int] | None = None
         self._smooth: tuple[float, float] | None = None
         self.held_frames = 0
+        self.held_for_click_frames = 0
+        self.held_until_s: float | None = None
         self.origin: tuple[int, int] | None = None
         self.paused = False
+        import time  # noqa: PLC0415
+
+        self._now = clock or time.monotonic
+
+    def hold_for(self, seconds: float) -> None:
+        """Stop following the gaze for a moment, starting now.
+
+        Called after a click so the pointer stays where the click landed. The
+        person needs a beat to see what happened, and a second click meant as
+        a double has to reach the same pixel.
+        """
+
+        if seconds > 0.0:
+            self.held_until_s = self._now() + seconds
+
+    def release_hold(self) -> None:
+        """Follow the gaze again at once, whatever time was left."""
+
+        self.held_until_s = None
+
+    def jump_to(self, target: tuple[int, int]) -> tuple[int, int]:
+        """Put the pointer exactly here, ignoring smoothing and the dead zone.
+
+        Those exist to make FOLLOWING a gaze comfortable: 60% of the way per
+        frame, and no movement at all under six pixels. Both are wrong for
+        placing a click, which has one destination and one chance to reach it
+        -- passed through ``update`` the pointer stops short and the click
+        lands somewhere between where it was and where it was aimed.
+
+        The jump limit does not apply either: this is not a gaze estimate that
+        might be wild, it is a point the caller has already decided on.
+        """
+
+        placed = (int(target[0]), int(target[1]))
+        if self.enabled:
+            self._set(*placed)
+        self.last = placed
+        # Dropped so the next frame of following starts from here rather than
+        # sliding back from wherever the smoothing had got to.
+        self._smooth = (float(placed[0]), float(placed[1]))
+        self.moves += 1
+        return placed
 
     def __enter__(self) -> CursorAdapter:
         self.origin = self._get() if self.enabled else None
@@ -143,6 +188,15 @@ class CursorAdapter:
         and is counted, so "the cursor did not move" can be told apart from
         "nothing was asked of it".
         """
+
+        if self.held_until_s is not None and self._now() < self.held_until_s:
+            # Held on purpose after a click, not frozen for want of a point.
+            # Two reasons: the click must land where it was aimed rather than
+            # where the gaze had already moved on to, and a second click for a
+            # DOUBLE has to reach the same pixel -- which it cannot if the
+            # pointer is chasing the eye between the two.
+            self.held_for_click_frames += 1
+            return self.last
 
         if target is None or self.paused:
             self.frozen_frames += 1

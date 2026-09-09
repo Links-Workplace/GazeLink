@@ -37,6 +37,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_common as C  # noqa: E402
+import gf_display as GD  # noqa: E402
 import gf_live as L  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_recal_compare as CMP  # noqa: E402
@@ -270,6 +271,16 @@ def run_sequence(
     # earlier recording.
     _, geometry = C.load_targets(targets)
     root = out_root or R.RECORDINGS_DIR
+    # Resolved here rather than left as None. run_session records
+    # ``"monitor": None`` when it is not given, and a recording without a
+    # monitor block yields a profile with no connector, resolution or physical
+    # millimetres -- which gf_screen_check then refuses, because a panel that
+    # cannot be identified cannot be a verified ruler. The CLI path always
+    # resolved one (gf_record line ~2507); only this programmatic caller did
+    # not, so a recalibration produced a profile that M3-00 blocks from ever
+    # moving a cursor. Same trap the band_target_files docstring names: the
+    # step lived in the CLI and the programmatic caller skipped it silently.
+    chosen_monitor = monitor if monitor is not None else GD.pick_monitor(None)
     result = R.run_session(
         protocols=["A", "T1"],
         round_id=round_id if round_id is not None else next_free_round(root),
@@ -296,7 +307,7 @@ def run_sequence(
         headless=False,
         speed=1.0,
         x_range=x_range,
-        monitor=monitor,
+        monitor=chosen_monitor,
         advance_timeout_s=ADVANCE_TIMEOUT_S,
     )
     # watchdog_tripped is checked separately from aborted: a watchdog trip
@@ -341,7 +352,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     profile = L.resolve_profile(args.profile)
-    outcome = run_sequence(profile, round_id=args.round)
+    # --monitor was parsed and then dropped, so naming a display did nothing
+    # at all. Resolved before the session rather than inside it, so a bad
+    # selector fails with the list of displays instead of after a recording.
+    monitor = GD.pick_monitor(args.monitor) if args.monitor is not None else None
+    outcome = run_sequence(profile, round_id=args.round, monitor=monitor)
     print()
     print(outcome.summary)
     print(f"new calibration: {outcome.model_dir}")

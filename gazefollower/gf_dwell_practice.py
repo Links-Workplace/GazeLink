@@ -132,7 +132,7 @@ def trial_order(keys: list[str], n_trials: int, seed: int) -> list[str]:
 def score(
     trials: list[Trial],
     *,
-    unintended: int,
+    unintended: int | list[dict[str, Any]],
     idle_seconds: float,
     buttons: list[D.Button] | None = None,
 ) -> dict[str, Any]:
@@ -170,7 +170,12 @@ def score(
             "median": statistics.median(lost) if lost else None,
             "max": max(lost) if lost else None,
         },
-        "unintended_activations": unintended,
+        "unintended_activations": (unintended if isinstance(unintended, int) else len(unintended)),
+        # WHICH target fired, WHEN into the rest block, and WHERE the point
+        # was. The count alone cannot say whether widening the dead space
+        # would help or whether the activations are spread through the rest
+        # block or bunched at one moment, and those lead to different fixes.
+        "unintended_detail": [] if isinstance(unintended, int) else list(unintended),
         "idle_seconds": idle_seconds,
         # Where in (or around) the requested target the gaze sat. NOT a bias
         # measurement: the operator is free to look anywhere inside a target,
@@ -364,7 +369,7 @@ def run_practice(
         else trial_order(keys, n_trials, seed)
     )
     trials: list[Trial] = []
-    unintended = 0
+    unintended: list[dict[str, Any]] = []
     aborted = False
 
     def poll(now: float) -> str | None:
@@ -551,8 +556,15 @@ def run_practice(
                     break
                 state = runner.state
                 point = R.visible_point(state.point, state.updated_s, now, R.OVERLAY_STALE_S)
-                if engine.update(now, point, fresh=point is not None) is not None:
-                    unintended += 1
+                fired = engine.update(now, point, fresh=point is not None)
+                if fired is not None:
+                    unintended.append(
+                        {
+                            "key": fired.button,
+                            "at_s": round(idle_seconds - (until - now), 2),
+                            "point": None if point is None else [round(float(v), 4) for v in point],
+                        }
+                    )
                 display.draw_practice(
                     buttons,
                     point,
@@ -560,7 +572,7 @@ def run_practice(
                     progress=engine.progress,
                     prompt=[
                         f"REST -- {until - now:.0f}s left, select nothing",
-                        f"unintended so far: {unintended}",
+                        f"unintended so far: {len(unintended)}",
                     ],
                     tracking=point is not None,
                 )

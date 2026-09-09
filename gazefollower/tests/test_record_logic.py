@@ -1296,3 +1296,52 @@ def _one_frozen_recording() -> S.Recording:
     rec = runner.builder.freeze()
     rec.meta["integrity"] = runner.integrity(watchdog_tripped=False, aborted=False)
     return rec
+
+
+class LongHoldProbeTests(unittest.TestCase):
+    """T3: the same held-out targets, held long enough to see the approach end.
+
+    Measured on round34/T1 the raw prediction took a median 2469 ms to settle
+    within 200 px of the target, against 546 ms on round19 -- so a 3.0 s
+    presentation ends while the approach is still under way and the scored
+    window carries it. T3 exists to separate arriving from staying.
+    """
+
+    def _targets(self) -> Path:
+        return Path(__file__).resolve().parent.parent / "targets_central.json"
+
+    def test_the_hold_is_long_enough_for_the_slowest_approach_seen(self) -> None:
+        spec = R.protocol_t3(self._targets())
+        self.assertEqual(spec.name, "T3")
+        self.assertEqual(spec.kind, "timed")
+        total_ms = (spec.settle_s + spec.collect_s) * 1000.0
+        self.assertGreaterEqual(
+            total_ms,
+            4000.0,
+            "a target that leaves the screen before the prediction arrives cannot "
+            "distinguish a slow approach from a wrong endpoint",
+        )
+
+    def test_it_shares_T1s_targets_and_settle_so_the_two_compare(self) -> None:
+        """Change the settle too and the shared first seconds stop matching."""
+
+        t3 = R.protocol_t3(self._targets())
+        t1 = R.protocol_timed(
+            "T1",
+            self._targets(),
+            C.DEFAULT_SETTLE_MS / 1000.0,
+            C.DEFAULT_COLLECT_MS / 1000.0,
+        )
+        self.assertEqual(
+            [(t.name, t.x, t.y) for t in t3.targets],
+            [(t.name, t.x, t.y) for t in t1.targets],
+        )
+        self.assertEqual(t3.settle_s, t1.settle_s)
+        self.assertGreater(t3.collect_s, t1.collect_s)
+
+    def test_T3_is_a_protocol_the_recorder_and_the_schema_both_accept(self) -> None:
+        """A protocol the recorder builds but the schema rejects saves nothing."""
+
+        self.assertIn("T3", S.ALL_PROTOCOLS)
+        self.assertNotIn("T3", S.CALIBRATION_PROTOCOLS)
+        self.assertIn("T3", R.INSTRUCTIONS)

@@ -25,6 +25,108 @@ import gf_gaze_filter as GF  # noqa: E402
 import gf_head_features as H  # noqa: E402
 import gf_schema as S  # noqa: E402
 
+# Which rules produced a number. Reports carry it so a corrected result is
+# never silently compared against one measured the old way; "live-parity-1"
+# means the filter saw the frame sequence the live view saw.
+MEASUREMENT_VERSION = "live-parity-1"
+
+
+def live_valid_rows(rec: S.Recording) -> np.ndarray:
+    """Exactly the frames the live view would predict on.
+
+    ``gf_live`` gates on gaze status AND on both eyes being open, then calls
+    the model; anything else resets the filter.  Reproduced here from the
+    recorded columns so a replay can see the same sequence.  Deliberately not
+    ``rows_collecting``: that is a SCORING window, and using it as the filter's
+    input is what made the two paths differ.
+    """
+
+    openness = np.asarray(rec.openness, dtype=np.float64)
+    return (
+        np.asarray(rec.gaze_status, dtype=bool)
+        & (openness[:, 0] > C.BLINK_THRESHOLD)
+        & (openness[:, 1] > C.BLINK_THRESHOLD)
+        & np.all(np.isfinite(np.asarray(rec.features, dtype=np.float64)), axis=1)
+    )
+
+
+def predict_live(model: FIT.FittedModel, rec: S.Recording, rig: C.RigGeometry) -> np.ndarray:
+    """Predict on the live view's frames, not on the scoring window.
+
+    ``predict`` masks to ``scoring_rows``, so a replay of its output feeds the
+    filter one collect window at a time and restarts it in between -- measured
+    on round34/T1: 462 of 905 frames, the filter restarted 10 times where the
+    live view never restarts it once.  The filtered number then describes a
+    filter nobody ran.  Here every frame the live view had is predicted, and
+    which rows to SCORE is decided afterwards.
+    """
+
+    mask = live_valid_rows(rec)
+    if model.schema.head_names:
+        mask &= rec.rows_head_valid()
+    out = np.full((rec.n_rows, 2), np.nan, dtype=np.float64)
+    if not mask.any():
+        return out
+    design = S.assemble(
+        rec.features[mask],
+        rec.head[mask] if model.schema.head_names else None,
+        model.schema.head_names,
+        H.HEAD6_NAMES,
+    )
+    out[mask] = model.predict_norm(design, rig)
+    return out
+
+
+def filtered_like_the_screen(
+    model: FIT.FittedModel,
+    rec: S.Recording,
+    rig: C.RigGeometry,
+    settings: GF.FilterSettings,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Raw and filtered output for every row, filtered in capture order.
+
+    Returns both because the pair has to come from ONE pass: reporting a raw
+    number from one frame set and a filtered number from another is the gap
+    this function exists to close.
+    """
+
+    raw = predict_live(model, rec, rig)
+    filtered, _ = replay(raw, rec.timestamp_ns, settings)
+    return raw, filtered
+
+
+def fixation_windows(rec: S.Recording) -> list[np.ndarray]:
+    """One array of row indexes per target presentation, in capture order."""
+
+    idx = np.where(FIT.eligible_rows(rec))[0]
+    if idx.size == 0:
+        return []
+    return [w for w in np.split(idx, np.where(np.diff(idx) > 1)[0] + 1) if w.size]
+
+
+def split_arrival_from_hold(
+    rec: S.Recording, *, hold_fraction: float = 0.5
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split each scored window into arriving-at-the-target and holding on it.
+
+    Reported apart because they answer different questions and a single median
+    hides both.  ``hold_fraction`` is the tail of each window counted as the
+    hold; it is a reporting split, and no claim about what the eye was doing
+    is made from it here.
+    """
+
+    arrival: list[np.ndarray] = []
+    hold: list[np.ndarray] = []
+    for window in fixation_windows(rec):
+        cut = int(window.size * (1.0 - hold_fraction))
+        arrival.append(window[:cut])
+        hold.append(window[cut:])
+    empty = np.zeros(0, dtype=int)
+    return (
+        np.concatenate(arrival) if arrival else empty,
+        np.concatenate(hold) if hold else empty,
+    )
+
 
 def predict(model: FIT.FittedModel, rec: S.Recording, rig: C.RigGeometry) -> np.ndarray:
     """Predict every model-eligible row and preserve missing rows as NaN."""

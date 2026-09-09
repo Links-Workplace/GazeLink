@@ -238,3 +238,80 @@ class ReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HoldAfterClickTests(unittest.TestCase):
+    """After a click the pointer stays put for a moment.
+
+    Two reasons, and the second is the one that makes double clicking work at
+    all: the click must land where it was aimed rather than where the gaze has
+    already moved on to, and a second click meant as a double has to reach the
+    same pixel, which it cannot while the pointer chases the eye.
+    """
+
+    class _Clock:
+        def __init__(self) -> None:
+            self.t = 100.0
+
+        def __call__(self) -> float:
+            return self.t
+
+    def _adapter(self, clock):
+        fake = _Fake()
+        return (
+            _adapter(
+                fake,
+                enabled=True,
+                clock=clock,
+                limits=CU.CursorLimits(smoothing=1.0, dead_zone_px=0, max_step_px=100000),
+            ),
+            fake,
+        )
+
+    def test_the_pointer_does_not_move_while_held(self) -> None:
+        clock = self._Clock()
+        cursor, _ = self._adapter(clock)
+        cursor.update((100, 100))
+        cursor.hold_for(1.5)
+        clock.t += 0.2
+        self.assertEqual(cursor.update((900, 900)), (100, 100))
+
+    def test_it_follows_again_once_the_hold_expires(self) -> None:
+        clock = self._Clock()
+        cursor, _ = self._adapter(clock)
+        cursor.update((100, 100))
+        cursor.hold_for(1.5)
+        clock.t += 2.0
+        self.assertEqual(cursor.update((900, 900)), (900, 900))
+
+    def test_a_hold_can_be_released_early(self) -> None:
+        """The next click has to be allowed to land somewhere else."""
+
+        clock = self._Clock()
+        cursor, _ = self._adapter(clock)
+        cursor.update((100, 100))
+        cursor.hold_for(1.5)
+        cursor.release_hold()
+        self.assertEqual(cursor.update((900, 900)), (900, 900))
+
+    def test_a_held_frame_is_counted_apart_from_a_frozen_one(self) -> None:
+        """Held on purpose and frozen for want of a point are different
+        things, and a report that pools them explains neither."""
+
+        clock = self._Clock()
+        cursor, _ = self._adapter(clock)
+        cursor.update((100, 100))
+        cursor.hold_for(1.0)
+        cursor.update((900, 900))
+        self.assertEqual(cursor.held_for_click_frames, 1)
+        self.assertEqual(cursor.frozen_frames, 0)
+        cursor.release_hold()
+        cursor.update(None)
+        self.assertEqual(cursor.frozen_frames, 1)
+
+    def test_holding_for_nothing_does_not_hold(self) -> None:
+        clock = self._Clock()
+        cursor, _ = self._adapter(clock)
+        cursor.update((100, 100))
+        cursor.hold_for(0.0)
+        self.assertEqual(cursor.update((900, 900)), (900, 900))
