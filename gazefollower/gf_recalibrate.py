@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gf_common as C  # noqa: E402
 import gf_display as GD  # noqa: E402
 import gf_live as L  # noqa: E402
+import gf_pool as POOL  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_recal_compare as CMP  # noqa: E402
 import gf_record as R  # noqa: E402
@@ -57,6 +58,27 @@ ADVANCE_TIMEOUT_S = 6.0
 MIN_IMPROVEMENT_PX = 10.0
 MIN_FRACTION_BETTER = 0.60
 
+# What a recalibration does NOT measure, and therefore must not silently
+# reset. Everything else in a profile is re-derived from the new recording --
+# the model, the rig, the screen, the calibration pose, the scores -- and
+# rebuilding those is the whole point. These two are not gaze at all:
+#
+# ``gesture``  the person's eyelid rule, measured from openness landmarks. It
+#              belongs to a face and a camera geometry, neither of which a
+#              gaze calibration touches. Dropping it silently replaces a rule
+#              measured on someone with the built-in defaults.
+# ``cursor``   how the pointer should feel, chosen by the operator by using
+#              it. Dropping it reverts to smoothing 0.35 / dead zone 12 --
+#              the setting one profile records as "felt jumpy" in the very
+#              field that says why 0.6 / 6 replaced it.
+#
+# Established by reading the code and confirmed by reverting this carry and
+# watching the tests fail, NOT by running a calibration session: an adopted
+# recalibration produced a profile with neither block, so a session that had
+# just been calibrated was also, unannounced, running a pointer the person
+# had already rejected.
+CARRIED_FORWARD = ("gesture", "cursor")
+
 
 @dataclass
 class Outcome:
@@ -69,6 +91,9 @@ class Outcome:
     paired: dict[str, Any]
     better: bool
     summary: str
+    # What trained the new model. None when the session path was used, so a
+    # profile can never claim a pool it was not fitted from.
+    pool: POOL.Pool | None = None
 
 
 def fit_pinned(recording_dir: Path, config_name: str, *, overwrite: bool = False) -> Path:
@@ -115,6 +140,135 @@ def fit_pinned(recording_dir: Path, config_name: str, *, overwrite: bool = False
     return model.save(target)
 
 
+def config_name_of(model_dir: str | Path) -> str:
+    """The configuration a saved model was fitted with, from its directory.
+
+    A pooled model is saved under ``<config>__pooled_<stamp>``. Reading the
+    directory name straight back would look up a configuration no build has,
+    and the failure would land at the END of a calibration session, after the
+    recording, with "a configuration this build does not know".
+    """
+
+    name = Path(model_dir).name
+    marker = "__pooled"
+    return name[: name.index(marker)] if marker in name else name
+
+
+def fit_pooled(
+    recording_dir: Path,
+    config_name: str,
+    *,
+    check_protocol: str = "T1",
+    root: Path | None = None,
+    overwrite: bool = False,
+) -> tuple[Path, POOL.Pool]:
+    """Refit the profile's configuration on EVERY compatible past recording.
+
+    The measured reason to prefer this over :func:`fit_pinned`: one session
+    is 405 rows at nine screen positions, which a 258-dimensional model
+    memorises (17.8 px on its own rows, 167 px held out). Leave-one-session-out
+    over 13 sessions put a single fresh calibration at a median of 226 px and
+    the pooled fit at 118 px, better on 11 of 11 folds -- and still 142 px,
+    better on 10 of 11, when the held-out session's screen POSITIONS were
+    removed from training as well. See ``gf_pool``.
+
+    The check recording is excluded by name. Scoring a model on rows that
+    trained it would report memory as accuracy, and it is the one mistake
+    that would make every number in the comparison meaningless while looking
+    like a large improvement.
+    """
+
+    import gf_fit as FIT  # noqa: PLC0415
+    import gf_presets as PRE  # noqa: PLC0415
+
+    config = next((c for c in PRE.sweep_with_presets(()) if c.name == config_name), None)
+    if config is None:
+        raise SystemExit(
+            f"the profile names a configuration this build does not know: {config_name!r}"
+        )
+    head_names = tuple(config.head_names)
+    # Pinned to the recording being calibrated against TODAY, not to whichever
+    # recording happens to sort first on disk. Without this the pool adopts the
+    # OLDEST recording's key: after a screen or rig change, months of old data
+    # would form the pool and the new calibration -- the one session that
+    # actually describes the new setup -- would be rejected as incompatible,
+    # while the comparison still took its geometry from that new session.
+    require = POOL.key_of(Path(recording_dir), check_protocol)
+    pool = POOL.build(
+        head_names,
+        root=root,
+        exclude=[(Path(recording_dir), check_protocol)],
+        require=require,
+    )
+    ok, why = POOL.usable(pool)
+    if not ok:
+        raise SystemExit(f"the pooled fit has too little to learn from: {why}. Nothing changed.")
+    model = FIT.FittedModel.fit(
+        config,
+        pool.X,
+        pool.Y_cm,
+        rig=pool.rig,
+        train_meta={
+            "protocol": "A",
+            "fitted_by": "gf_recalibrate (pooled)",
+            "pool_rows": pool.rows,
+            "pool_positions": pool.positions,
+            "pool_sessions": pool.sessions,
+            "held_out": f"{Path(recording_dir).name}/{check_protocol}",
+            # Read back by ``check_is_held_out`` when this model is later the
+            # OLD side of a comparison. Without it nothing can tell whether a
+            # check recording trained the model it is being used to judge.
+            "trained_on": pool.identities(),
+        },
+    )
+    # A NEW directory every time, never a replacement. The destination used to
+    # be a fixed name, and refitting against a recording whose pooled model a
+    # profile already pointed at overwrote that model IN PLACE -- so the "old"
+    # and "new" sides of the comparison loaded the same replaced files, and
+    # even --adopt never destroyed the model the active profile referenced.
+    # FittedModel.save writes several files, so an interrupted overwrite could
+    # leave a mixed one. An unused candidate costs disk; a replaced one costs
+    # the calibration someone is relying on.
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    models = Path(recording_dir) / "models"
+    target = models / f"{config.name}__pooled_{stamp}"
+    serial = 0
+    while target.exists():
+        serial += 1
+        target = models / f"{config.name}__pooled_{stamp}_{serial}"
+    return model.save(target), pool
+
+
+class CheckNotHeldOut(SystemExit):
+    """Raised when a check recording trained one of the models it would judge."""
+
+
+def check_is_held_out(model_dir: Path, recording_dir: Path, protocol: str) -> None:
+    """Refuse a comparison in which the check recording trained either model.
+
+    Scoring a model on rows that trained it reports memorisation as accuracy.
+    The NEW model is held out by construction in :func:`fit_pooled`; the OLD
+    one is whatever the active profile points at, and once pooled profiles
+    exist that model may well have trained on this very check. Comparing then
+    flatters the old side, and the adoption decision is made on a number that
+    means nothing.
+
+    A model that does not record what trained it is refused rather than
+    assumed innocent: "it does not say" and "it did not" are different facts,
+    and only one of them is safe.
+    """
+
+    trained = POOL.trained_on(model_dir)
+    if trained is None:
+        return
+    if (Path(recording_dir).name, protocol) in trained:
+        raise CheckNotHeldOut(
+            f"the current model was trained on {Path(recording_dir).name}/{protocol}, so "
+            "scoring it there would measure what it memorised, not what it learned. "
+            "Choose another check recording, or record a new session. Nothing was changed."
+        )
+
+
 def worth_adopting(paired: dict[str, Any]) -> tuple[bool, str]:
     """Is the improvement big enough and consistent enough to swap on?
 
@@ -147,6 +301,7 @@ def compare_on_check(
     new_model_dir: Path,
     *,
     protocol: str = "T1",
+    pool: POOL.Pool | None = None,
 ) -> Outcome:
     """Score the current and the incoming model on the same new frames."""
 
@@ -175,6 +330,7 @@ def compare_on_check(
         paired=paired,
         better=better,
         summary=summary,
+        pool=pool,
     )
 
 
@@ -183,6 +339,10 @@ def adopt(profile: PROF.Profile, outcome: Outcome, *, name: str | None = None) -
 
     The previous profile is neither edited nor deleted, so going back is
     selecting it again rather than recovering it.
+
+    ``CARRIED_FORWARD`` is copied from the old profile because a recalibration
+    does not measure it. This is the ONLY code path in the project that
+    creates a profile, so a field it drops is a field nobody kept.
     """
 
     stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -203,6 +363,29 @@ def adopt(profile: PROF.Profile, outcome: Outcome, *, name: str | None = None) -
             "measured_utc": stamp,
         },
     )
+    # Copied rather than merged: these blocks are read as wholes (a wink rule
+    # with half its thresholds from one measurement and half from another is
+    # not a rule anyone measured), and ``fresh`` has nothing in them to merge.
+    # Named one by one rather than splatted from CARRIED_FORWARD: a **dict is
+    # opaque to the type checker, which then cannot tell that a typo names a
+    # field Profile does not have. The constant stays the documentation and
+    # the thing the tests iterate, and one of them fails if a name is added
+    # here in one place and not the other.
+    fresh = replace(
+        fresh,
+        gesture=dict(profile.gesture or {}),
+        cursor=dict(profile.cursor or {}),
+    )
+    if outcome.pool is not None:
+        # A model trained on an accumulating pool is only reproducible if what
+        # went into it is written down. Stored under ``calibration`` because
+        # that is where this profile says where its model came from, and
+        # because the pool is now a larger part of that answer than the one
+        # session the recording directory names.
+        calibration = dict(fresh.calibration)
+        calibration["pool"] = outcome.pool.provenance()
+        calibration["fitted_on"] = "pool"
+        fresh = replace(fresh, calibration=calibration)
     PROF.save(fresh)
     PROF.activate(new_name)
     return new_name
@@ -256,6 +439,7 @@ def run_sequence(
     round_id: int | None = None,
     monitor: Any = None,
     out_root: Path | None = None,
+    fit: str = "pooled",
 ) -> Outcome:
     """Record, fit and check. Does NOT decide -- the caller does that."""
 
@@ -323,9 +507,63 @@ def run_sequence(
             raise SystemExit(f"recalibration did not record {protocol}. Nothing was changed.")
     recording_dir = Path(next(iter(result.recordings.values()))).parent
     require_usable_calibration(recording_dir)
-    config_name = Path(profile.model_dir).name
-    model_dir = fit_pinned(recording_dir, config_name)
-    return compare_on_check(profile, recording_dir, model_dir)
+    # The configuration is pinned either way; only the ROWS differ. A name
+    # ending in the pooled suffix would otherwise compound each time.
+    config_name = config_name_of(profile.model_dir)
+    # A fresh round cannot normally have trained anything -- but --round takes
+    # a number from the operator, and naming one that a pooled model already
+    # learned from would score that model on its own rows.
+    check_is_held_out(profile.model_path(), recording_dir, "T1")
+    if fit == "session":
+        return compare_on_check(profile, recording_dir, fit_pinned(recording_dir, config_name))
+    model_dir, pool = fit_pooled(recording_dir, config_name, root=out_root)
+    return compare_on_check(profile, recording_dir, model_dir, pool=pool)
+
+
+def refit_from_existing(
+    profile: PROF.Profile,
+    recording_dir: Path,
+    *,
+    check_protocol: str = "T1",
+    out_root: Path | None = None,
+) -> Outcome:
+    """Rebuild the model from the pool WITHOUT recording anything new.
+
+    The accumulating pool means the data for a better model can already be on
+    disk before a person sits down: the recordings that would improve today's
+    profile were made on earlier days. Asking someone who cannot use their
+    hands to repeat a calibration session to extract value from sessions they
+    have already given is a cost with nothing behind it.
+
+    ``recording_dir`` supplies the CHECK only. Its check protocol is held out
+    of the pool and both models are scored on it, so this is the same paired
+    comparison the recording path makes -- and, unlike that path, neither
+    model has seen these frames, which makes it the fairer of the two.
+    """
+
+    recording_dir = Path(recording_dir)
+    if not (recording_dir / f"{check_protocol}.meta.json").exists():
+        raise SystemExit(
+            f"{recording_dir} has no {check_protocol} recording to check against. "
+            "Nothing was changed."
+        )
+    # Adoption reads the CALIBRATION protocol of this directory for the rig,
+    # the screen identity and the calibration pose. Several rounds on disk
+    # hold a check and nothing else; one of those would fit and compare
+    # perfectly well and then fail at the last step, after the work. Refused
+    # here, before anything is fitted, with the reason.
+    if not (recording_dir / "A.meta.json").exists():
+        raise SystemExit(
+            f"{recording_dir} has {check_protocol} but no A recording. A profile takes its "
+            "geometry and calibration pose from the calibration protocol, so this round "
+            "cannot become one. Pick a round that has both. Nothing was changed."
+        )
+    check_is_held_out(profile.model_path(), recording_dir, check_protocol)
+    config_name = config_name_of(profile.model_dir)
+    model_dir, pool = fit_pooled(
+        recording_dir, config_name, check_protocol=check_protocol, root=out_root
+    )
+    return compare_on_check(profile, recording_dir, model_dir, protocol=check_protocol, pool=pool)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -335,6 +573,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", default=None)
     parser.add_argument("--round", type=int, default=None)
     parser.add_argument("--monitor", default=None)
+    parser.add_argument(
+        "--from-existing",
+        default=None,
+        metavar="RECORDING",
+        help=(
+            "skip the camera session entirely and rebuild the model from recordings "
+            "already on disk. The named round supplies the CHECK: its T1 is held out of "
+            "the pool and both models are scored on it. Use this to get the benefit of "
+            "sessions already recorded without asking anyone to calibrate again."
+        ),
+    )
+    parser.add_argument(
+        "--fit",
+        choices=("pooled", "session"),
+        default="pooled",
+        help=(
+            "which rows train the new model. 'pooled' (default) uses every compatible "
+            "past recording, which measured a median 118 px against 226 px for a single "
+            "session and was better on 11 of 11 leave-one-session-out folds; 'session' "
+            "is the old behaviour, this calibration alone, kept so the two can be "
+            "compared on the same recording."
+        ),
+    )
     parser.add_argument(
         "--adopt",
         choices=("never", "if-better", "always"),
@@ -356,10 +617,22 @@ def main(argv: list[str] | None = None) -> int:
     # at all. Resolved before the session rather than inside it, so a bad
     # selector fails with the list of displays instead of after a recording.
     monitor = GD.pick_monitor(args.monitor) if args.monitor is not None else None
-    outcome = run_sequence(profile, round_id=args.round, monitor=monitor)
+    if args.from_existing is not None:
+        if args.fit == "session":
+            raise SystemExit(
+                "--from-existing rebuilds from the pool; there is no single session to fit. "
+                "Drop --fit session, or record a new one."
+            )
+        outcome = refit_from_existing(profile, Path(args.from_existing))
+    else:
+        outcome = run_sequence(profile, round_id=args.round, monitor=monitor, fit=args.fit)
     print()
     print(outcome.summary)
     print(f"new calibration: {outcome.model_dir}")
+    if outcome.pool is not None:
+        print(f"trained on the accumulated pool: {outcome.pool.summary()}")
+    else:
+        print("trained on this session alone (--fit session)")
     if args.adopt == "never":
         print(f"keeping the current profile ({profile.name}); nothing was changed.")
         return 0
@@ -370,6 +643,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     name = adopt(profile, outcome)
     print(f"activated new profile {name!r}. The previous one ({profile.name}) is still saved.")
+    # Said out loud. A profile that quietly inherits half its settings is as
+    # hard to reason about as one that quietly discards them.
+    carried = [field for field in CARRIED_FORWARD if getattr(profile, field)]
+    if carried:
+        print(
+            f"carried over from {profile.name} (a recalibration does not measure these): "
+            f"{', '.join(carried)}"
+        )
+    missing = [field for field in CARRIED_FORWARD if not getattr(profile, field)]
+    if missing:
+        print(
+            f"{profile.name} had no {', '.join(missing)} settings, so the new profile uses "
+            "the built-in defaults for them"
+        )
     return 0
 
 

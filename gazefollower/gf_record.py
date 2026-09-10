@@ -1404,6 +1404,8 @@ class Display:
         hud: Sequence[str],
         *,
         tracking: bool,
+        zones: Sequence[Any] = (),
+        active_zone: str | None = None,
     ) -> None:
         """The free-running view: no target on screen, just what is reported.
 
@@ -1411,6 +1413,11 @@ class Display:
         dot.  With nothing on screen, a frozen prediction and a lost face look
         identical, and the whole point of watching the dot is to be able to
         tell those apart.
+
+        ``zones`` are drawn as OUTLINES, never filled.  This window sits over
+        the desktop as a colour-keyed hole, so a filled rectangle would hide
+        the thing the person is trying to read -- and the whole purpose of a
+        scroll band is to be looked at while reading past it.
         """
 
         if self.headless:
@@ -1420,6 +1427,30 @@ class Display:
         # the text are visible. Anywhere else it is the ordinary white sheet.
         overlay = self.overlay is not None and self.overlay.see_through
         self.screen.fill(self.transparent_key if overlay else (255, 255, 255))
+        for zone in zones:
+            rect = self.pg.Rect(
+                int(zone.x0 * self.width),
+                int(zone.y0 * self.height),
+                int((zone.x1 - zone.x0) * self.width),
+                int((zone.y1 - zone.y0) * self.height),
+            )
+            live = zone.key == active_zone
+            # Outline only. Never (255, 0, 255): that is the colour Windows
+            # was told to treat as a hole, so a border in it would vanish.
+            # Thick and high contrast on purpose. A 3 px grey line over a
+            # busy page is invisible, and a control the person cannot find is
+            # the same as one that is not there.
+            self.pg.draw.rect(
+                self.screen,
+                (30, 110, 255) if live else (70, 110, 160),
+                rect,
+                14 if live else 6,
+            )
+            label = self.font.render(zone.key, True, (20, 20, 20))
+            plate = self.pg.Surface((label.get_width() + 16, label.get_height() + 8))
+            plate.fill((245, 245, 245))
+            self.screen.blit(plate, (rect.centerx - plate.get_width() // 2, rect.centery - 20))
+            self.screen.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - 16))
         self._draw_live_point(raw_model, (255, 160, 0), radius=6)
         if self._show_unfiltered_overlay:
             self._draw_live_point(unfiltered, (150, 70, 180), radius=7, cross=True)

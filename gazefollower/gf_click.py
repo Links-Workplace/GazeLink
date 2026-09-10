@@ -1,4 +1,4 @@
-"""The only file in this project that can emit a mouse click.
+"""The only file in this project that can press a mouse button or turn its wheel.
 
 Kept apart from ``gf_cursor`` deliberately, and the separation is enforced by
 a test that reads that file and fails if click words appear in it.  Moving a
@@ -17,6 +17,14 @@ still believed held is reported rather than forgotten.
 ``enabled=False`` is a full simulation: it counts and records every click and
 calls nothing.  The two paths differ in one line, so what the tests exercise
 is what runs for real.  No test in this project emits a real click.
+
+The wheel lives here too, in ``ScrollAdapter``, for the same reason the click
+does: it is OS input, and this project keeps every path that can produce OS
+input in one audited file rather than letting a second one appear quietly.  It
+has none of the down/up risk -- a wheel notch is a single event with nothing
+left held -- but it has a risk the click does not: it REPEATS.  So the rate
+limit is the safety property here, and it is enforced in this file rather than
+trusted to the caller.
 """
 
 from __future__ import annotations
@@ -30,6 +38,10 @@ from typing import Any
 
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_WHEEL = 0x0800
+# What Windows counts as one detent of the wheel. Everything is a multiple of
+# it; a smaller number is a partial notch and applications may ignore it.
+WHEEL_DELTA = 120
 INPUT_MOUSE = 0
 
 
@@ -61,6 +73,25 @@ def _send(flag: int) -> None:
     """
 
     event = _Input(INPUT_MOUSE, _InputUnion(_MouseInput(0, 0, 0, flag, 0, None)))
+    sent = ctypes.windll.user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event))
+    if sent != 1:
+        raise OSError(f"SendInput sent {sent} of 1 events")
+
+
+def _send_wheel(delta: int) -> None:
+    """Turn the wheel by ``delta``: positive scrolls up, negative down.
+
+    Same shape as ``_send`` and the same silence about position: no
+    coordinates, so where it lands is decided by whoever moved the pointer.
+
+    ``mouseData`` is declared ``c_ulong``, so a negative delta is masked to its
+    two's-complement pattern EXPLICITLY here rather than left to ctypes to
+    coerce. The coercion happens to produce the right bits today; writing it
+    down means a scroll-down cannot quietly become a scroll-up if that changes.
+    """
+
+    data = delta & 0xFFFFFFFF
+    event = _Input(INPUT_MOUSE, _InputUnion(_MouseInput(0, 0, data, MOUSEEVENTF_WHEEL, 0, None)))
     sent = ctypes.windll.user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event))
     if sent != 1:
         raise OSError(f"SendInput sent {sent} of 1 events")
@@ -309,4 +340,162 @@ class ClickAdapter:
             "refused_too_soon": self.refused_too_soon,
             "failed": self.failed,
             "button_stuck": self.button_stuck,
+        }
+
+
+# SystemParametersInfo, SPI_GETMOUSEWHEELROUTING.
+SPI_GETMOUSEWHEELROUTING = 0x201C
+_WHEEL_ROUTING = {
+    0: "the FOCUSED window",
+    1: "hybrid",
+    2: "the window under the POINTER",
+}
+
+
+def wheel_routing(user32: Any = None) -> tuple[int, str]:
+    """Where Windows sends a wheel event, read rather than assumed.
+
+    It is a user setting -- "scroll inactive windows when I hover over them"
+    -- and it decides whether freezing the pointer over the target is what
+    makes a gaze scroll work or merely harmless. Measured on this rig on
+    10.9.2026: 2, the window under the pointer. That is why the caller parks
+    the pointer on the content before the first notch.
+
+    If it ever reads 0, the pointer no longer decides and the target window
+    would have to be FOCUSED instead -- which nothing in this project does,
+    and which would be a new kind of OS side effect. Reported rather than
+    handled, because a guess about which one is in force is worse than a
+    number on the screen.
+    """
+
+    try:
+        api = user32 or ctypes.windll.user32
+        value = ctypes.c_uint(0)
+        if not api.SystemParametersInfoW(SPI_GETMOUSEWHEELROUTING, 0, ctypes.byref(value), 0):
+            return (-1, "unknown")
+        return (value.value, _WHEEL_ROUTING.get(value.value, "unknown"))
+    except Exception:  # noqa: BLE001 - an unreadable setting is not a failed scroll
+        return (-1, "unknown")
+
+
+@dataclass
+class ScrollLimits:
+    """Bounds a scroll must satisfy, whatever the caller believes.
+
+    The click's guard exists to stop one gesture firing twice. This one exists
+    because scrolling REPEATS by design, so "how fast, at most" is the whole of
+    its safety: a caller stuck in a loop, or a zone the gaze is resting in by
+    accident, must not be able to run the page away.
+    """
+
+    # No more than one notch this often, whoever asks. Well under the repeat
+    # rate the caller uses, so it never bites in normal use and only catches a
+    # caller that has lost control of its own clock.
+    min_gap_s: float = 0.05
+    # A single request can never be more than this many notches, so a bad
+    # number arriving from a config or a flag cannot jump a page a screenful
+    # at a time.
+    max_notches: int = 3
+
+    def __post_init__(self) -> None:
+        if self.min_gap_s < 0.0:
+            raise ValueError("min_gap_s must not be negative")
+        if self.max_notches < 1:
+            raise ValueError("max_notches must be at least 1")
+
+
+class ScrollAdapter:
+    """Turns the mouse wheel, or pretends to. One turn per explicit request.
+
+    Where it scrolls is decided by whoever moved the pointer -- this file sends
+    no coordinates. Which of the two things that means is now measured rather
+    than assumed: ``wheel_routing`` read 2 on this rig, "the window under the
+    POINTER", so parking the pointer on the content is not a precaution, it is
+    the thing that makes a gaze scroll work at all. The value is a user
+    setting, so it is read again and reported in ``summary`` every session.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = False,
+        limits: ScrollLimits | None = None,
+        sender: Any = None,
+        clock: Any = None,
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.limits = limits or ScrollLimits()
+        self._send_wheel = sender or _send_wheel
+        import time  # noqa: PLC0415
+
+        self._now = clock or time.monotonic
+        self.notches_up = 0
+        self.notches_down = 0
+        self.refused_not_armed = 0
+        self.refused_too_soon = 0
+        self.failed = 0
+        self._last_s: float | None = None
+
+    def __enter__(self) -> ScrollAdapter:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        # Nothing to release: a notch leaves nothing held. Present so this
+        # adapter is used exactly like the click one, and a later reader does
+        # not have to check which of the two needs cleaning up.
+        return None
+
+    def ready(self, *, armed: bool = True) -> bool:
+        """Would a notch be accepted right now? Read-only; counts nothing."""
+
+        if not armed:
+            return False
+        if self._last_s is None:
+            return True
+        return (self._now() - self._last_s) >= self.limits.min_gap_s
+
+    def scroll(self, notches: int, *, armed: bool) -> bool:
+        """Send ``notches`` detents: positive up, negative down.
+
+        Returns whether it happened. ``armed`` is the caller's control mode,
+        passed in rather than read from anywhere, for the same reason
+        ``click`` takes it.
+        """
+
+        if not armed:
+            self.refused_not_armed += 1
+            return False
+        if notches == 0:
+            return False
+        now = self._now()
+        if self._last_s is not None and (now - self._last_s) < self.limits.min_gap_s:
+            self.refused_too_soon += 1
+            return False
+        capped = max(-self.limits.max_notches, min(self.limits.max_notches, int(notches)))
+        try:
+            if self.enabled:
+                self._send_wheel(capped * WHEEL_DELTA)
+        except Exception:  # noqa: BLE001 - a failed turn is not a turn
+            self.failed += 1
+            return False
+        if capped > 0:
+            self.notches_up += capped
+        else:
+            self.notches_down += -capped
+        self._last_s = now
+        return True
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "notches_up": self.notches_up,
+            "notches_down": self.notches_down,
+            "refused_not_armed": self.refused_not_armed,
+            "refused_too_soon": self.refused_too_soon,
+            "failed": self.failed,
+            # Reported every session because it is a user setting: if it reads
+            # 0, the pointer no longer decides where a notch lands and this
+            # whole design needs revisiting.
+            "wheel_goes_to": wheel_routing()[1],
+            "note": "this adapter cannot press a button; there is no down or up in it",
         }

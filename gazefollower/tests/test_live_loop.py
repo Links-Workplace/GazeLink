@@ -56,6 +56,8 @@ class _Display:
         self.frames = 0
         self.huds: list[list[str]] = []
         self.overlay = None
+        self.zones: list[list[str]] = []
+        self.active_zones: list[str | None] = []
 
     def draw_message(self, *a: object, **kw: object) -> None:
         return None
@@ -63,9 +65,13 @@ class _Display:
     def poll_escape(self) -> bool:
         return False
 
-    def draw_live(self, point, raw, unfiltered, hud, *, tracking) -> None:  # noqa: ANN001
+    def draw_live(  # noqa: ANN001
+        self, point, raw, unfiltered, hud, *, tracking, zones=(), active_zone=None
+    ) -> None:
         self.frames += 1
         self.huds.append(list(hud))
+        self.zones.append([z.key for z in zones])
+        self.active_zones.append(active_zone)
 
     def close(self) -> None:
         return None
@@ -74,10 +80,25 @@ class _Display:
 class _Runner:
     """No face for the first ``blind_reads`` looks, then a face, always."""
 
-    def __init__(self, *, blind_reads: int = 0, winks: list[Any] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        blind_reads: int = 0,
+        winks: list[Any] | None = None,
+        points: list[Any] | None = None,
+        wink_after: int | None = None,
+        blind_after: int | None = None,
+    ) -> None:
         self._reads = 0
         self._blind = blind_reads
+        # A face that is there and then goes, which is the opposite of
+        # ``blind_reads`` and the only way to test losing one mid-session.
+        self._blind_after = blind_after
         self._winks = list(winks or [])
+        # Where the gaze is, read by read. The last entry is held once the
+        # list runs out, so a test can steer the gaze somewhere and leave it.
+        self._points = list(points or [])
+        self._wink_after = wink_after
         self.errors = 0
         self.last_error = None
 
@@ -85,8 +106,13 @@ class _Runner:
     def state(self):  # noqa: ANN201
         self._reads += 1
         present = self._reads > self._blind
+        if self._blind_after is not None and self._reads > self._blind_after:
+            present = False
+        here = ON_SCREEN
+        if self._points:
+            here = self._points[min(self._reads - 1, len(self._points) - 1)]
         return SimpleNamespace(
-            point=ON_SCREEN if present else None,
+            point=here if present else None,
             raw_model=None,
             unfiltered=None,
             tracking=present,
@@ -106,6 +132,10 @@ class _Runner:
         return []
 
     def drain_wink_events(self) -> list[Any]:
+        # Held back until the loop has run far enough, so a test can place a
+        # wink AFTER the gaze has arrived somewhere rather than before it.
+        if self._wink_after is not None and self._reads <= self._wink_after:
+            return []
         out, self._winks = self._winks, []
         return out
 
@@ -118,10 +148,28 @@ def _run(
     space_down: bool = False,
     start_active: bool = True,
     max_seconds: float = 0.4,
+    points: list[Any] | None = None,
+    wink_after: int | None = None,
+    blind_after: int | None = None,
+    scroll_toggle_ms: float = 1500.0,
+    start_scrolling: bool = False,
+    scroll_arm_ms: float | None = None,
+    scroll_repeat_ms: float | None = None,
 ) -> tuple[_Display, list[int], _Runner]:
     sends: list[int] = []
+    # The WHEEL has its own entry point, and leaving it unpatched meant this
+    # harness sent a real scroll to Windows: measured, one notch of +120
+    # escaped the suite. Recorded here so it is patched by construction and a
+    # test can assert on it.
+    wheels: list[int] = []
     moves: list[tuple[int, int]] = []
-    runner = _Runner(blind_reads=blind_reads, winks=winks)
+    runner = _Runner(
+        blind_reads=blind_reads,
+        winks=winks,
+        points=points,
+        wink_after=wink_after,
+        blind_after=blind_after,
+    )
     display = _Display()
     gf = SimpleNamespace(
         camera=SimpleNamespace(start_sampling=lambda: None), add_subscriber=lambda fn: None
@@ -147,6 +195,7 @@ def _run(
         "dpi": SC.ensure_per_monitor_dpi_aware,
         "check": SC.check_profile_screen,
         "send": CK._send,
+        "wheel": CK._send_wheel,
         "set": CUR._set_cursor_pos,
         "get": CUR._get_cursor_pos,
         "esc": OV.escape_is_down,
@@ -167,6 +216,7 @@ def _run(
         SC.ensure_per_monitor_dpi_aware = originals["dpi"]
         SC.check_profile_screen = originals["check"]
         CK._send = originals["send"]
+        CK._send_wheel = originals["wheel"]
         CUR._set_cursor_pos = originals["set"]
         CUR._get_cursor_pos = originals["get"]
         OV.escape_is_down = originals["esc"]
@@ -185,6 +235,7 @@ def _run(
     SC.ensure_per_monitor_dpi_aware = lambda: (True, "PER_MONITOR (fake)")
     SC.check_profile_screen = lambda profile: SimpleNamespace(verified=True)
     CK._send = sends.append
+    CK._send_wheel = wheels.append
     CUR._set_cursor_pos = lambda x, y: moves.append((x, y))
     CUR._get_cursor_pos = lambda: (0, 0)
     OV.escape_is_down = lambda *a, **kw: False
@@ -204,7 +255,15 @@ def _run(
         start_active=start_active,
         skip_model_check=True,
         max_seconds=max_seconds,
+        scroll_toggle_ms=scroll_toggle_ms,
+        start_scrolling=start_scrolling,
+        scroll_arm_ms=scroll_arm_ms,
+        scroll_repeat_ms=scroll_repeat_ms,
     )
+    # Hung on the runner rather than added to the tuple: the existing call
+    # sites all unpack exactly three values.
+    runner.pointer_moves = moves
+    runner.wheels = wheels
     return display, sends, runner
 
 

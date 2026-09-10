@@ -34,12 +34,14 @@ import gf_common as C  # noqa: E402
 import gf_control as CTL  # noqa: E402
 import gf_cursor as CUR  # noqa: E402
 import gf_display as GD  # noqa: E402
+import gf_dwell as D  # noqa: E402
 import gf_gaze_filter as GF  # noqa: E402
 import gf_gesture as GEST  # noqa: E402
 import gf_head_features as H  # noqa: E402
 import gf_overlay as OV  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_record as R  # noqa: E402
+import gf_scroll as SCR  # noqa: E402
 
 # A distinct exit code so a caller can tell "the operator asked to
 # recalibrate" from "the view was closed" without parsing stdout.
@@ -82,6 +84,15 @@ class LiveState:
     # at each end where the blink gate still passes and the prediction is
     # already made from an eye behind its own lid.
     eyes_steady: bool = False
+    # Chin-up head pitch (head6 "pitch_a", nose offset over inter-ocular
+    # distance; larger = chin higher). Recorded next to the ratios because
+    # eye openness is polygon AREA in px^2 -- a PROJECTED area -- so lifting
+    # the chin shrinks it with the eye wide open, and the gate's baseline
+    # adapts at 0.02 a frame and only while the ratio is already above 0.55.
+    # If a pitch change pushes both eyes under that, they read as shut, the
+    # baseline stops recovering, and the asymmetry rule cannot pass. This is
+    # the number that says whether that is what happens.
+    head_pitch: float | None = None
     updated_s: float | None = None
     frames: int = 0
     fps: float | None = None
@@ -199,6 +210,14 @@ class LiveRunner:
         # anything registers the closure.
         steady = self.left_gate.config.steady_fraction
         eyes_steady = valid and left_ratio >= steady and right_ratio >= steady
+        # ``head`` above is built only when the gaze is usable, and the whole
+        # question here is what the head was doing while an eye was SHUT, so
+        # the pose is taken again for any frame carrying a face. It is used
+        # for reporting only -- the prediction below still takes ``head``.
+        pose = head
+        if pose is None and face_present:
+            pose = self.head_builder(face_info)
+        head_pitch = float(pose[2]) if pose is not None and len(pose) > 2 else None
         raw = (
             R.predict_overlay_point(self.model, self.model_y, features, head, self.rig)
             if valid
@@ -245,6 +264,7 @@ class LiveRunner:
                 openness=(left, right),
                 openness_ratio=(self.left_gate.ratio or 0.0, self.right_gate.ratio or 0.0),
                 eyes_steady=eyes_steady,
+                head_pitch=head_pitch,
                 point=point,
                 raw_model=raw_model,
                 unfiltered=raw,
@@ -287,17 +307,81 @@ def _ratio_summary(values: list[tuple[float, float]], rule: GEST.WinkConfig) -> 
 
     if not values:
         return "no frames"
-    right = [r for _left, r in values]
-    left = [left for left, _r in values]
+    probe = GEST.RightWinkDetector(rule)
+    # Rows are (left, right) or (left, right, pitch): the pitch was added later
+    # and every earlier caller still passes the pair.
+    right = [row[1] for row in values]
+    left = [row[0] for row in values]
     deep = min(right)
-    matching = sum(1 for lv, rv in values if GEST.RightWinkDetector(rule).looks_like_a_wink(lv, rv))
-    at_deepest = min(values, key=lambda pair: pair[1])
+    matching = sum(1 for row in values if probe.looks_like_a_wink(row[0], row[1]))
+    at_deepest = min(values, key=lambda row: row[1])
     return (
         f"{len(values)} frames; right reached {deep:.3f} (rule needs under {rule.shut_ratio}), "
         f"left was {at_deepest[0]:.3f} there (needs {rule.asymmetry}x the right, so over "
         f"{at_deepest[1] * rule.asymmetry:.3f}); left reached {min(left):.3f}; "
         f"{matching} frames matched the rule"
     )
+
+
+def _pitch_summary(
+    values: list[tuple[float, float, float | None]], rule: GEST.WinkConfig, bands: int = 5
+) -> list[str]:
+    """Does the wink rule pass or fail depending on where the head is?
+
+    Reported live: raising the chin freezes the pointer but produces no click,
+    and lowering it toward the lens makes the same wink work. That is a
+    testable claim, because eye openness here is polygon AREA in px^2 -- a
+    PROJECTED area, which shrinks as the eye is seen more edge-on -- while the
+    gate normalises it against a baseline that moves at 0.02 a frame and only
+    while the ratio is already above 0.55. If lifting the chin pushes both
+    eyes under that, they read as shut together, the baseline stops recovering
+    and the asymmetry rule cannot pass however hard the person winks.
+
+    So: split the session by head pitch and show, per band, how deep the right
+    eye got and how often the rule was satisfied. If the matching frames sit
+    in one band and the rest sit in another, the camera angle is the story.
+    """
+
+    known = [row for row in values if len(row) > 2 and row[2] is not None]
+    if not known:
+        return ["  head pitch             : no head pose on any frame"]
+    probe = GEST.RightWinkDetector(rule)
+    pitches = [row[2] for row in known]
+    lo, hi = min(pitches), max(pitches)
+    lines = [
+        f"  head pitch             : {len(known)} frames with a pose, "
+        f"{lo:+.3f} to {hi:+.3f} (higher = chin up)",
+    ]
+    matched = [row[2] for row in known if probe.looks_like_a_wink(row[0], row[1])]
+    if matched:
+        ordered = sorted(matched)
+        lines.append(
+            f"    frames matching the rule: {len(matched)}, pitch "
+            f"{ordered[0]:+.3f} to {ordered[-1]:+.3f}, median {ordered[len(ordered) // 2]:+.3f}"
+        )
+    else:
+        lines.append("    frames matching the rule: none, so there is no pitch to compare")
+    if hi - lo < 1e-6:
+        lines.append("    the head never moved enough to split into bands")
+        return lines
+    width = (hi - lo) / bands
+    lines.append(
+        f"    {'pitch band':>18} {'frames':>7} {'deepest R':>10} "
+        f"{'median R':>9} {'matched':>8}"
+    )
+    for b in range(bands):
+        low = lo + b * width
+        high = hi if b == bands - 1 else low + width
+        rows = [(row[0], row[1]) for row in known if low <= row[2] <= high]
+        if not rows:
+            continue
+        rights = sorted(rv for _lv, rv in rows)
+        hits = sum(1 for lv, rv in rows if probe.looks_like_a_wink(lv, rv))
+        lines.append(
+            f"    {low:+.3f}..{high:+.3f} {len(rows):>7} {rights[0]:>10.3f} "
+            f"{rights[len(rights) // 2]:>9.3f} {hits:>8}"
+        )
+    return lines
 
 
 def ratio_watcher(config: GEST.WinkConfig | None = None) -> Any:
@@ -412,6 +496,10 @@ def run_live(
     click_by: str = "off",
     wink_click: str = "double",
     wink_hold_ms: float | None = None,
+    scroll_arm_ms: float | None = None,
+    scroll_repeat_ms: float | None = None,
+    scroll_toggle_ms: float = 1500.0,
+    start_scrolling: bool = False,
     toggle_by: str = "key",
     start_active: bool = True,
     hold_after_click_s: float = 1.5,
@@ -522,6 +610,38 @@ def run_live(
     # asked for twice, it starts PAUSED whatever the cursor flag says, and the
     # mode is an explicit state rather than a side effect of the pause menu.
     clicker = CK.ClickAdapter(enabled=click_by == "wink" and move_cursor)
+    # Scrolling rides on the same two gates as clicking: it is OS input, so it
+    # needs the operator to have asked for it and the pointer to be allowed to
+    # move. The wheel goes to whatever is under the pointer.
+    scroller = CK.ScrollAdapter(enabled=click_by == "wink" and move_cursor)
+    scroll_cfg = SCR.ScrollConfig(
+        **{
+            name: value
+            for name, value in (
+                ("arm_ms", scroll_arm_ms),
+                ("repeat_ms", scroll_repeat_ms),
+            )
+            if value is not None
+        }
+    )
+    scroll_bands = SCR.scroll_zones(scroll_cfg)
+    # With --start-scrolling there is no tile at all. It sits in the middle of
+    # the band, which is exactly where the gaze RESTS to stop scrolling, so a
+    # session that is only for reading kept being thrown out of scroll mode by
+    # the act of stopping. Reported as "it still sends me to the scroll
+    # square". Esc is the way out of a reading session.
+    scroll_tile = None if start_scrolling else SCR.scroll_tile(scroll_cfg)
+    repeater = SCR.ScrollRepeater(scroll_cfg)
+    # Its own engine over its own single target, so the way in and out can
+    # never be selected by anything else and nothing else can be selected by
+    # it -- the same separation gf_click_practice uses for its MODE tile. The
+    # dwell is longer than the scroll wait, so crossing the tile on the way
+    # somewhere else cannot flip the mode.
+    tile_engine = (
+        None
+        if scroll_tile is None
+        else D.DwellEngine([scroll_tile], D.DwellConfig(dwell_ms=scroll_toggle_ms))
+    )
     # Starting ACTIVE is the operator's decision, asked for directly after
     # the paused start left them with no way in: the toggle they had in the
     # practice window was a gaze panel, and there is nowhere to put one on a
@@ -543,6 +663,14 @@ def run_live(
         # need opposite fixes.
         "winks": 0,
         "winks_with_no_aim": 0,
+        # Scrolling. Counted separately from clicks throughout: "the wheel
+        # turned" and "a click happened" are different outcomes and the report
+        # exists to tell them apart.
+        "notches": 0,
+        "scroll_sessions": 0,
+        "scroll_cancelled": 0,
+        "winks_while_scrolling": 0,
+        "winks_dropped_at_scroll_edge": 0,
         "suppressed_while_paused": 0,
         "cancelled": 0,
     }
@@ -587,11 +715,30 @@ def run_live(
         wink_rule_matches = ratio_watcher(wink_cfg)
         # Every frame's ratios, so a session that recorded no winks can still
         # say how close the signal came. Two floats per frame, nothing else.
-        ratios_seen: list[tuple[float, float]] = []
+        ratios_seen: list[tuple[float, float, float | None]] = []
         # Edge, not level: a key held for half a second is one instruction,
         # and reading the level would toggle the mode on every frame it is
         # down -- sixty times a second, ending wherever the release happened.
         space_was_down = False
+        # Scroll mode is ORTHOGONAL to the ToggleMachine on purpose. Adding a
+        # third Mode would have meant changing the boolean flip in four places
+        # in gf_control and the meaning of ``cursor_enabled`` everywhere, and
+        # breaking five tests, to express something that is not a third kind
+        # of "how much control does the person have".
+        # Opening straight into scroll mode skips the tile, for when the
+        # session is only for reading. The pointer is left exactly where it
+        # was found -- there is no content point yet to jump back to, and the
+        # place the mouse was last put IS the content the person means.
+        scrolling = bool(start_scrolling) and click_by == "wink"
+        # Where the pointer was while the gaze was last on CONTENT, in pixels.
+        content_px: tuple[int, int] | None = None
+        seen_in: dict[str, int] = {
+            SCR.UP: 0,
+            SCR.DOWN: 0,
+            "the middle": 0,
+            "the tile": 0,
+            "no point": 0,
+        }
         while True:
             # A click-through window never takes focus, so pygame stops seeing
             # key presses the moment the overlay starts working. The stop is
@@ -626,7 +773,11 @@ def run_live(
                     space_was_down = down
                 face_ok = state_face_ok(runner)
                 if state.openness_ratio is not None:
-                    ratios_seen.append(state.openness_ratio)
+                    # getattr: a test double may carry only the ratios, and a
+                    # missing pose must read as "unknown", never as a number.
+                    ratios_seen.append(
+                        (*state.openness_ratio, getattr(state, "head_pitch", None))
+                    )
                 for event in events or [GEST.Event.NONE]:
                     transition = control.update(event, tracking_ok=face_ok)
                     if transition.changed:
@@ -668,15 +819,117 @@ def run_live(
                 # where the person was looking rather than where the estimate
                 # slid to on the way down.
                 steady = control is None or state.eyes_steady
-                cursor.update(
-                    SC.to_desktop_pixels(fresh, cursor_monitor, desktop)
-                    if fresh is not None and steady
-                    else None
-                )
+                # Only a steady point may ask for anything. A half-closed eye
+                # still produces a point, and it must not be able to request a
+                # scroll any more than it may move the pointer.
+                aim = fresh if steady else None
+                now = time.monotonic()
+                if control is not None:
+                    over_tile = (
+                        scroll_tile is not None and aim is not None and scroll_tile.contains(aim)
+                    )
+                    zone = next(
+                        (z.key for z in scroll_bands if aim is not None and z.contains(aim)),
+                        None,
+                    )
+                    if not face_ok or not control.mode.cursor_enabled:
+                        # The wheel stops either way: nothing repeats while
+                        # the face is gone or the mode is paused.
+                        repeater.stop()
+                        if tile_engine is not None:
+                            tile_engine.reset()
+                        # Whether the MODE also ends depends on there being a
+                        # way back into it. With the tile, a pause cancels it
+                        # and the person asks again -- input that repeats
+                        # should be asked for deliberately.
+                        #
+                        # Without the tile there is no way to ask, and
+                        # cancelling was a trap: ``state_face_ok`` is false
+                        # for the first frames of EVERY session, before the
+                        # camera has delivered anything, so --start-scrolling
+                        # was switched off a moment after it started and the
+                        # bands were never drawn at all. Reported as "I cannot
+                        # see the scroll bands". The launch flag IS the
+                        # deliberate request, and it stands for the session;
+                        # resting on a band for the wait is still required
+                        # before anything moves.
+                        if scrolling and tile_engine is not None:
+                            scrolling = False
+                            tally["scroll_cancelled"] += 1
+                            print("scroll mode off - tracking or mode was lost")
+                    elif (
+                        tile_engine is not None
+                        and tile_engine.update(now, aim, fresh=aim is not None) is not None
+                    ):
+                        # One activation per entry: the engine latches until
+                        # the gaze is seen elsewhere, so resting on the tile
+                        # cannot flip the mode straight back again.
+                        scrolling = not scrolling
+                        repeater.stop()
+                        # A wink that fired while scrolling must not arrive at
+                        # the click path now that scrolling is over, and one
+                        # that fired on the way in must not click either. The
+                        # event carries a COPY of its point and sits in the
+                        # queue until this loop drains it, so the queue is
+                        # dropped rather than trusted.
+                        dropped = len(runner.drain_wink_events())
+                        tally["winks_dropped_at_scroll_edge"] += dropped
+                        print(f"scroll mode {'on' if scrolling else 'off'}")
+                        if scrolling:
+                            tally["scroll_sessions"] += 1
+                            if content_px is not None:
+                                # Back to the content. Looking at the tile
+                                # dragged the pointer to the tile, and the
+                                # wheel goes to whatever is under the pointer,
+                                # so freezing it where it happens to be would
+                                # scroll the tile's own corner of the screen.
+                                cursor.release_hold()
+                                cursor.jump_to(content_px)
+                    if scrolling:
+                        # Where the gaze actually went while scroll mode was
+                        # on. This is the reachability question and nothing
+                        # else answers it: "I looked up and nothing happened"
+                        # and "the band never saw me" are the same sentence
+                        # from the person and different numbers here.
+                        if aim is None:
+                            seen_in["no point"] += 1
+                        elif zone is not None:
+                            seen_in[zone] += 1
+                        elif over_tile:
+                            seen_in["the tile"] += 1
+                        else:
+                            seen_in["the middle"] += 1
+                        # Frozen for the whole of scroll mode, so the wheel
+                        # keeps going to the window the person aimed at.
+                        cursor.paused = True
+                        notches = repeater.update(now, zone, usable=aim is not None)
+                        if notches and scroller.scroll(notches, armed=True):
+                            tally["notches"] += abs(notches)
+                    elif aim is not None and not over_tile and zone is None:
+                        # The pointer's position while the gaze is on CONTENT
+                        # -- not the tile, not a band. Taking "where it was
+                        # before the dwell started" instead would be too late:
+                        # by then the gaze is already ON the tile and the
+                        # pointer has followed it there.
+                        content_px = SC.to_desktop_pixels(aim, cursor_monitor, desktop)
+                if not scrolling:
+                    cursor.update(
+                        SC.to_desktop_pixels(fresh, cursor_monitor, desktop)
+                        if fresh is not None and steady
+                        else None
+                    )
                 for _when, aimed_at in runner.drain_wink_events():
                     if control is None:
                         continue
                     tally["winks"] += 1
+                    if scrolling:
+                        # The eyes are driving the wheel, not choosing a
+                        # target. Without this a wink mid-scroll would pass
+                        # ``selection_armed`` -- which is still true, because
+                        # the mode is still ACTIVE -- and double click on
+                        # whatever the page had scrolled under the pointer.
+                        tally["winks_while_scrolling"] += 1
+                        continue
                     if not control.mode.selection_armed:
                         tally["suppressed_while_paused"] += 1
                         continue
@@ -741,10 +994,18 @@ def run_live(
                     ),
                     (
                         (
-                            f"SPACE switches PAUSED/ACTIVE.  Wink RIGHT to {wink_click}-click."
-                            if toggle_by == "key"
-                            else "Close BOTH eyes to switch PAUSED/ACTIVE."
-                            f"  Wink RIGHT to {wink_click}-click."
+                            (
+                                "SCROLLING.  Look UP or DOWN to scroll, at the middle to stop, "
+                                "at SCROLL to come back."
+                            )
+                            if scrolling
+                            else (
+                                f"SPACE switches PAUSED/ACTIVE.  Wink RIGHT to {wink_click}-click."
+                                "  Rest on SCROLL to scroll."
+                                if toggle_by == "key"
+                                else "Close BOTH eyes to switch PAUSED/ACTIVE."
+                                f"  Wink RIGHT to {wink_click}-click.  Rest on SCROLL to scroll."
+                            )
                         )
                         if control is not None
                         else "Close your eyes about half a second to open the menu."
@@ -766,6 +1027,16 @@ def run_live(
                 )
                 + _menu_lines(menu),
                 tracking=fresh is not None,
+                # Shown only in scroll mode. Bands on screen the rest of the
+                # time would be clutter over whatever the person is reading,
+                # and the tile is drawn always so there is a visible way IN.
+                zones=(
+                    ([*scroll_bands] if scrolling else [])
+                    + ([scroll_tile] if scroll_tile is not None else [])
+                )
+                if control is not None
+                else [],
+                active_zone=repeater.zone if scrolling else None,
             )
             time.sleep(0.005)
     finally:
@@ -783,7 +1054,31 @@ def run_live(
             print(f"  winks while paused     : {tally['suppressed_while_paused']}")
             print(f"  wink action            : {wink_click}")
             print(f"  wink rule              : {wink_cfg}")
+            print(
+                f"  scrolling              : {tally['notches']} notches over "
+                f"{tally['scroll_sessions']} entries "
+                f"({tally['scroll_cancelled']} ended by a pause or a lost face)"
+            )
+            print(f"  scroll rule            : {scroll_cfg}")
+            print(f"  winks while scrolling  : {tally['winks_while_scrolling']} (none clicked)")
+            print(
+                f"  winks dropped entering/leaving scroll: "
+                f"{tally['winks_dropped_at_scroll_edge']}"
+            )
+            print(f"  scroll adapter         : {scroller.summary()}")
+            looked = sum(seen_in.values())
+            if looked:
+                where = ", ".join(
+                    f"{name} {count} ({100 * count / looked:.0f}%)"
+                    for name, count in seen_in.items()
+                    if count
+                )
+                print(f"  while scrolling, the gaze was in: {where}")
+            else:
+                print("  while scrolling, the gaze was in: scroll mode was never entered")
             print(f"  eye ratios             : {_ratio_summary(ratios_seen, wink_cfg)}")
+            for line in _pitch_summary(ratios_seen, wink_cfg):
+                print(line)
             print(f"  overlay                : {display.overlay}")
             print(f"  cursor                 : {cursor.summary()}")
             print(f"  click adapter          : {clicker.summary()}")
@@ -867,6 +1162,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="how long a wink must be held to count, overriding the profile. Lower it if "
         "the session report shows frames matching the rule but few winks firing; raise it "
         "if clicks arrive that you did not mean. The report prints both numbers.",
+    )
+    parser.add_argument(
+        "--scroll-arm-ms",
+        type=float,
+        default=None,
+        help="how long the gaze must rest on a scroll band before it starts scrolling. "
+        "Raise it if crossing a band scrolls when you did not mean to; lower it if asking "
+        "to scroll feels like waiting. This number has never been measured on this rig.",
+    )
+    parser.add_argument(
+        "--scroll-repeat-ms",
+        type=float,
+        default=None,
+        help="one wheel notch this often while the gaze stays on a band. Also unmeasured: "
+        "the default is deliberately slower than a hand, because overshooting a page costs "
+        "a look back the other way.",
+    )
+    parser.add_argument(
+        "--scroll-toggle-ms",
+        type=float,
+        default=1500.0,
+        help="how long to rest on the SCROLL tile to enter or leave scroll mode. Longer "
+        "than the band wait on purpose, so crossing the tile cannot flip the mode.",
+    )
+    parser.add_argument(
+        "--start-scrolling",
+        action="store_true",
+        help="open already in scroll mode, so the bands work straight away and the SCROLL "
+        "tile is only needed to come BACK to the pointer. Leave the mouse on the page you "
+        "want to read before starting: the pointer is frozen where it is found.",
     )
     parser.add_argument(
         "--wink-click",
@@ -956,6 +1281,10 @@ def main(argv: list[str] | None = None) -> int:
         click_by=args.click_by,
         wink_click=args.wink_click,
         wink_hold_ms=args.wink_hold_ms,
+        scroll_arm_ms=args.scroll_arm_ms,
+        scroll_repeat_ms=args.scroll_repeat_ms,
+        scroll_toggle_ms=args.scroll_toggle_ms,
+        start_scrolling=args.start_scrolling,
         toggle_by=args.toggle_by,
         start_active=not args.start_paused,
         hold_after_click_s=args.hold_after_click_s,
