@@ -279,11 +279,17 @@ class WinkConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and > 0")
-        if not 0.0 <= self.bridge_ms < self.hold_ms:
-            raise ValueError(
-                "bridge_ms must be at least 0 and under hold_ms, or a wink could be "
-                "bridged for longer than it has to be held and never end"
-            )
+        # Bounded absolutely rather than against ``hold_ms``. Tying the two
+        # made the hold un-tunable downwards: asking for a 35 ms hold with the
+        # default 40 ms bridge raised this error and the session would not
+        # start at all. And below about 33 ms the bridge stops covering a
+        # single dropped camera frame at 30 fps, which is the one thing it is
+        # for -- so it cannot simply follow the hold down either.
+        #
+        # What a long bridge actually risks is two separate winks merging into
+        # one, and that is what is bounded here.
+        if not 0.0 <= self.bridge_ms <= 200.0:
+            raise ValueError("bridge_ms must be between 0 and 200")
 
 
 class RightWinkDetector:

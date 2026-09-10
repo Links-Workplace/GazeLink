@@ -568,11 +568,25 @@ class BridgeTests(unittest.TestCase):
         frames = [self.OPEN] * 3 + [(0.05, 0.05)] * 12 + [self.OPEN] * 5
         self.assertEqual(self._run(frames), 0)
 
-    def test_a_bridge_at_least_as_long_as_the_hold_is_refused(self) -> None:
-        """It could keep a wink alive longer than it ever has to be held."""
+    def test_an_absurdly_long_bridge_is_refused(self) -> None:
+        """A long bridge merges two separate winks into one."""
 
         with self.assertRaises(ValueError):
-            G.WinkConfig(bridge_ms=200.0, hold_ms=140.0)
+            G.WinkConfig(bridge_ms=500.0)
+
+    def test_the_hold_can_be_tuned_below_the_bridge(self) -> None:
+        """The bound used to be ``hold_ms``, which made the hold un-tunable
+        downwards: asking for 35 ms against the default 40 ms bridge raised an
+        error and the session would not start. Reported live, twice."""
+
+        config = G.WinkConfig(hold_ms=35.0)
+        self.assertEqual(config.hold_ms, 35.0)
+        self.assertGreater(config.bridge_ms, config.hold_ms)
+
+    def test_the_bridge_still_covers_a_dropped_camera_frame(self) -> None:
+        """Which is the one thing it is for, so it cannot follow the hold down."""
+
+        self.assertGreater(G.WinkConfig().bridge_ms, 1000.0 / 30.0)
 
     def test_no_bridge_at_all_is_allowed(self) -> None:
         self.assertEqual(G.WinkConfig(bridge_ms=0.0).bridge_ms, 0.0)
