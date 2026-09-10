@@ -17,6 +17,7 @@ image or embedding is written to disk.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 import threading
 import time
@@ -275,6 +276,47 @@ class LiveRunner:
         return None if span <= 0 else (len(times) - 1) / span
 
 
+def _ratio_summary(values: list[tuple[float, float]], rule: GEST.WinkConfig) -> str:
+    """How close the eyes came to the wink rule over a whole session.
+
+    A session that recorded no winks has to be able to say WHY: the eye never
+    closed far enough, the other eye came with it, or the rule was never the
+    problem. Without this the only report was "0 winks", which says none of
+    those three.
+    """
+
+    if not values:
+        return "no frames"
+    right = [r for _left, r in values]
+    left = [left for left, _r in values]
+    deep = min(right)
+    matching = sum(1 for lv, rv in values if GEST.RightWinkDetector(rule).looks_like_a_wink(lv, rv))
+    at_deepest = min(values, key=lambda pair: pair[1])
+    return (
+        f"{len(values)} frames; right reached {deep:.3f} (rule needs under {rule.shut_ratio}), "
+        f"left was {at_deepest[0]:.3f} there (needs {rule.asymmetry}x the right, so over "
+        f"{at_deepest[1] * rule.asymmetry:.3f}); left reached {min(left):.3f}; "
+        f"{matching} frames matched the rule"
+    )
+
+
+def ratio_watcher(config: GEST.WinkConfig | None = None) -> Any:
+    """A per-frame view of what the wink rule makes of the current eyes.
+
+    Exists so a live view can SHOW it. Reported live: 'I winked' against a
+    session that recorded zero winks, with nothing on screen or in the log
+    that could say whether the signal ever came near the rule.
+    """
+
+    detector = GEST.RightWinkDetector(config)
+
+    def matches(state: Any) -> bool:
+        ratio = getattr(state, "openness_ratio", None)
+        return bool(ratio is not None and detector.looks_like_a_wink(*ratio))
+
+    return matches
+
+
 def state_face_ok(runner: Any, *, stale_after_s: float = R.OVERLAY_STALE_S) -> bool:
     """Is a face in front of the camera right now?
 
@@ -369,6 +411,7 @@ def run_live(
     cursor_max_step_px: int = 400,
     click_by: str = "off",
     wink_click: str = "double",
+    wink_hold_ms: float | None = None,
     toggle_by: str = "key",
     start_active: bool = True,
     hold_after_click_s: float = 1.5,
@@ -387,6 +430,11 @@ def run_live(
             "--click-by wink needs --move-cursor: a click that lands wherever the pointer "
             "was last left is not a click at what you are looking at."
         )
+    # Built once and used everywhere, so the readout, the detector and the
+    # report cannot end up judging by three different rules.
+    wink_cfg = profile.wink_config()
+    if wink_hold_ms is not None:
+        wink_cfg = dataclasses.replace(wink_cfg, hold_ms=wink_hold_ms)
     cursor_monitor = desktop = None
     if move_cursor:
         # Two separate gates, on purpose. The first is the operator saying
@@ -422,9 +470,7 @@ def run_live(
     gf = build_gaze_follower(rig)
     # The eyelid rules come from the PROFILE: they belong to this face and
     # this camera geometry, not to whoever last edited the defaults.
-    runner = LiveRunner(
-        model, None, rig, settings, wink=profile.wink_config(), gate=profile.gate_config()
-    )
+    runner = LiveRunner(model, None, rig, settings, wink=wink_cfg, gate=profile.gate_config())
     # The harmless option is first, so a confirm that fires when it should not
     # costs nothing. Recalibration is reachable only by cycling to it first.
     options = [GEST.MenuOption("dismiss", "Keep watching")]
@@ -538,6 +584,10 @@ def run_live(
             cursor.paused = not control.mode.cursor_enabled
             print(f"starting {control.label}")
         started = time.monotonic()
+        wink_rule_matches = ratio_watcher(wink_cfg)
+        # Every frame's ratios, so a session that recorded no winks can still
+        # say how close the signal came. Two floats per frame, nothing else.
+        ratios_seen: list[tuple[float, float]] = []
         # Edge, not level: a key held for half a second is one instruction,
         # and reading the level would toggle the mode on every frame it is
         # down -- sixty times a second, ending wherever the release happened.
@@ -551,6 +601,10 @@ def run_live(
                 break
             if max_seconds is not None and time.monotonic() - started > max_seconds:
                 break
+            # Read ONCE per frame and used everywhere below. The runner builds
+            # a fresh LiveState on every access, so reading it twice in a frame
+            # can answer the same question two different ways.
+            state = runner.state
             if control is not None:
                 # ONE tick per frame, always, whether or not anything happened.
                 # The machine is a per-frame machine: it clears the guard that
@@ -571,6 +625,8 @@ def run_live(
                         events = [GEST.Event.CONFIRM]
                     space_was_down = down
                 face_ok = state_face_ok(runner)
+                if state.openness_ratio is not None:
+                    ratios_seen.append(state.openness_ratio)
                 for event in events or [GEST.Event.NONE]:
                     transition = control.update(event, tracking_ok=face_ok)
                     if transition.changed:
@@ -591,7 +647,6 @@ def run_live(
                 menu.tick(time.monotonic())
             if chosen:
                 break
-            state = runner.state
             fresh = R.visible_point(
                 state.point, state.updated_s, time.monotonic(), R.OVERLAY_STALE_S
             )
@@ -695,6 +750,20 @@ def run_live(
                         else "Close your eyes about half a second to open the menu."
                     ),
                 ]
+                # The same readout the practice window has, and the reason
+                # this view could not diagnose itself: a wink the signal never
+                # saw and a wink that was seen and dropped look identical
+                # without it.
+                + (
+                    [
+                        f"your eyes  L{state.openness_ratio[0] * 100:.0f}%"
+                        f"  R{state.openness_ratio[1] * 100:.0f}%"
+                        + ("   <<< WINK" if wink_rule_matches(state) else "")
+                        + f"   winks {tally['winks']}"
+                    ]
+                    if control is not None and state.openness_ratio is not None
+                    else []
+                )
                 + _menu_lines(menu),
                 tracking=fresh is not None,
             )
@@ -713,6 +782,8 @@ def run_live(
             print(f"  winks with nowhere to go: {tally['winks_with_no_aim']}")
             print(f"  winks while paused     : {tally['suppressed_while_paused']}")
             print(f"  wink action            : {wink_click}")
+            print(f"  wink rule              : {wink_cfg}")
+            print(f"  eye ratios             : {_ratio_summary(ratios_seen, wink_cfg)}")
             print(f"  overlay                : {display.overlay}")
             print(f"  cursor                 : {cursor.summary()}")
             print(f"  click adapter          : {clicker.summary()}")
@@ -788,6 +859,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="'wink' emits a REAL left click where you were looking when you winked your "
         "right eye. Needs --move-cursor and --i-mean-it. Starts PAUSED; close BOTH eyes to "
         "switch. On the desktop a click cannot be taken back.",
+    )
+    parser.add_argument(
+        "--wink-hold-ms",
+        type=float,
+        default=None,
+        help="how long a wink must be held to count, overriding the profile. Lower it if "
+        "the session report shows frames matching the rule but few winks firing; raise it "
+        "if clicks arrive that you did not mean. The report prints both numbers.",
     )
     parser.add_argument(
         "--wink-click",
@@ -876,6 +955,7 @@ def main(argv: list[str] | None = None) -> int:
         cursor_max_step_px=int(_setting(args.cursor_max_step_px, profile, "max_step_px", 400)),
         click_by=args.click_by,
         wink_click=args.wink_click,
+        wink_hold_ms=args.wink_hold_ms,
         toggle_by=args.toggle_by,
         start_active=not args.start_paused,
         hold_after_click_s=args.hold_after_click_s,

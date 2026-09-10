@@ -230,10 +230,24 @@ class RightWinkTests(unittest.TestCase):
         self.assertEqual(self._run(detector, self._open(3) + self._wink(25) + self._open(5)), 1)
 
     def test_a_short_wink_is_ignored(self) -> None:
-        """Below the hold time it is an asymmetry, not an instruction."""
+        """Below the hold time it is an asymmetry, not an instruction.
+
+        Counted in CAMERA frames, which is what the detector actually sees:
+        the hold is 50 ms and the first matching frame only starts the clock,
+        so two frames at 30 fps is under it and three is over.
+        """
 
         detector = G.RightWinkDetector()
-        self.assertEqual(self._run(detector, self._open(3) + self._wink(6) + self._open(5)), 0)
+        frames = self._open(3) + self._wink(2) + self._open(5)
+        self.assertEqual(self._run(detector, frames, step=1 / 30), 0)
+
+    def test_three_camera_frames_is_enough(self) -> None:
+        """The other side of the same line, so the number cannot drift up
+        without this failing: measured winks were three frames long."""
+
+        detector = G.RightWinkDetector()
+        frames = self._open(3) + self._wink(3) + self._open(5)
+        self.assertEqual(self._run(detector, frames, step=1 / 30), 1)
 
     def test_a_two_eyed_blink_never_winks(self) -> None:
         detector = G.RightWinkDetector()
@@ -488,3 +502,80 @@ class DoubleClickReachableTests(unittest.TestCase):
                 fired += 1
             now += 0.016
         self.assertEqual(fired, 1)
+
+
+class BridgeTests(unittest.TestCase):
+    """A noisy frame is not the eye opening.
+
+    Measured over a two-minute session: 103 frames matched the wink rule and
+    only TWO winks fired. The runs kept being broken by a frame that popped
+    out of the rule and starting again from zero, so most winks never reached
+    their own hold time. The eye-close detector has had a bridge since it was
+    written; this one did not.
+    """
+
+    def _run(self, frames, step: float = 1 / 30) -> int:
+        detector = G.RightWinkDetector()
+        fired = 0
+        now = 0.0
+        for left, right in frames:
+            if detector.update(now, face_present=True, left_ratio=left, right_ratio=right):
+                fired += 1
+            now += step
+        return fired
+
+    WINK = (0.5, 0.003)
+    OPEN = (1.0, 1.0)
+
+    def test_a_wink_broken_by_one_noisy_frame_still_fires(self) -> None:
+        """Two frames, a dropped one, two more: under the hold on either side
+        of the gap, and over it once the gap is bridged."""
+
+        frames = [self.OPEN] * 3 + [self.WINK] * 2 + [self.OPEN] + [self.WINK] * 2
+        self.assertEqual(self._run(frames + [self.OPEN] * 5, step=1 / 30), 1)
+
+    def test_the_same_wink_unbridged_would_not_have(self) -> None:
+        """Without the bridge each half is under the hold time on its own."""
+
+        detector = G.RightWinkDetector(G.WinkConfig(bridge_ms=0.0))
+        fired = 0
+        now = 0.0
+        frames = [self.OPEN] * 3 + [self.WINK] * 2 + [self.OPEN] + [self.WINK] * 2
+        for left, right in frames + [self.OPEN] * 5:
+            if detector.update(now, face_present=True, left_ratio=left, right_ratio=right):
+                fired += 1
+            now += 1 / 30
+        self.assertEqual(fired, 0)
+
+    def test_a_real_reopening_still_ends_the_wink(self) -> None:
+        """The bridge must not run two winks together into one.
+
+        Both halves are long enough to fire on their own here, so the count
+        says whether they stayed separate. An earlier version made each half
+        too short and asserted zero, which passed for the wrong reason.
+        """
+
+        frames = [self.OPEN] * 3 + [self.WINK] * 3 + [self.OPEN] * 7 + [self.WINK] * 3
+        self.assertEqual(self._run(frames + [self.OPEN] * 5, step=1 / 30), 2)
+
+    def test_a_gap_longer_than_the_bridge_does_not_carry_the_hold(self) -> None:
+        """Two sub-threshold winks with a real gap must add up to nothing."""
+
+        frames = [self.OPEN] * 3 + [self.WINK] * 2 + [self.OPEN] * 5 + [self.WINK] * 2
+        self.assertEqual(self._run(frames + [self.OPEN] * 5, step=1 / 30), 0)
+
+    def test_a_blink_is_still_not_bridged_into_a_wink(self) -> None:
+        frames = [self.OPEN] * 3 + [(0.05, 0.05)] * 12 + [self.OPEN] * 5
+        self.assertEqual(self._run(frames), 0)
+
+    def test_a_bridge_at_least_as_long_as_the_hold_is_refused(self) -> None:
+        """It could keep a wink alive longer than it ever has to be held."""
+
+        with self.assertRaises(ValueError):
+            G.WinkConfig(bridge_ms=200.0, hold_ms=140.0)
+
+    def test_no_bridge_at_all_is_allowed(self) -> None:
+        self.assertEqual(G.WinkConfig(bridge_ms=0.0).bridge_ms, 0.0)
+
+    def test_one_held_wink_still_fires_exactly_once(self) -> None:
+        self.assertEqual(self._run([self.OPEN] * 3 + [self.WINK] * 120), 1)

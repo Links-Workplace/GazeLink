@@ -315,3 +315,66 @@ class HoldAfterClickTests(unittest.TestCase):
         cursor.update((100, 100))
         cursor.hold_for(0.0)
         self.assertEqual(cursor.update((900, 900)), (900, 900))
+
+
+class JumpToTests(unittest.TestCase):
+    """Placing a click is not following a gaze.
+
+    Smoothing moves 60% of the way per frame and the dead zone refuses
+    anything under six pixels. Both make FOLLOWING comfortable and both are
+    wrong for a point with one destination and one chance to reach it: passed
+    through update, the pointer stops short and the click lands between where
+    it was and where it was aimed.
+    """
+
+    def _adapter(self):
+        fake = _Fake()
+        return (
+            _adapter(
+                fake,
+                enabled=True,
+                limits=CU.CursorLimits(smoothing=0.6, dead_zone_px=6, max_step_px=400),
+            ),
+            fake,
+        )
+
+    def test_it_lands_exactly_on_the_target(self) -> None:
+        cursor, fake = self._adapter()
+        cursor.update((100, 100))
+        self.assertEqual(cursor.jump_to((3000, 900)), (3000, 900))
+        self.assertEqual(fake.calls[-1], (3000, 900))
+
+    def test_update_would_have_stopped_short(self) -> None:
+        """The other half: without this the test above proves nothing."""
+
+        cursor, _ = self._adapter()
+        cursor.update((100, 100))
+        landed = cursor.update((3000, 900))
+        self.assertNotEqual(landed, (3000, 900))
+
+    def test_the_dead_zone_does_not_refuse_a_small_placement(self) -> None:
+        cursor, _ = self._adapter()
+        cursor.update((100, 100))
+        self.assertEqual(cursor.jump_to((102, 101)), (102, 101))
+
+    def test_the_jump_limit_does_not_apply_to_a_decided_point(self) -> None:
+        """It guards against a wild gaze estimate, which this is not."""
+
+        cursor, _ = self._adapter()
+        cursor.update((0, 0))
+        self.assertEqual(cursor.jump_to((5000, 1400)), (5000, 1400))
+
+    def test_following_resumes_from_where_it_was_placed(self) -> None:
+        """Otherwise the next frame slides back from the old smoothed point."""
+
+        cursor, _ = self._adapter()
+        cursor.update((100, 100))
+        cursor.jump_to((3000, 900))
+        nxt = cursor.update((3000, 900))
+        self.assertEqual(nxt, (3000, 900))
+
+    def test_simulation_places_nothing(self) -> None:
+        fake = _Fake()
+        cursor = _adapter(fake, enabled=False)
+        self.assertEqual(cursor.jump_to((500, 500)), (500, 500))
+        self.assertEqual(fake.calls, [])

@@ -238,7 +238,29 @@ class WinkConfig:
     asymmetry: float = 2.5
     # Long enough to exclude a single noisy frame, short enough to be reached
     # by a real wink: about nine frames at 63 fps.
-    hold_ms: float = 140.0
+    # The detector runs on the CAMERA thread, at about 30 fps, so this is
+    # counted in frames whether it is written in them or not. At 140 ms it
+    # asked for 4.2 unbroken frames, and three measured sessions matched 3, 4
+    # and 9 display-loop samples -- fewer still in camera frames, because the
+    # display samples the same frame more than once. The winks were deep
+    # enough (right to 0.14-0.17) and asymmetric enough (left 4-6x that), and
+    # simply too SHORT. At 70 ms it asks for about two frames.
+    #
+    # Duration is not what keeps a blink out: the asymmetry rule does that, and
+    # a blink drives both eyes together however long it lasts. This only has to
+    # exclude a single-frame flicker, and two frames does.
+    # 50 ms, not 70: the first matching frame only STARTS the clock, so the
+    # hold is reached on the frame after ``hold_ms`` has elapsed. At 30 fps
+    # that makes the real requirement ceil(hold/33) + 1 frames -- 70 ms asks
+    # for four, and the measured winks were three. 50 ms asks for three.
+    hold_ms: float = 50.0
+    # A gap shorter than this does not end a wink. The eye-close detector has
+    # had this since it was written -- "a flicker in the openness estimate, not
+    # a real reopening" -- and the wink detector did not, so one noisy frame
+    # restarted the hold from zero. Measured over a two-minute session: 103
+    # frames matched the wink rule and only TWO winks fired, because the runs
+    # kept being broken and started again.
+    bridge_ms: float = 40.0
     # Short on purpose. A wink already cannot fire twice from one closure --
     # ``_await_reopen`` requires the eye to open again first -- so this is only
     # a guard against jitter around the reopening, and it does not have to be
@@ -257,6 +279,11 @@ class WinkConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and > 0")
+        if not 0.0 <= self.bridge_ms < self.hold_ms:
+            raise ValueError(
+                "bridge_ms must be at least 0 and under hold_ms, or a wink could be "
+                "bridged for longer than it has to be held and never end"
+            )
 
 
 class RightWinkDetector:
@@ -277,9 +304,11 @@ class RightWinkDetector:
         self._await_reopen = False
         self._cooldown_until_s: float | None = None
         self._hold_ms = 0.0
+        self._last_match_s: float | None = None
 
     def reset(self) -> None:
         self._start_s = None
+        self._last_match_s = None
 
     @property
     def holding_ms(self) -> float:
@@ -320,12 +349,24 @@ class RightWinkDetector:
             self._hold_ms = 0.0
             return False
         if not self.looks_like_a_wink(left_ratio, right_ratio):
+            bridged = (
+                self._start_s is not None
+                and self._last_match_s is not None
+                and (now_s - self._last_match_s) * 1000.0 <= cfg.bridge_ms
+                and not self._await_reopen
+            )
+            if bridged:
+                # A flicker in the estimate, not the eye opening. The hold
+                # keeps running; without this a single noisy frame sent it
+                # back to zero and the wink never reached its own threshold.
+                return False
             self._start_s = None
             self._hold_ms = 0.0
             if self._await_reopen:
                 self._await_reopen = False
                 self._cooldown_until_s = now_s + cfg.cooldown_ms / 1000.0
             return False
+        self._last_match_s = now_s
         if self._await_reopen:
             return False
         if self._cooldown_until_s is not None and now_s < self._cooldown_until_s:

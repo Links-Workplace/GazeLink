@@ -433,3 +433,42 @@ class OneWinkOneDoubleTests(unittest.TestCase):
             sends.count(CK.MOUSEEVENTF_LEFTUP),
             "a press was left without its release",
         )
+
+
+class RatioReadoutTests(unittest.TestCase):
+    """A session that recorded no winks has to be able to say why.
+
+    Reported live: "I winked" against a run whose whole account was
+    "winks detected: 0" -- which distinguishes none of the three reasons a
+    wink can fail to register, and they need opposite fixes.
+    """
+
+    def _profile(self) -> PROF.Profile:
+        return _profile()
+
+    def test_it_says_so_when_there_is_nothing_to_report(self) -> None:
+        self.assertEqual(L._ratio_summary([], self._profile().wink_config()), "no frames")
+
+    def test_a_real_wink_is_counted_as_matching(self) -> None:
+        text = L._ratio_summary([(1.0, 1.0), (0.5, 0.003)], self._profile().wink_config())
+        self.assertIn("1 frames matched", text)
+
+    def test_eyes_that_never_closed_match_nothing_and_say_how_far_off(self) -> None:
+        text = L._ratio_summary([(0.95, 0.92), (0.9, 0.88)], self._profile().wink_config())
+        self.assertIn("0 frames matched", text)
+        self.assertIn("0.880", text)
+
+    def test_a_blink_matches_nothing_and_shows_the_other_eye_came_too(self) -> None:
+        """Which is a different failure from an eye that never closed."""
+
+        text = L._ratio_summary([(1.0, 1.0), (0.05, 0.05)], self._profile().wink_config())
+        self.assertIn("0 frames matched", text)
+        self.assertIn("left was 0.050", text)
+
+    def test_the_watcher_uses_the_same_rule_the_detector_does(self) -> None:
+        """Reporting one rule while judging by another is worse than silence."""
+
+        matches = L.ratio_watcher(self._profile().wink_config())
+        self.assertTrue(matches(SimpleNamespace(openness_ratio=(0.5, 0.003))))
+        self.assertFalse(matches(SimpleNamespace(openness_ratio=(0.05, 0.05))))
+        self.assertFalse(matches(SimpleNamespace(openness_ratio=None)))
