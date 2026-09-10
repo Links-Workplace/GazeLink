@@ -56,9 +56,12 @@ class ScrollConfig:
     # scroll; short enough that asking to scroll does not feel like waiting.
     arm_ms: float = 500.0
     # One wheel notch per this long. A notch is three lines on most Windows
-    # setups, so this is about six lines a second -- slower than a hand, on
-    # purpose: overshooting costs a look back the other way.
-    repeat_ms: float = 500.0
+    # setups. Opened at 500 ms, which the operator read as "very slow" on the
+    # first live run -- about twelve seconds to move one screenful. 150 ms was
+    # tried next and kept: roughly three and a half seconds a screenful, which
+    # is reading pace. Chosen by using it, the same way the cursor smoothing
+    # in the profile was, and not reasoned about from anything.
+    repeat_ms: float = 150.0
     # How far the top and bottom bands reach in from the edge, and how far
     # they sit from it. Reachability is the open question, so this is a knob.
     band_height: float = 0.20

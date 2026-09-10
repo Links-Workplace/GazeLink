@@ -64,7 +64,7 @@
     "wink": {
       "shut_ratio": 0.45,
       "asymmetry": 2.5,
-      "hold_ms": 50.0,
+      "hold_ms": 35.0,
       "bridge_ms": 40.0,
       "cooldown_ms": 120.0
     },
@@ -125,12 +125,13 @@
         "note": "Real Windows left clicks, emitted by wink, on a verified ruler. Across both runs: no click landed outside the button it selected, no wink landed on no button, no click fired twice, and the left button was never left held. The earlier line in this record describing simulation stands as the step before these."
       }
     },
-    "updated_utc": "2026-09-09",
+    "updated_utc": "2026-09-10",
     "changes": [
       "cooldown_ms 700 -> 120: at 700 the soonest a second wink could fire was about 900 ms after the first, against Windows' 500 ms double-click window, so two winks could never open anything. The eye having to reopen is what stops one closure firing twice; the cooldown was only ever a guard against jitter around that.",
       "gate.steady_fraction 0.80 added: between shut and steady the blink gate still passes and a gaze point is produced from an eye already half behind its lid. Following it is what made the pointer lurch as a wink began.",
       "bridge_ms 100 added: over a two-minute session 103 frames matched the wink rule and only two winks fired, because a single frame popping out of the rule restarted the hold from zero. The eye-close detector has had this since it was written; the wink detector did not.",
-      "hold_ms 140 -> 50 and bridge_ms 100 -> 40: three measured sessions matched 3, 4 and 9 frames of the wink rule and fired ZERO winks. The winks were deep enough (right to 0.14-0.17) and asymmetric enough (left 4-6x that) and simply too short. The detector runs at the camera's ~30 fps and the first matching frame only starts the clock, so 140 ms asked for four unbroken frames; 50 ms asks for three, which is what was measured."
+      "hold_ms 140 -> 50 and bridge_ms 100 -> 40: three measured sessions matched 3, 4 and 9 frames of the wink rule and fired ZERO winks. The winks were deep enough (right to 0.14-0.17) and asymmetric enough (left 4-6x that) and simply too short. The detector runs at the camera's ~30 fps and the first matching frame only starts the clock, so 140 ms asked for four unbroken frames; 50 ms asks for three, which is what was measured.",
+      "hold_ms 50 -> 35: the operator ran every live session with --wink-hold-ms 35 and nothing else, from the first one onwards. At 50 two consecutive sessions produced ZERO winks over 1553 and 335 samples; at 35 the same person and the same camera produced 3, 4, 2 and 19 winks, and the 19-wink session sent 15 double clicks with no failed press and no stuck button. The value is written down because it was measured and used, not because it was reasoned about: leaving the default at a number every session had to override was a default that described nobody."
     ]
   }
 }

@@ -253,7 +253,12 @@ class WinkConfig:
     # hold is reached on the frame after ``hold_ms`` has elapsed. At 30 fps
     # that makes the real requirement ceil(hold/33) + 1 frames -- 70 ms asks
     # for four, and the measured winks were three. 50 ms asks for three.
-    hold_ms: float = 50.0
+    #
+    # Then 50 -> 35, because 50 was still one frame too many for this person:
+    # two sessions at 50 fired ZERO winks, and the same person at 35 fired 3,
+    # 4, 2 and 19 across four sessions. The operator overrode it on every
+    # single live run, which is the strongest evidence a default can get.
+    hold_ms: float = 35.0
     # A gap shorter than this does not end a wink. The eye-close detector has
     # had this since it was written -- "a flicker in the openness estimate, not
     # a real reopening" -- and the wink detector did not, so one noisy frame
