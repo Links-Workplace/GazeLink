@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -69,6 +69,18 @@ class SegmentResult:
     median_dy_px: float
     median_euclid_px: float
     median_deg: float | None = None
+    # Every valid frame's euclidean error, kept so a ZONE can report a
+    # frame-level P90. The segment medians alone cannot: with ten held-out
+    # targets spread over nine band zones most zones hold one or two
+    # segments, and a P90 over two numbers says nothing.
+    #
+    # The module's segment-weighting contract is unaffected -- the zone
+    # MEDIAN stays one vote per segment. This is an addition beside it, and
+    # it is labelled as frame-level wherever it is reported.
+    #
+    # Excluded from repr and comparison: it is an array, and printing or
+    # diffing a SegmentResult must not drag it along.
+    euclid_px: Any = field(default=None, repr=False, compare=False)
 
     @property
     def coverage(self) -> float:
@@ -135,6 +147,7 @@ def segments_from_rows(
                 median_dy_px=float(np.median(dy_px[good])) if np.any(good) else float("nan"),
                 median_euclid_px=float(np.median(np.hypot(dx_px[good], dy_px[good]))) if np.any(good) else float("nan"),
                 median_deg=deg,
+                euclid_px=np.hypot(dx_px[good], dy_px[good]) if np.any(good) else None,
             )
         )
     return out
@@ -185,6 +198,216 @@ def by_zone(segments: Sequence[SegmentResult], n_zones: int = 16) -> list[dict[s
         row["targets"] = [s.target_name for s in members]
         rows.append(row)
     return rows
+
+
+@dataclass(frozen=True)
+class ZoneLimits:
+    """What counts as a regression in one zone, and what counts as measured.
+
+    Fixed BEFORE an experiment, deliberately. A threshold chosen after the
+    result is not a gate.
+
+    The two numeric conditions are required TOGETHER -- a fraction and an
+    absolute floor -- so that a small zone is not failed by noise and a large
+    one is not excused by it.
+
+    These are NOT derived from the spread between sessions. That spread is
+    large on this rig (the same frozen model measured 175, 172, 186 and 376 px
+    on four recordings) and it is exactly what a PAIRED comparison on the same
+    frames removes. Deriving a threshold from it would license an enormous
+    regression in the name of noise.
+    """
+
+    median_worse_fraction: float = 0.15
+    median_worse_px: float = 10.0
+    p90_worse_fraction: float = 0.20
+    p90_worse_px: float = 20.0
+    # Below these a zone is UNVERIFIED. It is never counted as a pass.
+    min_segments: int = 2
+    min_frames: int = 40
+
+
+UNVERIFIED = "UNVERIFIED"
+
+
+def by_band_zone(
+    segments: Sequence[SegmentResult],
+    *,
+    band: tuple[float, float] = T.WORKING_BAND_X,
+    cols: int = T.BAND_COLS,
+    rows: int = T.BAND_ROWS,
+    limits: ZoneLimits | None = None,
+) -> list[dict[str, Any]]:
+    """One row per cell of the BAND-LOCAL grid.
+
+    ``by_zone`` above maps the whole screen into quarters, which puts the
+    entire working band into two of its four columns. That is too coarse to
+    notice a regression inside the band, which is the only place this system
+    is meant to work.
+
+    Two numbers per zone, and they answer different questions:
+
+    * ``median_px`` -- one vote per SEGMENT, the module's contract, so a
+      target the tracker followed for 200 frames cannot outvote one it managed
+      20 frames on.
+    * ``p90_frame_px`` -- over every valid FRAME in the zone. A miss that is
+      large and frequent does not move a median, and it is precisely what
+      stops a person selecting anything.
+
+    A zone with too little data is ``UNVERIFIED`` and is never a pass.
+    """
+
+    limits = limits or ZoneLimits()
+    grouped: dict[int, list[SegmentResult]] = {}
+    outside: list[SegmentResult] = []
+    for segment in segments:
+        zone = T.band_zone_of(segment.target_x, segment.target_y, band=band, cols=cols, rows=rows)
+        if zone is None:
+            outside.append(segment)
+            continue
+        grouped.setdefault(zone, []).append(segment)
+    rows_out: list[dict[str, Any]] = []
+    for zone in range(cols * rows):
+        members = grouped.get(zone, [])
+        row: dict[str, Any] = {
+            "zone": zone,
+            "row": zone // cols,
+            "col": zone % cols,
+            "label": T.band_zone_label(zone, band=band, cols=cols, rows=rows),
+            "n_segments": len(members),
+        }
+        frames = [m.euclid_px for m in members if m.euclid_px is not None]
+        pooled = np.concatenate(frames) if frames else np.empty(0)
+        row["n_frames"] = int(pooled.size)
+        if not members:
+            row["status"] = MISSING
+            rows_out.append(row)
+            continue
+        if len(members) < limits.min_segments or pooled.size < limits.min_frames:
+            row["status"] = UNVERIFIED
+            row["why"] = (
+                f"{len(members)} segment(s) and {pooled.size} frame(s); "
+                f"needs {limits.min_segments} and {limits.min_frames}"
+            )
+        else:
+            row["status"] = "measured"
+        summary = aggregate(members)
+        row["median_px"] = summary["euclid_px"]["median"]
+        row["abs_dx_px"] = summary["abs_dx_px"]["median"]
+        row["abs_dy_px"] = summary["abs_dy_px"]["median"]
+        row["bias_dy_px"] = summary["bias_dy_px"]
+        row["p90_frame_px"] = float(np.percentile(pooled, 90)) if pooled.size else None
+        row["targets"] = [m.target_name for m in members]
+        row["weighting"] = "median: one vote per segment; p90: every frame"
+        rows_out.append(row)
+    if outside:
+        rows_out.append(
+            {
+                "zone": None,
+                "status": "outside the band",
+                "n_segments": len(outside),
+                "targets": [m.target_name for m in outside],
+                "note": "not covered by this grid; reported so it is not silently dropped",
+            }
+        )
+    return rows_out
+
+
+def compare_band_zones(
+    before: Sequence[Mapping[str, Any]],
+    after: Sequence[Mapping[str, Any]],
+    *,
+    limits: ZoneLimits | None = None,
+    target_half_px: float | None = None,
+) -> dict[str, Any]:
+    """Did any zone get WORSE? The question an aggregate gate cannot answer.
+
+    ``target_half_px`` is the half-size of the smallest target the zones must
+    support. A zone whose frame-level P90 crosses it has stopped being usable
+    whatever the percentages say, and that is the operational threshold -- it
+    decides when the relative and absolute tests disagree.
+
+    A zone that is MISSING or UNVERIFIED on either side is reported as such
+    and **never counted as a pass**.
+    """
+
+    limits = limits or ZoneLimits()
+    old = {r.get("zone"): r for r in before if r.get("zone") is not None}
+    new = {r.get("zone"): r for r in after if r.get("zone") is not None}
+    rows: list[dict[str, Any]] = []
+    regressed: list[int] = []
+    unverified: list[int] = []
+    for zone in sorted(set(old) | set(new)):
+        a, b = old.get(zone, {}), new.get(zone, {})
+        row: dict[str, Any] = {"zone": zone, "label": a.get("label") or b.get("label")}
+        if a.get("status") != "measured" or b.get("status") != "measured":
+            row["verdict"] = UNVERIFIED
+            row["why"] = f"before={a.get('status', MISSING)}, after={b.get('status', MISSING)}"
+            unverified.append(zone)
+            rows.append(row)
+            continue
+        reasons: list[str] = []
+        for key, frac, floor in (
+            ("median_px", limits.median_worse_fraction, limits.median_worse_px),
+            ("p90_frame_px", limits.p90_worse_fraction, limits.p90_worse_px),
+        ):
+            was, now = a.get(key), b.get(key)
+            row[f"{key}_before"], row[f"{key}_after"] = was, now
+            if was is None or now is None:
+                continue
+            delta = now - was
+            # BOTH conditions, never either: the fraction stops a large zone
+            # being excused, the floor stops a small one being failed by noise.
+            if delta > floor and was > 0 and delta / was > frac:
+                reasons.append(
+                    f"{key} {was:.1f} -> {now:.1f} (+{delta:.1f}px, +{100 * delta / was:.0f}%)"
+                )
+        p90 = b.get("p90_frame_px")
+        if target_half_px is not None and p90 is not None and p90 > target_half_px:
+            was_ok = a.get("p90_frame_px") is not None and a["p90_frame_px"] <= target_half_px
+            if was_ok:
+                reasons.append(
+                    f"p90 {p90:.1f}px crossed the operational limit {target_half_px:.1f}px"
+                )
+        row["verdict"] = "WORSE" if reasons else "ok"
+        if reasons:
+            row["reasons"] = reasons
+            regressed.append(zone)
+        rows.append(row)
+    return {
+        "zones": rows,
+        "regressed": regressed,
+        "unverified": unverified,
+        "adopt": not regressed and not unverified,
+        "limits": limits.__dict__,
+        "note": (
+            "a zone that is MISSING or UNVERIFIED is never a pass; "
+            "adopt is False while any zone is either"
+        ),
+    }
+
+
+def format_band_zones(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The band table, with MISSING and UNVERIFIED shown and not averaged."""
+
+    out = [
+        "| zone | x, y | status | segs | frames | median px | p90 frame px | |dy| px |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+
+    def cell(value: Any) -> str:
+        return "--" if value is None else f"{value:.1f}"
+
+    for row in rows:
+        if row.get("zone") is None:
+            continue
+        out.append(
+            f"| {row['zone']} | {row.get('label', '')} | {row['status']} | "
+            f"{row.get('n_segments', 0)} | {row.get('n_frames', 0)} | "
+            f"{cell(row.get('median_px'))} | {cell(row.get('p90_frame_px'))} | "
+            f"{cell(row.get('abs_dy_px'))} |"
+        )
+    return out
 
 
 def target_condition_matrix(

@@ -593,3 +593,77 @@ class BridgeTests(unittest.TestCase):
 
     def test_one_held_wink_still_fires_exactly_once(self) -> None:
         self.assertEqual(self._run([self.OPEN] * 3 + [self.WINK] * 120), 1)
+
+
+class CancelTests(unittest.TestCase):
+    """A wink that is part-way through when the mode changes.
+
+    Dropping the QUEUE of fired winks -- which is what the scroll edge did --
+    covers only half of this. At the moment a mode changes the eye may already
+    be closed with the hold accumulating: nothing has fired, so there is
+    nothing in any queue to drop, and the wink lands a moment later in the new
+    mode from a closure begun in the old one.
+
+    Clearing the accumulation alone is not enough either. The eye is still
+    shut, so the very next frame starts a fresh hold from the SAME closure and
+    one long close is counted twice, once on each side of the change. This
+    project shipped that exact bug once, with a latch that cleared when the
+    rule stopped matching instead of when the eye opened: one 2.7 second
+    closure fired four times.
+    """
+
+    WINK = (0.5, 0.003)
+    OPEN = (1.0, 1.0)
+
+    def _feed(self, detector, frames, *, start=0.0, step=1 / 30):
+        fired = 0
+        now = start
+        for left, right in frames:
+            if detector.update(now, face_present=True, left_ratio=left, right_ratio=right):
+                fired += 1
+            now += step
+        return fired, now
+
+    def test_a_hold_in_progress_does_not_fire_after_a_cancel(self) -> None:
+        detector = G.RightWinkDetector()
+        # One frame short of the hold: the closure has started and not fired.
+        fired, now = self._feed(detector, [self.OPEN, self.WINK])
+        self.assertEqual(fired, 0, "the fixture fired before the cancel, so this proves nothing")
+        detector.cancel()
+        fired, _now = self._feed(detector, [self.WINK] * 60, start=now)
+        self.assertEqual(fired, 0, "a closure begun before the change fired after it")
+
+    def test_a_closure_that_already_fired_does_not_fire_again(self) -> None:
+        """The other end of the same closure. Once is the whole point."""
+
+        detector = G.RightWinkDetector()
+        fired, now = self._feed(detector, [self.OPEN] + [self.WINK] * 4)
+        self.assertEqual(fired, 1, "the fixture never fired, so this proves nothing")
+        detector.cancel()
+        again, _now = self._feed(detector, [self.WINK] * 90, start=now)
+        self.assertEqual(again, 0, "one closure was counted twice")
+
+    def test_a_new_wink_needs_the_eye_to_open_first(self) -> None:
+        detector = G.RightWinkDetector()
+        # Two frames: the closure has STARTED and has not reached the hold, so
+        # what follows is about the cancel and not about a wink that already
+        # fired and latched on its own.
+        fired, now = self._feed(detector, [self.OPEN, self.WINK])
+        self.assertEqual(fired, 0, "the fixture fired before the cancel")
+        detector.cancel()
+        # Still shut: nothing.
+        fired, now = self._feed(detector, [self.WINK] * 30, start=now)
+        self.assertEqual(fired, 0)
+        # Opened, waited out the cooldown, and winked again: that one counts.
+        fired, now = self._feed(detector, [self.OPEN] * 30, start=now)
+        self.assertEqual(fired, 0)
+        fired, _now = self._feed(detector, [self.WINK] * 10, start=now)
+        self.assertEqual(fired, 1, "the way back to winking was closed off")
+
+    def test_cancelling_when_nothing_is_in_flight_is_harmless(self) -> None:
+        detector = G.RightWinkDetector()
+        detector.cancel()
+        fired, now = self._feed(detector, [self.OPEN] * 30)
+        self.assertEqual(fired, 0)
+        fired, _now = self._feed(detector, [self.WINK] * 10, start=now)
+        self.assertEqual(fired, 1, "a cancel with nothing to cancel killed the next wink")

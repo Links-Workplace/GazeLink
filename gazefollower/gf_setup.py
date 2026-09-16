@@ -45,16 +45,26 @@ MANIFEST_VERSION = "setup-1"
 # Modules whose content defines the experiment's behaviour. A change to any of
 # them makes a later recording a different experiment, so all are hashed.
 CODE_MODULES = (
-    "gf_common.py",
-    "gf_head_features.py",
-    "gf_schema.py",
+    "gazelink_core/domain/common.py",
+    "gazelink_core/gaze/head_features.py",
+    "gazelink_core/calibration/schema.py",
     "gf_fit.py",
     "gf_record.py",
-    "gf_targets.py",
+    "gazelink_core/calibration/targets.py",
     "gf_geometry.py",
     "gf_report.py",
     "gf_setup.py",
     "gf_diagnose_bias.py",
+    # Extracted from gf_record/gf_fit into the core (ARCH-01 stage D). They were
+    # hashed before as part of those files, so they stay hashed now. The combined
+    # code hash therefore differs from recordings made before 2026-09-15 by design.
+    "gazelink_core/calibration/model.py",
+    "gazelink_core/gaze/prediction.py",
+    "gazelink_core/gaze/preflight.py",
+    "gazelink_core/gaze/visibility.py",
+    "gazelink_core/tracking/gazefollower_library.py",
+    "gazelink_core/ui/prompt_layout.py",
+    "gazelink_core/ui/pygame_display.py",
 )
 
 # Screen size the OS reports vs the operator's measurement: more than this and
@@ -417,7 +427,23 @@ def compare_manifests(previous: SetupManifest, current: SetupManifest) -> dict[s
         before, after = previous.get(dotted), current.get(dotted)
         if before != after:
             changes.append({"field": dotted, "before": before, "after": after})
-    return {"critical_changes": changes, "comparable": not changes}
+    result: dict[str, Any] = {"critical_changes": changes, "comparable": not changes}
+    before_files = set((previous.get("derived.code_files") or {}).keys())
+    after_files = set((current.get("derived.code_files") or {}).keys())
+    if before_files and after_files and before_files != after_files:
+        # Not a silent "code changed": the module LIST itself differs, which
+        # is what ARCH-01 did on 2026-09-15 when library code moved into
+        # gazelink_core. Hashes of different file sets cannot be compared.
+        result["code_layout_changed"] = {
+            "only_before": sorted(before_files - after_files),
+            "only_after": sorted(after_files - before_files),
+            "note": (
+                "the set of hashed code files changed (ARCH-01 moved modules into "
+                "gazelink_core on 2026-09-15); sessions on either side are different "
+                "experiments by code fingerprint"
+            ),
+        }
+    return result
 
 
 def main(argv: Sequence[str] | None = None) -> int:

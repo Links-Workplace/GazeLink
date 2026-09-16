@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_common as C  # noqa: E402
 import gf_head_features as H  # noqa: E402
+from gazelink_core.tracking import face_landmarks as FL  # noqa: E402
 
 # Mean adult inter-pupillary distance. Used only to sanity-check a PnP
 # distance, never to derive one.
@@ -128,7 +129,7 @@ def pnp_eye_mm(face_info: Any, frame: ScreenFrame) -> np.ndarray | None:
 
     import cv2  # noqa: PLC0415
 
-    validated = H._landmarks_xy(face_info)
+    validated = FL.landmarks_xy(face_info)
     if validated is None:
         return None
     xy, img_w, img_h = validated

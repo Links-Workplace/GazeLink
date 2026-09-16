@@ -1,271 +1,251 @@
-"""Is the camera actually delivering a usable picture right now?
+"""What resolution does the camera ACTUALLY deliver on the library's path?
 
-A recording that captures no face looks the same from the outside whether the
-lens is covered, the room is dark, another application holds the device, or
-the driver is handing back blank buffers. This grabs a few frames and reports
-what is in them, so that question is answered in seconds instead of after a
-six-minute protocol.
+Read-only probe. No frame is saved, logged or displayed: only shapes, the
+driver's reported properties and the measured frame rate are printed.
 
-Deliberately tiny: OpenCV only, no GazeFollower, no MediaPipe, no window. It
-reports brightness and frame-to-frame change; it does not detect faces, and a
-bright, varying picture still proves only that the camera works.
+Why it exists: ``gazefollower.camera.WebCamCamera`` calls ``cap.set(width,
+height)`` on a VideoCapture that is not open yet (OpenCV 4.14 returns False
+and ignores it), then opens the device and resizes every frame to 640x480.
+``gf_setup``'s probe opens first and sets afterwards, so the 640x480 in
+setup.json describes the probe's path, not the library's.
 
-    python gf_camera_probe.py            # default device 0
-    python gf_camera_probe.py --index 1  # a second camera
+Stages, each printing frame.shape as read (before any resize):
+1. exactly the library's order: VideoCapture() -> set 640x480 -> open(index)
+2. per mode and backend, a FRESH capture: open -> request the mode -> read.
+   Switching modes on an already-streaming MSMF capture crashed on this rig
+   (first run: "Failed to select stream 0", then a cv::Mat assertion), so
+   each mode gets its own capture and any failure is reported, not raised.
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+import statistics
+import time
 
 import cv2
 import numpy as np
 
-# Below this mean pixel value an 8-bit frame is effectively a black image.
-DARK_MEAN = 12.0
-# Below this standard deviation across a frame there is no scene in it.
-FLAT_STD = 3.0
-# Below this mean absolute difference between consecutive frames the stream is
-# repeating one buffer rather than delivering live video.
-FROZEN_DIFF = 0.5
+from gazelink_core.tracking import face_landmarks as FL
+
+MODES = ((640, 480), (1280, 720), (1920, 1080))
+BACKENDS = (("MSMF", cv2.CAP_MSMF), ("DSHOW", cv2.CAP_DSHOW))
 
 
-def probe(index: int = 0, frames: int = 30) -> int:
-    capture = cv2.VideoCapture(index, cv2.CAP_MSMF)
-    if not capture.isOpened():
-        print(f"camera {index}: WOULD NOT OPEN -- another application is probably holding it")
-        return 2
-    try:
-        grabbed = []
-        for _ in range(frames):
-            ok, frame = capture.read()
-            if ok and frame is not None:
-                grabbed.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float64))
-    finally:
-        capture.release()
-
-    if not grabbed:
-        print(f"camera {index}: opened but returned NO frames")
-        return 2
-
-    means = np.array([f.mean() for f in grabbed])
-    stds = np.array([f.std() for f in grabbed])
-    diffs = np.array([np.abs(b - a).mean() for a, b in zip(grabbed, grabbed[1:], strict=False)])
-    height, width = grabbed[0].shape
-    print(f"camera {index}: {len(grabbed)} frames at {width}x{height}")
-    print(f"  brightness mean {means.mean():6.1f}  (0 = black, 255 = white)")
-    print(f"  detail    std   {stds.mean():6.1f}  (0 = flat, featureless image)")
-    motion = diffs.mean() if diffs.size else float("nan")
-    print(f"  motion    diff  {motion:6.2f}  (0 = identical frames)")
-
-    problems = []
-    if means.mean() < DARK_MEAN:
-        problems.append("the picture is essentially black -- lens covered, or the room is dark")
-    if stds.mean() < FLAT_STD:
-        problems.append("the picture has no detail -- a blank buffer rather than a scene")
-    if diffs.size and diffs.mean() < FROZEN_DIFF:
-        problems.append("consecutive frames are identical -- the stream is frozen")
-    if problems:
-        print("\nPROBLEM:")
-        for line in problems:
-            print(f"  - {line}")
-        return 1
-    print("\nThe camera is delivering a live, lit picture.")
-    print("If recordings still find no face, the issue is framing or the detector,")
-    print("not the camera: check that your face is inside the frame and evenly lit.")
-    return 0
+def read_stats(cap: cv2.VideoCapture, frames: int) -> dict:
+    shapes: set[tuple[int, ...]] = set()
+    stamps: list[float] = []
+    for _ in range(frames):
+        ok, frame = cap.read()
+        if not ok:
+            break
+        shapes.add(tuple(frame.shape))
+        stamps.append(time.monotonic())
+        del frame  # never kept
+    gaps = [b - a for a, b in zip(stamps[1:], stamps[2:]) if b > a]
+    return {
+        "frames_read": len(stamps),
+        "shapes_as_read": sorted(shapes),
+        "measured_fps": round(1.0 / statistics.median(gaps), 1) if gaps else None,
+        "reported": (
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            cap.get(cv2.CAP_PROP_FPS),
+        ),
+        "backend": cap.getBackendName(),
+    }
 
 
-def probe_face(index: int = 0, frames: int = 30, white_screen: bool = False) -> int:
-    """Does the detector find a face right now, under recording conditions?
+def field_of_view(args: argparse.Namespace) -> int:
+    """Outer inter-ocular distance and eye position per mode, LO-HI-HI-LO.
 
-    The protocols fill a 49-inch display with white a few tens of centimetres
-    from the operator. That can drive the camera's automatic exposure down
-    until the face is a dark silhouette, so the probe can raise the same white
-    field: a face found on a grey desktop but lost against white is an
-    exposure problem, not a framing one.
+    MediaPipe runs IN MEMORY through the library's own face alignment; only
+    medians of a distance and two normalised positions are printed. A fresh
+    FaceMesh per block, because it tracks across frames. Keep the head still.
+
+    Reading: IOD(720)/IOD(480) ~2.0 means the 16:9 mode keeps the horizontal
+    field of view (it crops top/bottom); ~1.5 means 4:3 was a side crop.
     """
 
-    screen = None
-    if white_screen:
-        import pygame  # noqa: PLC0415  (only needed for this mode)
+    from gazefollower.face_alignment import MediaPipeFaceAlignment  # noqa: PLC0415
 
-        pygame.init()
-        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-        screen.fill((255, 255, 255))
-        pygame.display.flip()
-        for _ in range(30):
-            pygame.event.pump()
-            pygame.time.wait(10)
-
-    try:
-        import mediapipe as mp  # noqa: PLC0415
-
-        mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=False, max_num_faces=1, refine_landmarks=True
-        )
-        capture = cv2.VideoCapture(index, cv2.CAP_MSMF)
-        if not capture.isOpened():
-            print(f"camera {index}: WOULD NOT OPEN")
-            return 2
-        found = 0
-        seen = 0
-        face_means: list[float] = []
-        frame_means: list[float] = []
+    blocks = ((640, 480), (1280, 720), (1920, 1080), (640, 480))
+    rows = []
+    for w, h in blocks:
+        aligner = MediaPipeFaceAlignment()
+        cap = cv2.VideoCapture(args.index, cv2.CAP_MSMF)
+        iod, mid_x, mid_y, shapes = [], [], [], set()
         try:
-            for _ in range(frames):
-                ok, frame = capture.read()
-                if not ok or frame is None:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+            for i in range(args.frames + 10):
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if i < 10 or frame.shape[:2] != (h, w):
+                    continue  # warm-up or a frame still in the old mode
+                shapes.add(frame.shape)
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                info = aligner.detect(time.time_ns(), rgb)
+                del frame, rgb  # never kept
+                marks = FL.raw_landmarks(info)
+                if marks is None:
                     continue
-                seen += 1
-                grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                frame_means.append(float(grey.mean()))
-                result = mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                if result.multi_face_landmarks:
-                    found += 1
-                    height, width = grey.shape
-                    xs = [lm.x * width for lm in result.multi_face_landmarks[0].landmark]
-                    ys = [lm.y * height for lm in result.multi_face_landmarks[0].landmark]
-                    x0, x1 = max(0, int(min(xs))), min(width, int(max(xs)))
-                    y0, y1 = max(0, int(min(ys))), min(height, int(max(ys)))
-                    if x1 > x0 and y1 > y0:
-                        face_means.append(float(grey[y0:y1, x0:x1].mean()))
+                left, right = marks[33, :2].astype(float), marks[263, :2].astype(float)
+                iod.append(float(np.hypot(*(right - left))))
+                mid_x.append(float((left[0] + right[0]) / 2 / w))
+                mid_y.append(float((left[1] + right[1]) / 2 / h))
         finally:
-            capture.release()
-            mesh.close()
-    finally:
-        if screen is not None:
-            import pygame  # noqa: PLC0415
-
-            pygame.quit()
-
-    if not seen:
-        print("no frames read")
-        return 2
-    label = "WHITE FULLSCREEN" if white_screen else "normal desktop"
-    print(f"camera {index}, {label}: face found in {found}/{seen} frames")
-    print(f"  whole-frame brightness {np.mean(frame_means):6.1f}")
-    if face_means:
-        print(f"  face-region brightness {np.mean(face_means):6.1f}")
-    if found == 0:
-        print("\nThe detector finds NO face in these conditions.")
-        return 1
-    if found < seen * 0.8:
-        print("\nThe face is found only intermittently.")
-        return 1
-    print("\nFace detection is healthy here.")
+            cap.release()
+        if not iod:
+            print(f"  {w}x{h}: no face found in {sorted(shapes)}")
+            continue
+        med = statistics.median(iod)
+        rows.append((w, h, med))
+        print(
+            f"  {w}x{h}: {len(iod)} frames, outer IOD median {med:.1f}px, "
+            f"eye-mid x {statistics.median(mid_x):.3f} y {statistics.median(mid_y):.3f} "
+            f"(eye box ~{0.47 * med:.0f}x{0.35 * med:.0f}px, ESTIMATE)"
+        )
+    base = [r[2] for r in rows if r[:2] == (640, 480)]
+    if base:
+        lo = statistics.mean(base)
+        for w, h, med in rows:
+            if (w, h) != (640, 480):
+                print(f"  IOD ratio {w}x{h} / 640x480 = {med / lo:.2f}  (width ratio {w / 640:.2f})")
     return 0
 
 
-def probe_pose(index: int = 0, seconds: float = 60.0, target_pitch: float = 2.07) -> int:
-    """Live head pitch against the pitch the calibration was recorded at.
+def pipeline_rate(args: argparse.Namespace) -> int:
+    """Delivered frame rate with ONE full gaze pipeline, native-lo vs hi crop.
 
-    Every recording whose features carried a strong gaze signal was made with
-    the head within a couple of degrees of the calibration pose; every
-    recording that lost the signal sat about eleven degrees below it. Eleven
-    degrees is easy not to notice and hard to restore by feel, so this prints
-    the number live and says which way to move.
+    Runs face alignment + MGazeNet on every frame in the capture loop, the
+    way the library does, for ``--seconds`` per arm: the library's own
+    640x480 path (set before open, resize to 640x480) and the hi path
+    (1920x1080 after open, centre crop 1440x1080). No model, no saving; only
+    timing numbers and a face-found fraction are printed. Order LO-HI-LO so a
+    drift over the run shows up.
+
+    Pass marks fixed before the run: delivered fps >= 28 and alignment +
+    estimator p95 <= 25 ms.
     """
 
-    print(
-        "DISABLED: this mode is not trustworthy and must not be used to aim the camera.\n"
-        "\n"
-        "It reads landmarks straight from MediaPipe, while a recording reads them\n"
-        "from GazeFollower's FaceInfo. The two do not agree: with the camera\n"
-        "untouched, this mode reported -11 deg while round17 recorded +2.08 deg for\n"
-        "the same pose. Acting on that difference moved a correctly-aimed camera.\n"
-        "\n"
-        "Read the pitch a recording actually stored (pnp_deg) instead, and calibrate\n"
-        "in whatever pose is comfortable rather than aiming for a target angle."
-    )
-    return 2
+    import gf_capture as CAP  # noqa: PLC0415
+    from gazelink_core.tracking import gazefollower_source as SRC  # noqa: PLC0415
+    from gazefollower.face_alignment import MediaPipeFaceAlignment  # noqa: PLC0415
+    from gazefollower.gaze_estimator import MGazeNetGazeEstimator  # noqa: PLC0415
 
-
-def _probe_pose_unverified(index: int, seconds: float, target_pitch: float) -> int:
-    import time  # noqa: PLC0415
-
-    import mediapipe as mp  # noqa: PLC0415
-
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-    import gf_head_features as HF  # noqa: PLC0415
-
-    mesh = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=False, max_num_faces=1, refine_landmarks=True
-    )
-    capture = cv2.VideoCapture(index, cv2.CAP_MSMF)
-    if not capture.isOpened():
-        print(f"camera {index}: WOULD NOT OPEN")
-        return 2
-    print(f"calibration pose was pitch {target_pitch:+.2f} deg. Ctrl-C to stop.\n")
-    deadline = time.monotonic() + seconds
-    last = 0.0
-    try:
-        while time.monotonic() < deadline:
-            ok, frame = capture.read()
-            if not ok or frame is None:
+    estimator = MGazeNetGazeEstimator()
+    arms = (("lo-library-640x480", None), ("hi-1440x1080-crop", CAP.SOURCE_MODE), ("lo-library-640x480", None))
+    for name, mode in arms:
+        aligner = MediaPipeFaceAlignment()
+        if mode is None:
+            cap = cv2.VideoCapture()
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.open(args.index)
+        else:
+            cap = cv2.VideoCapture(args.index, cv2.CAP_MSMF)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, mode[0])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, mode[1])
+        stamps, work, faces, wrong = [], [], 0, 0
+        try:
+            if not cap.isOpened():
+                print(f"  {name}: camera did not open")
                 continue
-            result = mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if not result.multi_face_landmarks:
-                continue
-            height, width = frame.shape[:2]
-            xy = np.array(
-                [[lm.x * width, lm.y * height] for lm in result.multi_face_landmarks[0].landmark]
-            )
-            angles = HF.pnp_degrees_from_landmarks(xy, width, height)
-            if angles is None:
-                continue
-            pitch = float(angles[1])
-            now = time.monotonic()
-            if now - last < 0.25:
-                continue
-            last = now
-            delta = pitch - target_pitch
-            if abs(delta) <= 2.0:
-                advice = "MATCHED -- hold this and start recording"
-            elif delta < 0:
-                advice = "BELOW calibration: raise your seat, or tilt the camera down"
-            else:
-                advice = "ABOVE calibration: lower your seat, or tilt the camera up"
-            print(f"  pitch {pitch:+7.2f} deg   offset {delta:+7.2f}   {advice}   ", end="\r")
-    except KeyboardInterrupt:
-        print()
-    finally:
-        capture.release()
-        mesh.close()
-    print()
+            for _ in range(10):
+                cap.grab()
+            until = time.monotonic() + args.seconds
+            while time.monotonic() < until:
+                ok, frame = cap.read()
+                if not ok:
+                    continue
+                stamps.append(time.monotonic())
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                if mode is None:
+                    image = cv2.resize(rgb, (640, 480))
+                elif frame.shape[:2] != (mode[1], mode[0]):
+                    wrong += 1
+                    continue
+                else:
+                    image = np.ascontiguousarray(CAP.centre_crop_4x3(rgb))
+                started = time.perf_counter()
+                face = aligner.detect(time.time_ns(), image)
+                gaze = estimator.detect(image, face)
+                work.append((time.perf_counter() - started) * 1000.0)
+                faces += SRC.gaze_status_of(gaze)
+                del frame, rgb, image  # never kept
+        finally:
+            cap.release()
+        gaps = np.diff(stamps) * 1000.0 if len(stamps) > 2 else np.array([])
+        fps = 1000.0 / float(np.median(gaps)) if gaps.size else None
+        p95 = float(np.percentile(work, 95)) if work else None
+        verdict = (
+            "PASS" if fps is not None and p95 is not None and fps >= 28 and p95 <= 25 else "FAIL"
+        )
+        print(
+            f"  {name}: frames {len(stamps)}, delivered fps "
+            f"{'--' if fps is None else f'{fps:.1f}'}, frame interval p95 "
+            f"{'--' if not gaps.size else f'{np.percentile(gaps, 95):.0f}'} ms, "
+            f"pipeline p50 {'--' if not work else f'{np.median(work):.1f}'} / p95 "
+            f"{'--' if p95 is None else f'{p95:.1f}'} ms, gaze found "
+            f"{faces}/{len(work)}, wrong shape {wrong}  -> {verdict}"
+        )
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--index", type=int, default=0, help="camera device index")
-    parser.add_argument("--frames", type=int, default=30)
-    parser.add_argument("--face", action="store_true", help="also run the face detector")
+    parser.add_argument("--index", type=int, default=0)
+    parser.add_argument("--frames", type=int, default=40)
     parser.add_argument(
-        "--pose",
+        "--fov",
         action="store_true",
-        help="live head pitch against the calibration pose, to restore the geometry",
+        help="instead of stage 2: measure, per mode, the eye size in pixels and where the eyes "
+        "sit in the frame (head still), to learn whether 16:9 keeps the 4:3 field of view",
     )
     parser.add_argument(
-        "--target-pitch",
-        type=float,
-        default=2.07,
-        help="pitch the calibration was recorded at (round5/A: 2.07)",
-    )
-    parser.add_argument("--seconds", type=float, default=60.0)
-    parser.add_argument(
-        "--white",
+        "--pipeline-rate",
         action="store_true",
-        help="raise a white fullscreen first, reproducing the protocol's lighting",
+        help="measure delivered fps and processing time with one full gaze pipeline, "
+        "native 640x480 vs the 1440x1080 crop (LO-HI-LO)",
     )
-    args = parser.parse_args(argv)
-    if args.pose:
-        return probe_pose(args.index, args.seconds, args.target_pitch)
-    if args.face or args.white:
-        return probe_face(args.index, args.frames, white_screen=args.white)
-    return probe(args.index, args.frames)
+    parser.add_argument("--seconds", type=float, default=20.0)
+    args = parser.parse_args()
+    if args.pipeline_rate:
+        return pipeline_rate(args)
+
+    print("stage 1: library order (set before open)")
+    cap = cv2.VideoCapture()
+    print("  set before open returned:", cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640),
+          cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480))
+    try:
+        if cap.open(args.index):
+            print("  ", read_stats(cap, args.frames))
+        else:
+            print("  camera did not open")
+    finally:
+        cap.release()
+
+    if args.fov:
+        return field_of_view(args)
+
+    print("stage 2: fresh capture per mode, mode requested right after open")
+    for name, api in BACKENDS:
+        for w, h in MODES:
+            cap = cv2.VideoCapture(args.index, api)
+            try:
+                if not cap.isOpened():
+                    print(f"  {name} {w}x{h}: did not open")
+                    continue
+                accepted = (cap.set(cv2.CAP_PROP_FRAME_WIDTH, w), cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h))
+                print(f"  {name} request {w}x{h} set returned {accepted}:", read_stats(cap, args.frames))
+            except cv2.error as exc:
+                print(f"  {name} {w}x{h}: failed ({str(exc).splitlines()[-1][:120]})")
+            finally:
+                cap.release()
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

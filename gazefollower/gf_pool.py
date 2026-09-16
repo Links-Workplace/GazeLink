@@ -225,6 +225,10 @@ def compatibility_key(meta: dict[str, Any]) -> tuple[Any, ...]:
         rig.get("device_w_px"),
         rig.get("device_h_px"),
         geometry.get("screen_id"),
+        # How the frame reached the network. Recordings from before this
+        # field existed were all taken through the library's own camera, so
+        # the absence of the field means exactly that and they still pool.
+        (meta.get("capture") or {}).get("pipeline", "640x480-library"),
     )
 
 

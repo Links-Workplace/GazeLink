@@ -195,7 +195,7 @@ def run_probe(
     """Record both phases and write everything. Decides nothing."""
 
     rig = profile.rig_geometry()
-    gf = L.build_gaze_follower(rig)
+    gf = L.build_gaze_follower(profile)
     # No model: this measures eyelids, and loading one would make a failure to
     # predict look like a failure to see the eyes.
     runner = L.LiveRunner(None, None, rig, None)

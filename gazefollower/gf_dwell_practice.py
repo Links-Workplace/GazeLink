@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import statistics
 import sys
@@ -77,6 +78,10 @@ class Trial:
     # target when the window opens -- and then count it as a normal trial.
     scored: bool = True
     activations_before_start: list[str] = field(default_factory=list)
+    # True for the trial that was open when the operator stopped the session.
+    # Such a trial is NOT a failed selection: counting it as one would charge
+    # the operator's decision to stop against whatever was being measured.
+    aborted: bool = False
     # (ms since the window opened, x, y) sampled through the trial. A
     # single position at the moment of firing cannot say whether the gaze
     # reached the requested target and left, or never arrived -- and the
@@ -84,6 +89,39 @@ class Trial:
     # scored as deep inside the opposite target. One of those is wrong and
     # only the path can say which.
     path: list[tuple[float, float, float]] = field(default_factory=list)
+    # The same instants before the filter (None where the model gave no
+    # point). A live error larger than the recordings show is either already
+    # in the model's output or added on the way to the screen; only both
+    # paths side by side can say which.
+    # (ms, x|None, y|None, update_id, state_age_ms). ``update_id`` is the
+    # runner's frame counter, so a sample that merely re-reads the same state
+    # can be told apart from a new model output.
+    raw_path: list[tuple[float, float | None, float | None, int, float | None]] = field(
+        default_factory=list
+    )
+    # Mini-block this trial belongs to, and whether the gaze point was drawn
+    # in it. The ring and the target highlight are drawn either way.
+    block: int = 0
+    point_shown: bool = True
+    # Camera-thread callback timing over the trial: duration and interval
+    # between callbacks only -- not capture->display.
+    callback: dict[str, Any] = field(default_factory=dict)
+    # A pause restarts the trial clock, so path times after it are not
+    # comparable with a window measured from the target's onset.
+    pauses: int = 0
+    # EVERY input the dwell engine received in the scored window, exactly as
+    # passed: [ms since window open, x|None, y|None, fresh, update_id]. Unlike
+    # ``path`` this keeps calls with no point and repeated reads of the same
+    # model output (same update_id), so gf_selection_replay can re-run the
+    # engine without guessing. Derived gaze coordinates only; no images.
+    engine_calls: list[list[Any]] = field(default_factory=list)
+    # [ms, update_id, roll_deg, yaw_ratio, pitch_a, eye_mid_x, eye_mid_y,
+    # iod_norm] at the raw_path instants. Lets the head turn during selection
+    # be compared with the recordings (TASKS section 62, 15.9).
+    head_path: list[list[Any]] = field(default_factory=list)
+    # When the window actually closed (ms from onset): shorter than the fixed
+    # window when the operator stopped after an activation.
+    window_end_ms: float | None = None
 
     @property
     def correct(self) -> bool:
@@ -92,6 +130,34 @@ class Trial:
     @property
     def lost_fraction(self) -> float:
         return self.frames_without_point / self.frames if self.frames else 0.0
+
+
+def head_row(t_ms: float, state: Any) -> list[Any]:
+    """[t_ms, update_id, *head6 | six None]. Derived pose numbers only, as the recordings keep."""
+
+    head = getattr(state, "head", None)
+    values = [None] * 6 if head is None else [round(float(v), 5) for v in head[:6]]
+    return [round(float(t_ms), 1), int(state.frames), *values]
+
+
+def engine_call_row(
+    t_ms: float, point: tuple[float, float] | None, fresh: bool, update_id: int | None
+) -> list[Any]:
+    """One logged engine input: [t_ms, x|None, y|None, fresh, update_id].
+
+    Precision is chosen so a replay decides the same threshold and edge
+    comparisons as the live engine: 0.1 ms rounding moved about 0.5 % of
+    activations by a frame in simulation. Size: roughly 90 bytes per row in
+    the indented JSON report, a few MB for a long session.
+    """
+
+    return [
+        round(float(t_ms), 4),
+        None if point is None else round(float(point[0]), 8),
+        None if point is None else round(float(point[1]), 8),
+        bool(fresh),
+        None if update_id is None else int(update_id),
+    ]
 
 
 def alternating_order(keys: list[str], n_trials: int) -> list[str]:
@@ -129,6 +195,84 @@ def trial_order(keys: list[str], n_trials: int, seed: int) -> list[str]:
     return out[:n_trials]
 
 
+POINT_CONDITIONS = ("shown", "hidden")
+
+
+def parse_point_schedule(text: str | None) -> list[str] | None:
+    """``"hidden,shown"`` -> ["hidden", "shown"]; None stays None. Refuses anything else."""
+
+    if text is None:
+        return None
+    items = [part.strip() for part in text.split(",") if part.strip()]
+    bad = [item for item in items if item not in POINT_CONDITIONS]
+    if not items or bad:
+        raise SystemExit(f"--point-schedule takes only {POINT_CONDITIONS}, got {text!r}")
+    return items
+
+
+def build_trial_plan(
+    keys: list[str],
+    *,
+    n_trials: int,
+    seed: int,
+    pattern: str,
+    point_schedule: list[str] | None,
+    targets: list[str] | None,
+) -> list[tuple[int, bool, str]]:
+    """(block, point_shown, requested) for every trial, fixed before the session.
+
+    Without a schedule: one block, point shown, the order used so far -- so an
+    existing command runs exactly as before. With one: every block holds each
+    target once, shuffled per block, so the hidden and shown conditions see
+    the same targets the same number of times.
+    """
+
+    if targets is not None:
+        unknown = [t for t in targets if t not in keys]
+        if unknown or len(set(targets)) != len(targets):
+            raise SystemExit(f"--targets must be distinct keys of the layout {keys}, got {targets}")
+    if point_schedule is None:
+        chosen = targets or keys
+        order = (
+            alternating_order(chosen, n_trials)
+            if pattern == "alternate"
+            else trial_order(chosen, n_trials, seed)
+        )
+        return [(0, True, key) for key in order]
+    if targets is None:
+        raise SystemExit("--point-schedule needs --targets, so every block holds the same targets")
+    plan: list[tuple[int, bool, str]] = []
+    for block, condition in enumerate(point_schedule):
+        for key in trial_order(targets, len(targets), seed + block):
+            plan.append((block, condition == "shown", key))
+    return plan
+
+
+def check_fixed_window(fixed_window_s: float | None) -> None:
+    """None, or a finite positive number of seconds. NaN would never end a window."""
+
+    if fixed_window_s is not None and not (math.isfinite(fixed_window_s) and fixed_window_s > 0):
+        raise SystemExit("--fixed-window-s must be a finite positive number of seconds")
+
+
+def timing_summary(samples: list[tuple[float | None, float]]) -> dict[str, Any]:
+    """Median/p95/max of callback duration and interval. Computed off the camera thread."""
+
+    durations = [d for _, d in samples]
+    intervals = [i for i, _ in samples if i is not None]
+
+    def stats(values: list[float]) -> dict[str, float] | None:
+        if not values:
+            return None
+        return {
+            "median": float(np.median(values)),
+            "p95": float(np.percentile(values, 95)),
+            "max": float(np.max(values)),
+        }
+
+    return {"n": len(samples), "callback_ms": stats(durations), "interval_ms": stats(intervals)}
+
+
 def score(
     trials: list[Trial],
     *,
@@ -145,7 +289,7 @@ def score(
     """
 
     scored = [t for t in trials if t.scored]
-    skipped = [t for t in trials if not t.scored]
+    skipped = [t for t in trials if not t.scored and not t.aborted]
     done = [t for t in scored if t.activated is not None]
     correct = [t for t in done if t.correct]
     wrong = [t for t in done if not t.correct]
@@ -184,6 +328,7 @@ def score(
         # Kept because it helps explain which selections happened and why.
         "gaze_offset_from_centre": _offset_summary(scored, buttons),
         "neutral_gate_missed": len(skipped),
+        "aborted_trials": sum(1 for t in trials if t.aborted),
         "neutral_wait_ms_median": (
             statistics.median([t.neutral_wait_ms for t in trials]) if trials else None
         ),
@@ -333,22 +478,43 @@ def run_practice(
     bar: int | None = 18,
     out: Path | None = None,
     headless: bool = False,
+    show_bias: bool = True,
+    point_schedule: list[str] | None = None,
+    targets: list[str] | None = None,
+    fixed_window_s: float | None = None,
+    prompt_anchor: str = "top",
 ) -> dict[str, Any]:
     import gf_fit as FIT  # noqa: PLC0415
 
     rig = profile.rig_geometry()
     buttons = D.LAYOUTS[layout]()
+    # Validated before anything opens: a bad schedule must not cost a warm-up.
+    plan = build_trial_plan(
+        [b.key for b in buttons],
+        n_trials=n_trials,
+        seed=seed,
+        pattern=pattern,
+        point_schedule=point_schedule,
+        targets=targets,
+    )
+    check_fixed_window(fixed_window_s)
+    if prompt_anchor not in R.PROMPT_ANCHORS:
+        raise SystemExit(f"--prompt-anchor must be one of {R.PROMPT_ANCHORS}")
+    n_trials = len(plan)
     (bias_x, bias_y), bias_source = measure_bias(profile)
     warnings = D.layout_warnings(buttons, bias_x=bias_x, bias_y=bias_y)
     print(f"layout {layout}: {[b.key for b in buttons]}")
-    print(f"bias used for sizing: |dx| {bias_x:.3f} |dy| {bias_y:.3f}  ({bias_source})")
-    for line in warnings:
-        print(f"  WARNING: {line}")
-    if not warnings:
-        print("  layout clears the measured bias on both axes")
+    # ``show_bias`` False keeps a blinded comparison blinded: the numbers
+    # differ by model, so printing them per block names the arm.
+    if show_bias:
+        print(f"bias used for sizing: |dx| {bias_x:.3f} |dy| {bias_y:.3f}  ({bias_source})")
+        for line in warnings:
+            print(f"  WARNING: {line}")
+        if not warnings:
+            print("  layout clears the measured bias on both axes")
 
     model = FIT.FittedModel.load(profile.model_path())
-    gf = L.build_gaze_follower(rig)
+    gf = L.build_gaze_follower(profile)
     runner = L.LiveRunner(model, None, rig, profile.filter_settings())
     engine = D.DwellEngine(buttons, D.DwellConfig(dwell_ms=dwell_ms))
     menu = GEST.RecoveryMenu(
@@ -362,14 +528,10 @@ def run_practice(
     gf.add_subscriber(lambda face, gaze: runner.on_frame(face, gaze) if armed["live"] else None)
     display = R.Display(rig.device_w_px, rig.device_h_px, headless=headless, origin=(0, 0))
 
-    keys = [b.key for b in buttons]
-    order = (
-        alternating_order(keys, n_trials)
-        if pattern == "alternate"
-        else trial_order(keys, n_trials, seed)
-    )
+    order = [key for _, _, key in plan]
     trials: list[Trial] = []
     unintended: list[dict[str, Any]] = []
+    rest_seconds_run = 0.0
     aborted = False
 
     def poll(now: float) -> str | None:
@@ -382,6 +544,68 @@ def run_practice(
         menu.tick(now)
         return None
 
+    rest_engine_calls: list[dict[str, Any]] = []
+
+    def rest(block: int, point_shown: bool) -> bool:
+        """One rest period; True if the operator stopped during it."""
+
+        nonlocal rest_seconds_run
+
+        rest_prompt = [
+            f"Rest block -- {idle_seconds:.0f} seconds",
+            "",
+            "Look around the screen and rest your eyes.",
+            "Do NOT try to select anything.",
+            "Anything that activates now is an unintended activation.",
+        ]
+        if idle_seconds <= 0:
+            return False
+        # Stopping during rest is a stop like any other: without ``aborted``
+        # the caller cannot tell, runs the next block, and counts a cut-short
+        # rest as a full one.
+        if display.wait_for_key(rest_prompt) == "abort":
+            return True
+        engine.reset()
+        began = time.monotonic()
+        until = began + idle_seconds
+        calls: list[list[Any]] = []
+        rest_engine_calls.append({"block": block, "engine_calls": calls})
+        while time.monotonic() < until:
+            now = time.monotonic()
+            if display.poll_escape():
+                rest_seconds_run += now - began
+                return True
+            state = runner.state
+            point = R.visible_point(state.point, state.updated_s, now, R.OVERLAY_STALE_S)
+            calls.append(
+                engine_call_row((now - began) * 1000.0, point, point is not None, state.frames)
+            )
+            fired = engine.update(now, point, fresh=point is not None)
+            if fired is not None:
+                unintended.append(
+                    {
+                        "key": fired.button,
+                        "block": block,
+                        "at_s": round(idle_seconds - (until - now), 2),
+                        "point": None if point is None else [round(float(v), 4) for v in point],
+                    }
+                )
+            display.draw_practice(
+                buttons,
+                point if point_shown else None,
+                hovered=engine.hovered,
+                progress=engine.progress,
+                prompt=[
+                    f"REST -- {until - now:.0f}s left, select nothing",
+                    f"unintended so far: {len(unintended)}",
+                ],
+                tracking=point is not None,
+                prompt_anchor=prompt_anchor,
+            )
+            time.sleep(0.005)
+        rest_seconds_run += idle_seconds
+        return False
+
     try:
         gf.camera.start_sampling()
         display.draw_message(["Camera warming up..."])
@@ -393,8 +617,17 @@ def run_practice(
                 [
                     f"Dwell practice -- layout {layout.upper()}, {n_trials} trials",
                     "",
-                    "Look at the target named at the top left and rest on it",
-                    f"until the ring fills ({dwell_ms:.0f} ms).",
+                    *(
+                        [
+                            "Look at the named target and keep looking at it",
+                            "until it ends, even after it activates.",
+                        ]
+                        if fixed_window_s is not None
+                        else [
+                            "Look at the target named at the top left and rest on it",
+                            f"until the ring fills ({dwell_ms:.0f} ms).",
+                        ]
+                    ),
                     "",
                     "Close your eyes about half a second to open the menu.",
                 ]
@@ -403,7 +636,12 @@ def run_practice(
         ):
             return {"aborted": True}
 
-        for index, requested in enumerate(order):
+        for index, (block, point_shown, requested) in enumerate(plan):
+            # Between mini-blocks: the finished block's rest, then go on.
+            new_block = index > 0 and block != plan[index - 1][0]
+            if new_block and rest(plan[index - 1][0], plan[index - 1][1]):
+                aborted = True
+                break
             # The engine is deliberately NOT reset between trials. Resetting
             # clears the latch, so a target the operator is still resting on
             # from the previous trial starts filling again and fires before
@@ -411,7 +649,7 @@ def run_practice(
             # activations landed on the PREVIOUS trial's target and 7 fired at
             # the earliest instant possible. Carrying the latch is what makes
             # "one activation per entry" mean anything across a session.
-            trial = Trial(index=index, requested=requested)
+            trial = Trial(index=index, requested=requested, block=block, point_shown=point_shown)
             flash: str | None = None
 
             # Neutral gate: the gaze must be seen away from every target
@@ -438,7 +676,7 @@ def run_practice(
                 trial.neutral_reached = False
                 display.draw_practice(
                     buttons,
-                    point,
+                    point if point_shown else None,
                     hovered=engine.hovered,
                     progress=engine.progress,
                     prompt=[
@@ -447,10 +685,13 @@ def run_practice(
                     ]
                     + L._menu_lines(menu),
                     tracking=point is not None,
+                    prompt_anchor=prompt_anchor,
                 )
                 time.sleep(0.005)
             trial.neutral_wait_ms = (time.monotonic() - gate_started) * 1000.0
             if aborted:
+                trial.aborted = True
+                trial.scored = False
                 trials.append(trial)
                 break
             if not trial.neutral_reached:
@@ -470,6 +711,8 @@ def run_practice(
                 continue
 
             seen: list[tuple[float, float]] = []
+            window_s = fixed_window_s if fixed_window_s is not None else trial_timeout_s
+            runner.drain_timing()  # the gate's callbacks belong to no trial
             started = time.monotonic()
             while True:
                 now = time.monotonic()
@@ -481,12 +724,13 @@ def run_practice(
                     aborted = True
                     break
                 if action == "pause":
+                    trial.pauses += 1
                     engine.reset()
                     if display.wait_for_key(["Paused", "", "Press a key to continue"]) == "abort":
                         aborted = True
                         break
                     started = time.monotonic()
-                if now - started > trial_timeout_s:
+                if now - started > window_s:
                     break
                 state = runner.state
                 point = R.visible_point(state.point, state.updated_s, now, R.OVERLAY_STALE_S)
@@ -502,7 +746,35 @@ def run_practice(
                         trial.path.append(
                             (round(elapsed_ms, 1), round(point[0], 4), round(point[1], 4))
                         )
-                fired = engine.update(now, point, fresh=point is not None)
+                        raw = R.visible_point(
+                            state.unfiltered, state.updated_s, now, R.OVERLAY_STALE_S
+                        )
+                        age_ms = (
+                            None
+                            if state.updated_s is None
+                            else round((now - state.updated_s) * 1000.0, 1)
+                        )
+                        trial.raw_path.append(
+                            (
+                                round(elapsed_ms, 1),
+                                None if raw is None else round(raw[0], 4),
+                                None if raw is None else round(raw[1], 4),
+                                int(state.frames),
+                                age_ms,
+                            )
+                        )
+                        trial.head_path.append(head_row(elapsed_ms, state))
+                # With a fixed window the first activation ends selection for
+                # the trial: the engine is not fed again, so nothing else can
+                # fire while the target stays up and recording continues.
+                selecting = fixed_window_s is None or trial.activated is None
+                if selecting:
+                    trial.engine_calls.append(
+                        engine_call_row(
+                            (now - started) * 1000.0, point, point is not None, state.frames
+                        )
+                    )
+                fired = engine.update(now, point, fresh=point is not None) if selecting else None
                 if fired is not None:
                     if trial.activated is None:
                         trial.activated = fired.button
@@ -511,77 +783,61 @@ def run_practice(
                         flash = fired.button
                     else:
                         trial.extra_activations.append(fired.button)
+                # Once selection has ended in a fixed window, the full ring
+                # would stay up below the target for the rest of the window
+                # -- a second thing to look at that no recording had. Only
+                # the activation highlight (flash) stays.
+                ring_on = fixed_window_s is None or trial.activated is None
                 display.draw_practice(
                     buttons,
-                    point,
-                    hovered=engine.hovered,
-                    progress=engine.progress,
+                    point if point_shown else None,
+                    hovered=engine.hovered if ring_on else None,
+                    progress=engine.progress if ring_on else 0.0,
                     prompt=[
                         f"trial {index + 1}/{n_trials}    LOOK AT:  {requested}",
-                        f"dwell {dwell_ms:.0f} ms    Esc to stop",
+                        (
+                            "keep looking until it ends    Esc to stop"
+                            if fixed_window_s is not None
+                            else f"dwell {dwell_ms:.0f} ms    Esc to stop"
+                        ),
                     ]
                     + L._menu_lines(menu),
                     flash=flash,
                     tracking=point is not None,
+                    prompt_anchor=prompt_anchor,
                 )
                 if (
-                    trial.activated is not None
+                    fixed_window_s is None
+                    and trial.activated is not None
                     and now - started > (trial.activated_at_ms or 0) / 1000.0 + 0.4
                 ):
                     break
                 time.sleep(0.005)
+            trial.window_end_ms = round((time.monotonic() - started) * 1000.0, 1)
+            trial.callback = timing_summary(runner.drain_timing())
             if seen:
                 trial.median_point = (
                     float(np.median([p[0] for p in seen])),
                     float(np.median([p[1] for p in seen])),
                 )
+            if aborted and trial.activated is None:
+                trial.aborted = True
+                trial.scored = False
             trials.append(trial)
             if aborted:
                 break
 
-        rest_prompt = [
-            f"Rest block -- {idle_seconds:.0f} seconds",
-            "",
-            "Look around the screen and rest your eyes.",
-            "Do NOT try to select anything.",
-            "Anything that activates now is an unintended activation.",
-        ]
-        wanted = not aborted and idle_seconds > 0
-        if wanted and display.wait_for_key(rest_prompt) != "abort":
-            engine.reset()
-            until = time.monotonic() + idle_seconds
-            while time.monotonic() < until:
-                now = time.monotonic()
-                if display.poll_escape():
-                    break
-                state = runner.state
-                point = R.visible_point(state.point, state.updated_s, now, R.OVERLAY_STALE_S)
-                fired = engine.update(now, point, fresh=point is not None)
-                if fired is not None:
-                    unintended.append(
-                        {
-                            "key": fired.button,
-                            "at_s": round(idle_seconds - (until - now), 2),
-                            "point": None if point is None else [round(float(v), 4) for v in point],
-                        }
-                    )
-                display.draw_practice(
-                    buttons,
-                    point,
-                    hovered=engine.hovered,
-                    progress=engine.progress,
-                    prompt=[
-                        f"REST -- {until - now:.0f}s left, select nothing",
-                        f"unintended so far: {len(unintended)}",
-                    ],
-                    tracking=point is not None,
-                )
-                time.sleep(0.005)
+        # The last block's rest -- the only rest when there is no schedule.
+        if not aborted:
+            aborted = rest(plan[-1][0] if plan else 0, plan[-1][1] if plan else True)
     finally:
         display.close()
         R.shutdown_library(gf)
 
-    summary = score(trials, unintended=unintended, idle_seconds=idle_seconds, buttons=buttons)
+    # Unintended activations are per rest time actually spent: with mini-blocks
+    # that is several rests, and reporting one rest's length would overstate
+    # the rate.
+    summary = score(trials, unintended=unintended, idle_seconds=rest_seconds_run, buttons=buttons)
     passed, why = verdict(summary, bar=bar)
     report = {
         "profile": profile.name,
@@ -596,6 +852,15 @@ def run_practice(
         "seed": seed,
         "pattern": pattern,
         "order": order,
+        "point_schedule": point_schedule,
+        "targets": targets,
+        # When set, every target stayed up this long whatever happened, and
+        # only the first activation counted; trial_timeout_s was not used.
+        "fixed_window_s": fixed_window_s,
+        "prompt_anchor": prompt_anchor,
+        "rest_seconds_each": idle_seconds,
+        # Every engine input during each rest, same row format as a trial's.
+        "rest_engine_calls": rest_engine_calls,
         "aborted": aborted,
         "summary": summary,
         "passed": passed,
@@ -683,11 +948,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--neutral-timeout-s", type=float, default=5.0)
     parser.add_argument("--bar", type=int, default=None, help="pass mark (layout a defaults to 18)")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--point-schedule",
+        default=None,
+        help="comma-separated mini-blocks, each 'shown' or 'hidden' (the gaze point only; "
+        "ring and highlight stay). Needs --targets; every block holds each target once.",
+    )
+    parser.add_argument(
+        "--targets",
+        default=None,
+        help="comma-separated button keys to request, e.g. LOW-L,LOW-C,LOW-R,MID-L,MID-C,UP-C",
+    )
+    parser.add_argument(
+        "--fixed-window-s",
+        type=float,
+        default=None,
+        help="keep every target up this long; only the first activation counts",
+    )
+    parser.add_argument(
+        "--prompt-anchor",
+        choices=R.PROMPT_ANCHORS,
+        default="top",
+        help="'sides' draws the instructions outside the X band, clear of every button",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    schedule = parse_point_schedule(args.point_schedule)
+    targets = (
+        None if args.targets is None else [t.strip() for t in args.targets.split(",") if t.strip()]
+    )
+    # Refuse a bad plan before resolving the profile or opening anything.
+    check_fixed_window(args.fixed_window_s)
+    build_trial_plan(
+        [b.key for b in D.LAYOUTS[args.layout]()],
+        n_trials=args.trials,
+        seed=args.seed,
+        pattern=args.pattern,
+        point_schedule=schedule,
+        targets=targets,
+    )
     profile = L.resolve_profile(args.profile)
     L.check_rig(profile, profile.rig_geometry(), allow_mismatch=False)
     bar = args.bar if args.bar is not None else (18 if args.layout == "a" else None)
@@ -707,6 +1009,10 @@ def main(argv: list[str] | None = None) -> int:
         pattern=args.pattern,
         bar=bar,
         out=out,
+        point_schedule=schedule,
+        targets=targets,
+        fixed_window_s=args.fixed_window_s,
+        prompt_anchor=args.prompt_anchor,
     )
     print(format_report(report))
     print(f"wrote {out}")

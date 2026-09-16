@@ -28,6 +28,7 @@ would be the worst kind of near miss, because it looks like it worked.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import statistics
 import sys
@@ -50,6 +51,7 @@ import gf_live as L  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_record as R  # noqa: E402
 import gf_screen_check as SC  # noqa: E402
+from gazelink_core.platform import real_input as RI  # noqa: E402
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results" / "click"
 
@@ -261,7 +263,7 @@ def run_click_practice(
     buttons = D.LAYOUTS[layout]()
     by_key = {b.key: b for b in buttons}
     model = FIT.FittedModel.load(profile.model_path())
-    gf = L.build_gaze_follower(rig)
+    gf = L.build_gaze_follower(profile)
     # The eyelid rules come from the PROFILE, so they belong to this person
     # and this camera rather than to whoever last edited the defaults.
     wink_cfg = profile.wink_config()
@@ -616,6 +618,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     profile = L.resolve_profile(args.profile)
+    # Armed only for this run and only after both flags; see
+    # gazelink_core.platform.real_input.
+    arming = (
+        RI.armed("gf_click_practice --click --i-mean-it")
+        if args.click and args.i_mean_it
+        else contextlib.nullcontext()
+    )
+    with arming:
+        _practice_from_args(profile, args)
+    return 0
+
+
+def _practice_from_args(profile: PROF.Profile, args: argparse.Namespace) -> None:
     run_click_practice(
         profile,
         layout=args.layout,
@@ -630,7 +645,6 @@ def main(argv: list[str] | None = None) -> int:
         advance_timeout_s=args.advance_timeout_s,
         out=args.out,
     )
-    return 0
 
 
 if __name__ == "__main__":

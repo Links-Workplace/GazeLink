@@ -59,7 +59,7 @@ class OptInTests(unittest.TestCase):
     def test_it_cannot_click(self) -> None:
         """There must be no code path that presses a button."""
 
-        source = (Path(__file__).resolve().parent.parent / "gf_cursor.py").read_text(
+        source = Path(__import__("gf_cursor").__file__).read_text(
             encoding="utf-8"
         )
         for forbidden in ("mouse_event", "SendInput", "MOUSEEVENTF", "mouse_down", "click("):

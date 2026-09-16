@@ -1,6 +1,6 @@
 GAZELINK — Project Instructions
 
-1. Mission
+Mission
 
 GAZELINK enables a person to operate a Windows computer using their eyes only.
 
@@ -18,7 +18,7 @@ Gaze accuracy and low latency.
 
 Maintainability and extensibility.
 
-2. Sources of truth
+Sources of truth
 
 The project uses three coordinated sources of truth:
 
@@ -52,7 +52,7 @@ If repository reality conflicts with any source-of-truth document, report the co
 
 After working on a tracked task, update its entry in TASKS.md in the same turn. Preserve the original What to do and Definition of Done; update status and add completion evidence, files changed, checks run, deviations, and remaining risks. Never mark a task DONE based only on code being written.
 
-3. Product roadmap
+Product roadmap
 
 Keep work aligned with the six milestones:
 
@@ -88,7 +88,7 @@ Camera access, MediaPipe, head pose, EAR, filtering, smoothing, state machines, 
 
 Every substantial task must connect to a user-visible capability, measurable quality improvement, or explicit Definition of Done.
 
-4. Core product constraints
+Core product constraints
 
 4.1 Safety
 
@@ -146,7 +146,7 @@ Keep targets, timing, contrast, RTL behavior, and fatigue in mind.
 
 Preserve Hebrew RTL and English support when editing user-facing interfaces or the on-screen keyboard.
 
-5. Architecture principles
+Architecture principles
 
 Until the repository defines a more specific architecture, preserve these logical boundaries:
 
@@ -174,7 +174,7 @@ Keep hardware/model-specific code behind adapters where practical. Keep pure mat
 
 Avoid premature platform/API work before the current milestone's user outcome is working, unless the user explicitly requests it.
 
-6. Multi-agent orchestration
+Multi-agent orchestration
 
 Use the full multi-agent workflow when the user asks for agents, sub-agents, parallel work, delegation, or splitting the task. Also use it when a large task contains genuinely independent workstreams that can be completed without overlapping edits.
 
@@ -182,7 +182,7 @@ For small, tightly coupled, or single-file tasks, prefer one agent. More agents 
 
 6.1 Lead/orchestrator responsibilities
 
-Claude Code is the main agent and owns planning, implementation, delegation, integration, and the final report. Use Claude Opus for the lead when available. Codex is the independent QA reviewer described in section 7.5; it does not take over orchestration or edit the implementation in this workflow. The Claude orchestrator owns the final result. It must:
+Claude Code is the main agent and owns planning, implementation, delegation, integration, and the final report. Use Claude Opus for the lead when available. A separate Claude Opus session with Extra High Effort when supported is the read-only QA reviewer described in section 7.5; it does not take over orchestration or edit the implementation. The Claude orchestrator owns the final result. It must:
 
 Read spec.MD and inspect repository reality.
 
@@ -208,11 +208,11 @@ Sub-agent output is a proposal until the lead has reviewed the actual code, test
 
 6.2 Model roles
 
-When model selection is available, use these roles deliberately. In the active Claude-main/Codex-QA workflow, use Claude agents for implementation and keep Codex read-only. The OpenAI implementation/support alternatives below apply only if the user explicitly changes this role allocation:
+When model selection is available, use these roles deliberately. In the active Claude-main/Opus-QA workflow, use Claude agents for implementation and a separate read-only Opus reviewer. The OpenAI implementation/support alternatives below apply only if the user explicitly changes this role allocation:
 
 Claude Opus — lead/orchestrator: architecture, milestone decomposition, cross-cutting state and safety decisions, calibration strategy, privacy decisions, integration review, and final scenario QA. One orchestrator owns integration and completion even when several agents participate.
 
-Codex — independent QA reviewer: review plans, actual changes, test quality, acceptance evidence, and unresolved risks. Use the configured Codex model; do not silently change the user's model or authentication settings. Codex findings return directly to Claude for evaluation and correction. Codex approval does not replace required user approval or hardware validation.
+Claude Opus — separate read-only QA reviewer: review plans, actual changes, test quality, acceptance evidence, and unresolved risks. Use Extra High Effort when supported, following the availability and reporting rules in section 7.5. Findings return directly to the lead for evaluation and correction. Opus approval does not replace required user approval or hardware validation.
 
 Claude Sonnet or OpenAI GPT-5.6 Terra — implementation agent: focused services, adapters, UI components, tests, refactors, and other well-scoped implementation with clear acceptance criteria.
 
@@ -324,7 +324,7 @@ Documentation and final integration review
 
 Parallelize only work that does not depend on an unfinished contract or shared implementation decision.
 
-7. Quality assurance
+Quality assurance
 
 Passing compilation or unit tests is necessary but not sufficient for eye-control behavior.
 
@@ -412,57 +412,49 @@ What was manually inspected, and what behavior was actually exercised?
 
 If any answer is uncertain, the work is not yet verified.
 
-7.5 Mandatory Codex QA workflow
+7.5 Mandatory Claude Opus QA workflow
 
-This workflow applies to Claude's own work and to work integrated from sub-agents. Claude remains the main agent and performs all implementation and corrections. Codex acts as an independent, read-only reviewer. Pass context and findings through the installed Codex plugin for Claude Code; do not ask the user to copy prompts or review results between agents.
+This workflow replaces the former Codex QA workflow with the user's explicit authorization. Claude Code remains the lead and owns implementation and corrections. A separate Claude Opus reviewer session or sub-agent performs read-only QA. A reread by the implementation agent alone does not satisfy this requirement.
 
-Setup and enforcement boundary
+Model and effort
 
-Use the existing local Codex installation and ChatGPT subscription login. Do not introduce an API key requirement or switch authentication or billing methods. If authentication is missing, report the blocker and let the user complete the supported sign-in flow.
+Use Claude Opus with Extra High Effort for every required review when that combination is supported by the installed runtime. Inspect the available model and effort controls; do not invent model IDs, effort values, flags, or commands. If Extra High Effort is unavailable, use the highest supported effort for Opus and explicitly report the actual model and effort and the limitation. Do not silently substitute another model. If Opus or a separate review context is unavailable, record the required review as blocked rather than passed.
 
-At the start of a working session, check plugin availability and review-gate status through /codex:setup when needed. Enable the gate with /codex:setup --enable-review-gate if it is not already enabled. Use /reload-plugins when the installed plugin needs loading. Do not claim the gate is active without confirmation.
+Authorized migration from Codex
 
-The plugin's built-in review gate runs at a Stop event, when Claude attempts to finish a response. It can block that stop when Codex finds issues. It is not a hook after every file edit, tool call, or internal planning step.
+The user has already authorized replacing the Codex review gate with this Opus workflow. Do not request the same approval again. Inspect the installed plugin's supported configuration and disable the legacy Codex review gate that enforces review for this project. Remove or update only the corresponding legacy review triggers and project instructions; preserve unrelated hooks, settings, and user changes. If the only supported switch has wider scope, report that scope and use the narrowest supported change. Do not change Codex authentication, billing, or model settings to repair a workflow that is being retired. Cancel obsolete project review jobs through supported mechanisms and verify that the old trigger is inactive. Do not keep invoking failed Codex reviews or repeat waiting messages.
 
-This file instructs Claude to request the additional reviews below. It does not itself install hooks or technically enforce those intermediate checkpoints. Do not describe these instructions as automatic per-edit enforcement.
-
-Keep the gate enabled during this workflow. Do not disable it, bypass it, or change completion criteria to obtain approval. If the plugin or review is unavailable, fails, times out, or reaches a usage limit, record QA as blocked rather than passed and report the blocker.
+Editing CLAUDE.md alone does not disable a runtime hook or configure a model. Report separately what instruction changes were made, what runtime configuration was verified, and what remains unavailable. If configuration cannot be changed with available access, report the precise blocker once and continue independent authorized work; do not mark missing Opus QA as passed.
 
 Required review checkpoints
 
-Before implementation: prepare the plan and send it to Codex with the task requirements, relevant specification excerpts, affected components, assumptions, proposed tests, and acceptance criteria. Resolve material findings before implementing. Repeat plan review if architecture, scope, or safety assumptions materially change. For a trivial change, a short plan is sufficient.
+Before implementation: prepare the plan and send it to a separate Opus reviewer with the task requirements, relevant specification excerpts, affected components, assumptions, proposed tests, and acceptance criteria. Resolve material findings before implementing. Repeat plan review when architecture, scope, or safety assumptions materially change. A short plan is sufficient for a trivial change.
 
-After each coherent unit of work: run relevant checks, then request Codex review of the actual changes and evidence before starting dependent work. A unit is a bounded task, bug fix, or integrated sub-agent result, not every individual file write. Independent workstreams may continue under section 6's file-ownership rules.
+After each coherent unit of work: run relevant checks, then request Opus review of the actual scoped changes and evidence before starting dependent work. A unit is a bounded task, bug fix, or integrated sub-agent result, not every file write. Independent workstreams may continue under section 6's ownership rules.
 
-After corrections: Claude evaluates findings and implements justified fixes. Send the corrected changes and updated check results back to Codex. Do not treat a previous review as approval of later edits.
+After corrections: the lead evaluates findings and implements justified fixes. Send the corrected changes and updated checks to the reviewer. Earlier approval does not cover later edits.
 
-Before completion: obtain a final review covering the current scoped changes, acceptance criteria, test evidence, and relevant safety scenarios. Record the review outcome in TASKS.md and include it in the final report. Allow the built-in Stop gate to run; do not use a manual review as a reason to disable it.
+Before completion: obtain final Opus review of the current scoped changes, acceptance criteria, test evidence, and relevant safety scenarios. Record the result in TASKS.md. No Codex approval or Codex Stop gate is required.
 
-Review inputs and tools
+Review inputs and scope
 
-Give Codex the task ID, milestone, requested outcome, relevant source-of-truth sections, exact review scope, current plan or implementation, changed files, check results, known limitations, and previous unresolved findings.
+Give the reviewer the task ID, milestone, requested outcome, relevant source-of-truth sections, exact scope, plan or implementation, changed files, check results, known limitations, and unresolved findings. Have the reviewer inspect actual code, tests, and permitted evidence directly, not only the implementer's summary. Request actionable findings, locations, reasoning, missing evidence, and a distinction between acceptance blockers and optional improvements.
 
-Use /codex:review --wait for a normal review of current changes, or the installed plugin's supported equivalent. For targeted design or risk questions, use /codex:adversarial-review --wait with explicit focus text. For a standalone plan, explicitly provide the plan and requirements through a supported read-only Codex request; a default code diff review alone is not plan approval.
+Resolve the project Git root under section 2. Never review an unrelated user-home repository. If no valid project repository exists, use explicitly scoped file inspection. Share only the minimum necessary code, documentation, and non-sensitive evidence. Preserve section 4.3: do not send raw video, face images, biometric samples, calibration data, credentials, or unrelated user files without the required authorization.
 
-Ask Codex to inspect the relevant code and tests directly rather than relying only on Claude's summary. Request actionable findings, affected locations, reasoning, and missing evidence. Distinguish defects that block acceptance from optional improvements.
-
-Resolve the project Git root as required in section 2. Never let a default review scan a user-home repository. If no valid project repository exists, use explicitly scoped file review when supported; otherwise report that review mode as unavailable.
-
-Share only the minimum code, documentation, and non-sensitive evidence needed for review. Preserve section 4.3: do not send raw video, face images, biometric samples, calibration data, credentials, or unrelated user files to the reviewer without the required authorization.
+The reviewer is read-only: no implementation edits, dependency changes, roadmap rewrites, commits, or real OS input. The lead owns corrections. Use fake OS-input adapters for automated checks. Separate review context reduces reliance on the implementer's narrative; it is not a guarantee of independent judgment or correctness.
 
 Findings, retries, and completion
 
-Evaluate every finding against the actual code and approved requirements. Fix substantiated defects; explain disputed findings with evidence and ask Codex to re-evaluate. Do not blindly implement suggestions or expand product scope merely to satisfy a reviewer.
+Evaluate findings against actual code and approved requirements. Fix substantiated defects; explain disputed findings with evidence and request re-evaluation. Do not expand product scope merely to satisfy the reviewer.
 
-Claude owns edits. Codex must not independently patch files, change dependencies, rewrite the roadmap, or issue real OS input as part of QA. Required user approvals remain the user's responsibility.
+Allow at most three correction-and-review cycles per unit. If a blocker remains, findings repeat without progress, or a product decision is required, report the unresolved issue and stop dependent implementation. Do not loop failed reviews or repeatedly ask for an already granted approval. This is a workflow rule, not a claim about automatic hook enforcement.
 
-Allow at most three correction-and-review cycles per unit of work. If the issue remains unresolved, the same finding repeats without progress, or there is a material disagreement requiring a product decision, stop starting new implementation work and report the blocker to the user. This is a workflow limit; do not claim it configures the plugin's internal retry behavior.
+Record the review scope, reviewer session or agent identifier when exposed, actual model, actual effort (or explicitly unverified), outcome, findings, corrections, checks, and limitations in TASKS.md. Never claim Opus or Extra High Effort was used without runtime evidence. Never mark DONE while acceptance-blocking findings remain or required review is missing.
 
-Track each review's scope, result, findings addressed or disputed, checks, and remaining limitations in the existing task evidence. Never mark DONE while acceptance-blocking findings remain or a required review is missing. Report QA blocked explicitly when applicable.
+Replacing the reviewer does not weaken regression gates, privacy rules, acceptance criteria, required live validation, or explicit-user-approval requirements for real OS input and commits. Opus review complements technical and scenario QA; it cannot certify hardware tests, usability, gaze accuracy, or safety that have not actually been measured.
 
-Codex review complements technical and scenario QA. It cannot certify unperformed hardware tests, real-user usability, gaze accuracy, or safety based solely on a code review.
-
-8. Working practices
+Working practices
 
 Prefer small, reviewable changes connected to one outcome.
 
@@ -484,7 +476,7 @@ Keep logs useful but free of raw biometric/video data.
 
 Do not claim behavior was tested with real hardware or users unless it actually was.
 
-9. Completion checklist
+Completion checklist
 
 Before the final response:
 
@@ -502,9 +494,9 @@ Confirm no real cursor/click action can occur unexpectedly during automated test
 
 Record anything that could not be tested, especially hardware-dependent behavior.
 
-Complete the Codex QA checkpoints in section 7.5 for the current work; resolve acceptance-blocking findings or report QA as blocked.
+Complete the Opus QA checkpoints in section 7.5 for the current work; resolve acceptance-blocking findings or report QA as blocked.
 
-Update the task status and completion evidence in TASKS.md without removing the original acceptance criteria, including the Codex review outcome and remaining limitations.
+Update the task status and completion evidence in TASKS.md without removing the original acceptance criteria, including the Opus review outcome and remaining limitations.
 
 The final response must report:
 
@@ -522,7 +514,7 @@ Tests/checks run and results
 
 Measured performance/accuracy results, if applicable
 
-Codex QA outcome, corrections, disputed findings, and any review blocker
+Opus QA outcome, actual reviewer model and effort, corrections, disputed findings, and any review blocker
 
 Local/commit status
 

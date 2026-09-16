@@ -156,7 +156,7 @@ class SeparationTests(unittest.TestCase):
     def test_the_click_module_never_moves_the_pointer(self) -> None:
         """Where a click lands is decided by the file that moves the pointer."""
 
-        source = (Path(__file__).resolve().parent.parent / "gf_click.py").read_text(
+        source = Path(__import__("gf_click").__file__).read_text(
             encoding="utf-8"
         )
         for forbidden in ("SetCursorPos", "MOUSEEVENTF_MOVE", "mouse_move"):
@@ -165,7 +165,7 @@ class SeparationTests(unittest.TestCase):
     def test_the_cursor_module_still_cannot_click(self) -> None:
         """The audit in test_cursor.py must not be quietly relaxed."""
 
-        source = (Path(__file__).resolve().parent.parent / "gf_cursor.py").read_text(
+        source = Path(__import__("gf_cursor").__file__).read_text(
             encoding="utf-8"
         )
         for forbidden in ("mouse_event", "SendInput", "MOUSEEVENTF"):
@@ -347,3 +347,149 @@ class OneWinkOneDoubleTests(unittest.TestCase):
             fake.sent.count(CK.MOUSEEVENTF_LEFTDOWN), fake.sent.count(CK.MOUSEEVENTF_LEFTUP)
         )
         self.assertFalse(adapter.summary()["button_stuck"])
+
+
+class RightClickTests(unittest.TestCase):
+    """A second button, and the release that has to know which one is held.
+
+    Adding a button without adding its release is exactly how the failure this
+    module opens by naming -- a button held with no way to let go by looking --
+    comes back through a door nobody was watching.
+    """
+
+    def _adapter(self, **kw: object):
+        fake = _Fake()
+        return _adapter(fake, enabled=True, **kw), fake
+
+    def test_an_unarmed_right_click_sends_nothing(self) -> None:
+        adapter, fake = self._adapter()
+        self.assertFalse(adapter.right_click(armed=False))
+        self.assertEqual(fake.sent, [])
+        self.assertEqual(adapter.summary()["right_clicks"], 0)
+        self.assertEqual(adapter.summary()["refused_not_armed"], 1)
+
+    def test_an_armed_right_click_sends_a_down_and_an_up_in_that_order(self) -> None:
+        adapter, fake = self._adapter()
+        self.assertTrue(adapter.right_click(armed=True, at=(10, 10)))
+        self.assertEqual(fake.sent, [CK.MOUSEEVENTF_RIGHTDOWN, CK.MOUSEEVENTF_RIGHTUP])
+        self.assertEqual(adapter.summary()["right_clicks"], 1)
+
+    def test_it_is_counted_apart_from_the_left_ones(self) -> None:
+        """"How often did the system commit to something" and "how often did
+        it offer a choice" are different questions."""
+
+        adapter, _fake = self._adapter()
+        adapter.right_click(armed=True, at=(10, 10))
+        self.assertEqual(adapter.summary()["clicks"], 0)
+        self.assertEqual(adapter.summary()["right_clicks"], 1)
+
+    def test_simulation_counts_it_and_calls_nothing(self) -> None:
+        fake = _Fake()
+        adapter = _adapter(fake, enabled=False)
+        self.assertTrue(adapter.right_click(armed=True, at=(1, 1)))
+        self.assertEqual(fake.sent, [])
+        self.assertEqual(adapter.summary()["right_clicks"], 1)
+
+    def test_two_right_clicks_at_the_same_pixel_are_not_a_double(self) -> None:
+        """The same-pixel exception exists so a DOUBLE can get through. There
+        is no double right click, so the ordinary gap guard stands here."""
+
+        clock = _Clock()
+        fake = _Fake()
+        adapter = _adapter(fake, clock=clock, enabled=True)
+        self.assertTrue(adapter.right_click(armed=True, at=(10, 10)))
+        clock.t += 0.05
+        self.assertFalse(adapter.right_click(armed=True, at=(10, 10)))
+        self.assertEqual(adapter.summary()["refused_too_soon"], 1)
+
+    def test_a_failed_right_release_leaves_the_right_button_named(self) -> None:
+        adapter, fake = self._adapter()
+        real = fake.__call__
+        calls = {"n": 0}
+
+        def flaky(flag: int) -> None:
+            calls["n"] += 1
+            if flag == CK.MOUSEEVENTF_RIGHTUP:
+                raise OSError("SendInput refused")
+            real(flag)
+
+        adapter._send = flaky
+        self.assertFalse(adapter.right_click(armed=True, at=(1, 1)))
+        self.assertTrue(adapter.summary()["button_stuck"])
+        self.assertEqual(adapter.summary()["stuck_button"], "right")
+
+    def test_release_sends_the_right_up_not_the_left_one(self) -> None:
+        """Written for one button, this sent LEFTUP for a held RIGHT button --
+        which is a right button still held, and it would look from here like a
+        successful release."""
+
+        adapter, fake = self._adapter()
+        real = fake.__call__
+        state = {"fail": True}
+
+        def flaky(flag: int) -> None:
+            if flag == CK.MOUSEEVENTF_RIGHTUP and state["fail"]:
+                raise OSError("SendInput refused")
+            real(flag)
+
+        adapter._send = flaky
+        adapter.right_click(armed=True, at=(1, 1))
+        self.assertTrue(adapter.button_stuck)
+        state["fail"] = False
+        adapter.release()
+        self.assertIn(CK.MOUSEEVENTF_RIGHTUP, fake.sent)
+        self.assertNotIn(CK.MOUSEEVENTF_LEFTUP, fake.sent)
+        self.assertFalse(adapter.button_stuck)
+
+    def test_a_right_click_never_leaves_a_button_held(self) -> None:
+        adapter, fake = self._adapter()
+        adapter.right_click(armed=True, at=(1, 1))
+        self.assertEqual(
+            fake.sent.count(CK.MOUSEEVENTF_RIGHTDOWN), fake.sent.count(CK.MOUSEEVENTF_RIGHTUP)
+        )
+        self.assertFalse(adapter.button_stuck)
+
+
+class NoPressOverAHeldButtonTests(unittest.TestCase):
+    """Pressing again while a button is down overwrote the record of WHICH
+    one was held -- after which even release() could not let go of it.
+
+    Reproduced: a right click whose UP fails, then an ordinary left click,
+    and the adapter believed nothing was held while the right button was.
+    """
+
+    def _stuck(self):
+        fake = _Fake()
+        adapter = _adapter(fake, enabled=True)
+        real = fake.__call__
+        fail = {"on": True}
+
+        def flaky(flag: int) -> None:
+            if flag == CK.MOUSEEVENTF_RIGHTUP and fail["on"]:
+                raise OSError("SendInput refused")
+            real(flag)
+
+        adapter._send = flaky
+        adapter.right_click(armed=True, at=(1, 1))
+        return adapter, fake, fail
+
+    def test_a_later_click_is_refused_rather_than_losing_the_held_button(self) -> None:
+        adapter, fake, _fail = self._stuck()
+        self.assertEqual(adapter.stuck_button, "right", "the fixture did not get stuck")
+        adapter._last_s = None  # past the gap guard, so only the held button can refuse it
+        self.assertFalse(adapter.click(armed=True, at=(50, 50)))
+        self.assertEqual(adapter.stuck_button, "right", "the held button was forgotten")
+        self.assertEqual(adapter.summary()["refused_button_held"], 1)
+        self.assertNotIn(CK.MOUSEEVENTF_LEFTDOWN, fake.sent)
+
+    def test_clicking_works_again_once_the_release_gets_through(self) -> None:
+        """The other half. An adapter that refused every click after one
+        failure would pass the test above and be useless."""
+
+        adapter, fake, fail = self._stuck()
+        fail["on"] = False
+        adapter._last_s = None
+        self.assertTrue(adapter.click(armed=True, at=(50, 50)))
+        self.assertIsNone(adapter.stuck_button)
+        self.assertIn(CK.MOUSEEVENTF_RIGHTUP, fake.sent, "the right button was never released")
+        self.assertIn(CK.MOUSEEVENTF_LEFTDOWN, fake.sent)

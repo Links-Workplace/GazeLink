@@ -146,7 +146,15 @@ class _Harness:
             "desktop": P.SC.virtual_desktop,
             "monitor": P.GD.pick_monitor,
             "sender": P.CK._send,
+            "set_pointer": P.CUR._set_cursor_pos,
+            "get_pointer": P.CUR._get_cursor_pos,
         }
+        # The pointer was never faked here, so every test in this file moved
+        # the REAL Windows pointer. Found by the real-input interlock
+        # (ARCH-01): the move now raises unless it is faked, so it is.
+        self.pointer_moves: list[tuple[int, int]] = []
+        P.CUR._set_cursor_pos = lambda x, y: self.pointer_moves.append((x, y))
+        P.CUR._get_cursor_pos = lambda: (0, 0)
         self.display = _Display()
         gf = SimpleNamespace(
             camera=SimpleNamespace(start_sampling=lambda: None),
@@ -178,6 +186,8 @@ class _Harness:
         P.SC.virtual_desktop = originals["desktop"]
         P.GD.pick_monitor = originals["monitor"]
         P.CK._send = originals["sender"]
+        P.CUR._set_cursor_pos = originals["set_pointer"]
+        P.CUR._get_cursor_pos = originals["get_pointer"]
 
 
 def _run(

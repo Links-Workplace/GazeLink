@@ -613,6 +613,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     profile = L.resolve_profile(args.profile)
+    if profile.capture_pipeline != PROF.CAPTURE_LIBRARY:
+        # This tool records with the library's 640x480 camera and pools the
+        # 640x480 recordings; adopting its result into a hi profile would pair
+        # a lo model with a hi camera.
+        raise SystemExit(
+            f"profile {profile.name!r} uses {profile.capture_pipeline!r}; gf_recalibrate only "
+            "handles the library capture. Build hi models from recordings/hi instead."
+        )
     # --monitor was parsed and then dropped, so naming a display did nothing
     # at all. Resolved before the session rather than inside it, so a bad
     # selector fails with the list of displays instead of after a recording.

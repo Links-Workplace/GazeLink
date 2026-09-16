@@ -43,6 +43,9 @@ import gf_common as C  # noqa: E402
 import gf_live as L  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_record as R  # noqa: E402
+from gazelink_core.domain.observation import HeadPolicy  # noqa: E402
+from gazelink_core.gaze import sample_gate as GATE  # noqa: E402
+from gazelink_core.tracking import gazefollower_source as SRC  # noqa: E402
 
 
 @dataclass
@@ -213,10 +216,14 @@ class ProbeRunner:
     def on_frame(self, face_info: Any, gaze_info: Any) -> None:
         try:
             now = self.clock()
-            left = float(getattr(face_info, "left_eye_openness", 0.0) or 0.0)
-            right = float(getattr(face_info, "right_eye_openness", 0.0) or 0.0)
-            face = bool(getattr(face_info, "status", False))
-            shut = not (left > C.BLINK_THRESHOLD and right > C.BLINK_THRESHOLD)
+            # Translated by the tracking adapter; the pose is not needed here.
+            obs = SRC.observe(
+                face_info, gaze_info, observed_s=now, head_builder=lambda _f: None,
+                head_policy=HeadPolicy.GAZE,
+            )
+            left, right = obs.openness_image
+            face = obs.face_present
+            shut = not GATE.both_eyes_open(obs.openness_image)
             with self.lock:
                 if self.block is not None:
                     self.block.samples.append(Sample(now, face, shut, left, right))
@@ -241,7 +248,7 @@ BLOCKS = (
 
 def run_probe(profile: PROF.Profile, *, headless: bool = False) -> dict[str, Any]:
     rig = profile.rig_geometry()
-    gf = L.build_gaze_follower(rig)
+    gf = L.build_gaze_follower(profile)
     runner = ProbeRunner()
     gf.add_subscriber(lambda face, gaze: runner.on_frame(face, gaze))
     display = R.Display(rig.device_w_px, rig.device_h_px, headless=headless, origin=(0, 0))

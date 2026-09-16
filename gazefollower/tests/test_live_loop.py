@@ -21,14 +21,14 @@ from types import SimpleNamespace
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_control as CTL  # noqa: E402
 import gf_gesture as GEST  # noqa: E402
 import gf_live as L  # noqa: E402
 import gf_profile as PROF  # noqa: E402
+from fake_live_env import DESKTOP, MONITOR, FakeWorld  # noqa: E402
 
-MONITOR = SimpleNamespace(origin=(0, 0), width_px=5120, height_px=1440, name="FAKE")
-DESKTOP = {"x": 0, "y": 0, "width": 5120, "height": 1440}
 ON_SCREEN = (0.5, 0.5)
 
 
@@ -58,6 +58,23 @@ class _Display:
         self.overlay = None
         self.zones: list[list[str]] = []
         self.active_zones: list[str | None] = []
+        # The menu and the keyboard draw their own screens rather than the
+        # live view with extra lines, so a test that only watched ``huds``
+        # would see nothing at all while either was open.
+        self.boards: list[list[str]] = []
+        self.board_labels: list[dict[str, str]] = []
+        self.board_hovered: list[str | None] = []
+        self.board_ready: list[bool] = []
+        self.board_centres: list[list[str]] = []
+        self.scans: list[list[str]] = []
+        self.scan_index: list[int] = []
+        self.scan_typed: list[str] = []
+        self.scan_centres: list[list[str]] = []
+        # Which screen was drawn, in order. Three of them exist now, so "was
+        # the menu ever open" and "is it still open" are different questions
+        # and a list of boards alone cannot answer the second.
+        self.order: list[str] = []
+        self.font_name = "fake"
 
     def draw_message(self, *a: object, **kw: object) -> None:
         return None
@@ -69,9 +86,32 @@ class _Display:
         self, point, raw, unfiltered, hud, *, tracking, zones=(), active_zone=None
     ) -> None:
         self.frames += 1
+        self.order.append("live")
         self.huds.append(list(hud))
         self.zones.append([z.key for z in zones])
         self.active_zones.append(active_zone)
+
+    def draw_board(  # noqa: ANN001
+        self, buttons, labels, *, hovered, progress, centre=(), point=None,
+        tracking=True, ready=True,
+    ) -> None:
+        self.frames += 1
+        self.order.append("board")
+        self.boards.append([b.key for b in buttons])
+        self.board_labels.append(dict(labels))
+        self.board_hovered.append(hovered)
+        self.board_ready.append(bool(ready))
+        self.board_centres.append(list(centre))
+
+    def draw_scan(  # noqa: ANN001
+        self, items, index, *, centre=(), typed="", parked=False, point=None, tracking=True
+    ) -> None:
+        self.frames += 1
+        self.order.append("scan")
+        self.scans.append(list(items))
+        self.scan_index.append(index)
+        self.scan_typed.append(typed)
+        self.scan_centres.append(list(centre))
 
     def close(self) -> None:
         return None
@@ -88,8 +128,21 @@ class _Runner:
         points: list[Any] | None = None,
         wink_after: int | None = None,
         blind_after: int | None = None,
+        gestures: list[Any] | None = None,
+        gesture_after: int | None = None,
+        wink_age_s: float = 0.0,
+        wink_gap_s: float = 0.0,
     ) -> None:
         self._reads = 0
+        # Seconds between one wink firing and the next, and before the first.
+        # The real detector cannot fire two in the same instant -- it wants the
+        # eye to open and a cooldown to pass -- and the scanning keyboard now
+        # refuses a cell that has not been on screen long enough to be a
+        # reaction to. Winks fired all at once were a case that cannot happen.
+        self._wink_gap_s = wink_gap_s
+        self._wink_armed_s: float | None = None
+        self._last_wink_s: float | None = None
+        self._wink_age_s = wink_age_s
         self._blind = blind_reads
         # A face that is there and then goes, which is the opposite of
         # ``blind_reads`` and the only way to test losing one mid-session.
@@ -99,8 +152,14 @@ class _Runner:
         # list runs out, so a test can steer the gaze somewhere and leave it.
         self._points = list(points or [])
         self._wink_after = wink_after
+        # Long closes, which is how the menu is opened now. Held back the same
+        # way winks are, so a test can place one after the gaze has arrived.
+        self._gestures = list(gestures or [])
+        self._gesture_after = gesture_after
+        self._queue: list[Any] = []
         self.errors = 0
         self.last_error = None
+        self.cancels = 0
 
     @property
     def state(self):  # noqa: ANN201
@@ -108,6 +167,30 @@ class _Runner:
         present = self._reads > self._blind
         if self._blind_after is not None and self._reads > self._blind_after:
             present = False
+        if self._wink_after is None or self._reads > self._wink_after:
+            # The camera thread's job: fired winks land in the queue. They are
+            # dropped from there by cancel_wink, exactly as the real ones are.
+            #
+            # Stamped with the clock NOW rather than with whatever the test
+            # wrote, because that is what the real runner records -- the
+            # moment the wink fired. The loop compares it against its own
+            # clock to refuse stale ones, so a fixture stamped 0.0 would be
+            # refused as thirty years old and every wink test would pass for
+            # the wrong reason. A test that WANTS a stale wink passes
+            # ``wink_age_s``.
+            now_s = time.monotonic()
+            if self._wink_armed_s is None:
+                self._wink_armed_s = now_s
+            since = self._last_wink_s if self._last_wink_s is not None else self._wink_armed_s
+            while self._winks and now_s - since >= self._wink_gap_s:
+                _when, aim = self._winks.pop(0)
+                self._queue.append((now_s - self._wink_age_s, aim))
+                self._last_wink_s = since = now_s
+                if self._wink_gap_s > 0.0:
+                    # One a frame at most once a gap is asked for; without this
+                    # a single read would drain the whole list the moment the
+                    # first gap elapsed, which is the case being removed.
+                    break
         here = ON_SCREEN
         if self._points:
             here = self._points[min(self._reads - 1, len(self._points) - 1)]
@@ -128,15 +211,39 @@ class _Runner:
     def on_frame(self, *a: object) -> None:
         return None
 
+    def on_observation(self, *a: object) -> None:
+        return None
+
     def drain_gesture_events(self) -> list[Any]:
-        return []
+        """One event a frame, at most, which is what the real one produces.
+
+        The detector fires a confirm and then waits for the eyes to open and a
+        cooldown to pass, so two long closes in a single frame cannot happen.
+        Handing them over together would test a case that does not exist.
+        """
+
+        if self._gesture_after is not None and self._reads <= self._gesture_after:
+            return []
+        if not self._gestures:
+            return []
+        return [self._gestures.pop(0)]
+
+    def cancel_wink(self) -> int:
+        """The real one also cancels the DETECTOR, which a fake cannot show.
+
+        That half is tested directly against ``LiveRunner`` in
+        ``test_live_wink_cancel``; what this stands in for is the queue.
+        """
+
+        dropped = len(self._queue)
+        self._queue = []
+        self.cancels += 1
+        return dropped
 
     def drain_wink_events(self) -> list[Any]:
         # Held back until the loop has run far enough, so a test can place a
         # wink AFTER the gaze has arrived somewhere rather than before it.
-        if self._wink_after is not None and self._reads <= self._wink_after:
-            return []
-        out, self._winks = self._winks, []
+        out, self._queue = self._queue, []
         return out
 
 
@@ -151,120 +258,91 @@ def _run(
     points: list[Any] | None = None,
     wink_after: int | None = None,
     blind_after: int | None = None,
-    scroll_toggle_ms: float = 1500.0,
     start_scrolling: bool = False,
     scroll_arm_ms: float | None = None,
     scroll_repeat_ms: float | None = None,
+    gestures: list[Any] | None = None,
+    gesture_after: int | None = None,
+    wink_age_s: float = 0.0,
+    menu_enabled: bool = True,
+    menu_dwell_ms: float = 900.0,
+    scan_ms: float | None = None,
+    scan_settle_ms: float | None = None,
+    wink_gap_s: float = 0.0,
+    foreground: Any = None,
+    events: list[str] | None = None,
+    display_error: BaseException | None = None,
+    escape_during_warmup: bool = False,
+    loop_error: BaseException | None = None,
 ) -> tuple[_Display, list[int], _Runner]:
-    sends: list[int] = []
-    # The WHEEL has its own entry point, and leaving it unpatched meant this
-    # harness sent a real scroll to Windows: measured, one notch of +120
-    # escaped the suite. Recorded here so it is patched by construction and a
-    # test can assert on it.
-    wheels: list[int] = []
-    moves: list[tuple[int, int]] = []
     runner = _Runner(
         blind_reads=blind_reads,
         winks=winks,
         points=points,
         wink_after=wink_after,
         blind_after=blind_after,
+        gestures=gestures,
+        gesture_after=gesture_after,
+        wink_age_s=wink_age_s,
+        wink_gap_s=wink_gap_s,
     )
     display = _Display()
-    gf = SimpleNamespace(
-        camera=SimpleNamespace(start_sampling=lambda: None), add_subscriber=lambda fn: None
+    # Injected, not patched: every sender, the screen, the keyboard state and
+    # the library come from this one fake world (ARCH-01 stage C). The wheel
+    # and keyboard senders once escaped a patch-based harness and reached
+    # Windows; an injected environment has no second path to forget.
+    world = FakeWorld(
+        runner=runner,
+        display=display,
+        key_down=lambda vk: space_down,
+        # A stable window handle unless a test says otherwise, so the adapter's
+        # target lock has something to lock ON to.
+        foreground=foreground or (lambda: 4242),
+        title=lambda hwnd: "",
+        warm_up_escape=escape_during_warmup,
+        display_error=display_error,
+        events=events,
+        # Returned by the fake shutdown and printed by the live view, so a test
+        # can place the library shutdown in stdout relative to the report.
+        shutdown_result="LIBRARY-SHUT" if events is not None else None,
     )
-    import gf_click as CK  # noqa: PLC0415
-    import gf_cursor as CUR  # noqa: PLC0415
-    import gf_display as GD  # noqa: PLC0415
-    import gf_fit as FIT  # noqa: PLC0415
-    import gf_overlay as OV  # noqa: PLC0415
-    import gf_record as R  # noqa: PLC0415
-    import gf_screen_check as SC  # noqa: PLC0415
+    if events is not None:
+        display.close = lambda: events.append("display close")
+    if loop_error is not None:
+        def failing_draw(*a: object, **kw: object) -> None:
+            raise loop_error
 
-    originals = {
-        "build": L.build_gaze_follower,
-        "runner": L.LiveRunner,
-        "display": R.Display,
-        "sleep": R._sleep_with_escape,
-        "shutdown": R.shutdown_library,
-        "visible": R.visible_point,
-        "monitor": GD.pick_monitor,
-        "desktop": SC.virtual_desktop,
-        "to_px": SC.to_desktop_pixels,
-        "dpi": SC.ensure_per_monitor_dpi_aware,
-        "check": SC.check_profile_screen,
-        "send": CK._send,
-        "wheel": CK._send_wheel,
-        "set": CUR._set_cursor_pos,
-        "get": CUR._get_cursor_pos,
-        "esc": OV.escape_is_down,
-        "key": OV.key_is_down,
-        "load": FIT.FittedModel.load,
-    }
+        display.draw_live = failing_draw
 
-    def restore() -> None:
-        L.build_gaze_follower = originals["build"]
-        L.LiveRunner = originals["runner"]
-        R.Display = originals["display"]
-        R._sleep_with_escape = originals["sleep"]
-        R.shutdown_library = originals["shutdown"]
-        R.visible_point = originals["visible"]
-        GD.pick_monitor = originals["monitor"]
-        SC.virtual_desktop = originals["desktop"]
-        SC.to_desktop_pixels = originals["to_px"]
-        SC.ensure_per_monitor_dpi_aware = originals["dpi"]
-        SC.check_profile_screen = originals["check"]
-        CK._send = originals["send"]
-        CK._send_wheel = originals["wheel"]
-        CUR._set_cursor_pos = originals["set"]
-        CUR._get_cursor_pos = originals["get"]
-        OV.escape_is_down = originals["esc"]
-        OV.key_is_down = originals["key"]
-        FIT.FittedModel.load = originals["load"]
-
-    test.addCleanup(restore)
-    L.build_gaze_follower = lambda rig: gf
-    L.LiveRunner = lambda *a, **kw: runner
-    R.Display = lambda *a, **kw: display
-    R._sleep_with_escape = lambda *a, **kw: False
-    R.shutdown_library = lambda *a, **kw: None
-    R.visible_point = lambda point, updated, now, stale=0.0: point
-    GD.pick_monitor = lambda selector=None: MONITOR
-    SC.virtual_desktop = lambda: DESKTOP
-    SC.ensure_per_monitor_dpi_aware = lambda: (True, "PER_MONITOR (fake)")
-    SC.check_profile_screen = lambda profile: SimpleNamespace(verified=True)
-    CK._send = sends.append
-    CK._send_wheel = wheels.append
-    CUR._set_cursor_pos = lambda x, y: moves.append((x, y))
-    CUR._get_cursor_pos = lambda: (0, 0)
-    OV.escape_is_down = lambda *a, **kw: False
-    OV.key_is_down = lambda vk, *a, **kw: space_down
-    FIT.FittedModel.load = staticmethod(
-        lambda path: SimpleNamespace(
-            schema=SimpleNamespace(columns=range(4), head_names=()),
-            support_activation=lambda design: [1.0],
+    try:
+        L.run_live(
+            _profile(),
+            move_cursor=True,
+            confirmed=True,
+            click_by="wink",
+            start_active=start_active,
+            skip_model_check=True,
+            max_seconds=max_seconds,
+            start_scrolling=start_scrolling,
+            scroll_arm_ms=scroll_arm_ms,
+            scroll_repeat_ms=scroll_repeat_ms,
+            menu_enabled=menu_enabled,
+            menu_dwell_ms=menu_dwell_ms,
+            scan_ms=scan_ms,
+            scan_settle_ms=scan_settle_ms,
+            env=world.environment(),
         )
-    )
-
-    L.run_live(
-        _profile(),
-        move_cursor=True,
-        confirmed=True,
-        click_by="wink",
-        start_active=start_active,
-        skip_model_check=True,
-        max_seconds=max_seconds,
-        scroll_toggle_ms=scroll_toggle_ms,
-        start_scrolling=start_scrolling,
-        scroll_arm_ms=scroll_arm_ms,
-        scroll_repeat_ms=scroll_repeat_ms,
-    )
-    # Hung on the runner rather than added to the tuple: the existing call
-    # sites all unpack exactly three values.
-    runner.pointer_moves = moves
-    runner.wheels = wheels
-    return display, sends, runner
+    finally:
+        # Hung on the runner rather than added to the tuple: the existing call
+        # sites all unpack exactly three values.
+        runner.subscribers = world.subscribers
+        runner.pointer_moves = world.moves
+        runner.wheels = world.wheels
+        runner.keystrokes = world.keystrokes
+        runner.world = world
+    # Canary: the fakes were what the session used.
+    test.assertEqual(world.calls["open_library"], 1, "the fake library was not the one opened")
+    return display, world.sends, runner
 
 
 def _last_mode_line(display: _Display) -> str:
@@ -368,80 +446,7 @@ class NoLurchOnAWinkTests(unittest.TestCase):
                 return base
 
         del runner_state
-        display = _Display()
-        import gf_click as CK  # noqa: PLC0415
-        import gf_cursor as CUR  # noqa: PLC0415
-        import gf_display as GD  # noqa: PLC0415
-        import gf_fit as FIT  # noqa: PLC0415
-        import gf_overlay as OV  # noqa: PLC0415
-        import gf_record as R  # noqa: PLC0415
-        import gf_screen_check as SC  # noqa: PLC0415
-
-        saved = (
-            L.build_gaze_follower,
-            L.LiveRunner,
-            R.Display,
-            R._sleep_with_escape,
-            R.shutdown_library,
-            R.visible_point,
-            GD.pick_monitor,
-            SC.virtual_desktop,
-            SC.ensure_per_monitor_dpi_aware,
-            SC.check_profile_screen,
-            CK._send,
-            CUR._set_cursor_pos,
-            CUR._get_cursor_pos,
-            OV.escape_is_down,
-            OV.key_is_down,
-            FIT.FittedModel.load,
-        )
-
-        def restore() -> None:
-            (
-                L.build_gaze_follower,
-                L.LiveRunner,
-                R.Display,
-                R._sleep_with_escape,
-                R.shutdown_library,
-                R.visible_point,
-                GD.pick_monitor,
-                SC.virtual_desktop,
-                SC.ensure_per_monitor_dpi_aware,
-                SC.check_profile_screen,
-                CK._send,
-                CUR._set_cursor_pos,
-                CUR._get_cursor_pos,
-                OV.escape_is_down,
-                OV.key_is_down,
-                FIT.FittedModel.load,
-            ) = saved
-
-        self.addCleanup(restore)
-        half = _Half()
-        gf = SimpleNamespace(
-            camera=SimpleNamespace(start_sampling=lambda: None), add_subscriber=lambda fn: None
-        )
-        L.build_gaze_follower = lambda rig: gf
-        L.LiveRunner = lambda *a, **kw: half
-        R.Display = lambda *a, **kw: display
-        R._sleep_with_escape = lambda *a, **kw: False
-        R.shutdown_library = lambda *a, **kw: None
-        R.visible_point = lambda point, updated, now, stale=0.0: point
-        GD.pick_monitor = lambda selector=None: MONITOR
-        SC.virtual_desktop = lambda: DESKTOP
-        SC.ensure_per_monitor_dpi_aware = lambda: (True, "PER_MONITOR (fake)")
-        SC.check_profile_screen = lambda profile: SimpleNamespace(verified=True)
-        CK._send = lambda flag: None
-        CUR._set_cursor_pos = lambda x, y: moves.append((x, y))
-        CUR._get_cursor_pos = lambda: (0, 0)
-        OV.escape_is_down = lambda *a, **kw: False
-        OV.key_is_down = lambda vk, *a, **kw: False
-        FIT.FittedModel.load = staticmethod(
-            lambda path: SimpleNamespace(
-                schema=SimpleNamespace(columns=range(4), head_names=()),
-                support_activation=lambda design: [1.0],
-            )
-        )
+        world = FakeWorld(runner=_Half(), display=_Display(), title=lambda hwnd: "")
         L.run_live(
             _profile(),
             move_cursor=True,
@@ -449,7 +454,10 @@ class NoLurchOnAWinkTests(unittest.TestCase):
             click_by="wink",
             skip_model_check=True,
             max_seconds=0.3,
+            env=world.environment(),
         )
+        self.assertEqual(world.calls["make_runner"], 1, "the fake runner was not used")
+        moves.extend(world.moves)
         return moves
 
     def test_a_half_closed_eye_does_not_move_the_pointer(self) -> None:

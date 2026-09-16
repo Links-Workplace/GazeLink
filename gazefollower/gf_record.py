@@ -59,6 +59,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import gf_capture as CAP  # noqa: E402
 import gf_common as C  # noqa: E402
 import gf_head_features as H  # noqa: E402
 import gf_display as GD  # noqa: E402
@@ -66,6 +67,55 @@ import gf_gaze_filter as GF  # noqa: E402
 import gf_setup as GS  # noqa: E402
 import gf_targets as GT  # noqa: E402
 import gf_schema as S  # noqa: E402
+from gazelink_core.domain.observation import FrameObservation, HeadPolicy  # noqa: E402
+from gazelink_core.gaze import sample_gate as GATE  # noqa: E402
+from gazelink_core.tracking import face_landmarks as FL  # noqa: E402
+from gazelink_core.tracking.gazefollower_dry_run import make_dry_run_components  # noqa: E402,F401
+from gazelink_core.tracking import gazefollower_source as SRC  # noqa: E402
+
+# Live infrastructure that used to be defined here now lives in the core and is
+# shared with the live session (ARCH-01 stage D). Re-exported so every existing
+# caller and patch keeps the names it used.
+from gazelink_core.gaze.prediction import predict_one, predict_overlay_point  # noqa: E402,F401
+from gazelink_core.gaze.preflight import (  # noqa: E402,F401
+    PREFLIGHT_MAX_FRAMES,
+    PREFLIGHT_MIN_ACTIVATION,
+    preflight_verdict,
+)
+from gazelink_core.tracking.gazefollower_source import (  # noqa: E402,F401
+    design_row_from_library as _overlay_design_row,
+)
+from gazelink_core.gaze.visibility import (  # noqa: E402,F401
+    OVERLAY_STALE_S,
+    visible_overlay_point,
+    visible_point,
+)
+from gazelink_core.tracking.gazefollower_library import (  # noqa: E402,F401
+    CAMERA_WARMUP_S,
+    SHUTDOWN_STEP_TIMEOUT_S,
+    _call_with_timeout,
+    _library_dir,
+    make_pass_through_calibration,
+    shutdown_library,
+)
+from gazelink_core.ui.prompt_layout import (  # noqa: E402,F401
+    PROMPT_ANCHORS,
+    PROMPT_PITCH_PX,
+    PROMPT_SIDE_BAND,
+    PROMPT_SIDE_LINE_GAP_PX,
+    PROMPT_TOP_PX,
+    prompt_button_gaps,
+    prompt_layout,
+)
+from gazelink_core.ui.pygame_display import (  # noqa: E402,F401
+    _HEBREW_RANGE,
+    HEBREW_FONTS,
+    Display,
+    _sleep_with_escape,
+    has_hebrew,
+    hebrew_font,
+    rtl,
+)
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 RECORDINGS_DIR = PACKAGE_DIR / "recordings"
@@ -89,28 +139,12 @@ MAX_CONSECUTIVE_ERRORS = 10
 # is not a run, so it stops loudly instead. Blinks and brief look-aways are
 # far shorter than this; at ~32 fps it is about ten seconds.
 MAX_CONSECUTIVE_INVALID_FRAMES = 320
-# A calibrated model only answers meaningfully for inputs near the conditions
-# it was trained on. Outside them the SVR returns its constant bias, so the
-# overlay point stops following the eye and freezes -- with the camera, the
-# face detector and every other check still reporting success. That failure
-# cost a full afternoon of recordings before it was identified, so the model
-# is now checked against live frames before a protocol is spent on it.
-# Measured: healthy sessions sit at 0.86-0.98 median activation, and every
-# session whose point had frozen sat at 0.000. The threshold is deliberately
-# far below the healthy band -- this refuses only the unmistakable case.
-PREFLIGHT_MIN_ACTIVATION = 0.20
-PREFLIGHT_MAX_FRAMES = 240
-# Library cleanup calls join() with no timeout; every step gets its own bound
-# so one stalled thread cannot prevent the capture release or the CSV close.
-SHUTDOWN_STEP_TIMEOUT_S = 3.0
 # After the last target, give any callback already inside the subscriber time
 # to finish before the row list is frozen.
 DRAIN_S = 0.25
-CAMERA_WARMUP_S = 2.0  # camera open, no target: lets the tracker lock on
 # Protocols wait for a key press rather than a countdown: a three-second
 # countdown did not leave time to read the instruction.
 EXPECTED_FEATURE_DIM = 258
-OVERLAY_STALE_S = 0.25
 
 T2_TARGETS: tuple[tuple[float, float], ...] = ((0.5, 0.10), (0.5, 0.50), (0.5, 0.90))
 T2_SECONDS = 20.0
@@ -419,69 +453,6 @@ def protocol_t3(targets: Path) -> ProtocolSpec:
 # --- The runner: all protocol logic on the camera thread, like the library --
 
 
-def predict_one(
-    model: Any, features: np.ndarray, head: np.ndarray | None, rig: C.RigGeometry
-) -> tuple[float, float] | None:
-    """One frame through one fitted model, in screen fractions.
-
-    Module level rather than a method because the live view runs the same
-    prediction with no protocol, no targets and no recording around it. Two
-    copies of this would be two ways for the dot on screen to disagree with
-    the numbers scored afterwards.
-    """
-
-    head_names = model.schema.head_names
-    if head_names:
-        if head is None:
-            return None
-        design = S.assemble(features.reshape(1, -1), head.reshape(1, -1), head_names, H.HEAD6_NAMES)
-    else:
-        design = features.reshape(1, -1)
-    point = model.predict_norm(design, rig)[0]
-    if not np.all(np.isfinite(point)):
-        return None
-    return float(point[0]), float(point[1])
-
-
-def predict_overlay_point(
-    model: Any,
-    model_y: Any,
-    features: np.ndarray | None,
-    head: np.ndarray | None,
-    rig: C.RigGeometry,
-) -> tuple[float, float] | None:
-    """Run this frame through the loaded overlay model, if any.
-
-    With a second model supplied for the vertical axis, x comes from the
-    primary model and y from that one. The two feature-scaling families are
-    each accurate on a different axis -- measured offline, ``zscore`` gives x
-    median 72.9px with the vertical compressed to slope 0.717, while ``none``
-    reaches y slope 0.850 with x median 277.7px -- so a model per axis takes
-    the better half of each. Both run on the same frame, so the pair cannot
-    drift apart in time.
-
-    Never raises into the camera thread: a bad frame for the overlay is a
-    missing dot, not a crashed recording.
-    """
-
-    if model is None or features is None:
-        return None
-    try:
-        point = predict_one(model, features, head, rig)
-        if point is None:
-            return None
-        if model_y is None:
-            return point
-        vertical = predict_one(model_y, features, head, rig)
-        if vertical is None:
-            # Half a point is not a point: showing x with a stale or absent y
-            # would put the dot somewhere neither model claims.
-            return None
-        return point[0], vertical[1]
-    except Exception:  # noqa: BLE001 - a visual aid must never break recording
-        return None
-
-
 @dataclass
 class RunnerState:
     """What the display loop reads. Replaced as a whole, never mutated.
@@ -537,13 +508,23 @@ class ProtocolRunner:
         *,
         clock: Callable[[], float] = time.monotonic,
         speed: float = 1.0,
-        head_builder: Callable[[Any], np.ndarray | None] = H.build,
-        pnp: Callable[[Any], tuple[float, float, float] | None] = H.pnp_degrees,
+        head_builder: Callable[[Any], np.ndarray | None] = FL.head6_from_face,
+        pnp: Callable[[Any], tuple[float, float, float] | None] = FL.pnp_from_face,
         overlay_model: Any = None,
         overlay_model_y: Any = None,
         overlay_filter_settings: GF.FilterSettings | None = None,
+        shadow: Callable[[int], Any] | None = None,
+        shadow_builder: S.RecordingBuilder | None = None,
     ) -> None:
         self.spec = spec
+        # The second pipeline of a dual-resolution session (gf_capture). It
+        # gets EXACTLY the rows the primary gets -- same frame, target, phase
+        # and timing -- so the two recordings pair row for row; only what the
+        # pipeline produced differs.
+        if (shadow is None) != (shadow_builder is None):
+            raise ValueError("shadow and shadow_builder come together or not at all")
+        self.shadow = shadow
+        self.shadow_builder = shadow_builder
         self.builder = builder
         self.rig = rig
         self.clock = clock
@@ -675,17 +656,58 @@ class ProtocolRunner:
             with self.lock:
                 self.consecutive_errors = 0
 
+    def on_observation(self, obs: FrameObservation) -> None:
+        """The same per-frame step, for a source that already translated the frame."""
+
+        try:
+            self._on_observation(obs)
+        except Exception as exc:  # noqa: BLE001 - must never propagate into the source's thread
+            with self.lock:
+                self.errors += 1
+                self.consecutive_errors += 1
+                self.last_error = repr(exc)
+                if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    self.failed = True
+        else:
+            with self.lock:
+                self.consecutive_errors = 0
+
     def _on_frame(self, face_info: Any, gaze_info: Any) -> None:
+        # The library's objects are translated by the tracking adapter, under
+        # the recorder's head policy (pose only for a usable gaze, as always).
+        # Translated lazily, INSIDE the lock and after the frame is counted, so
+        # a pose builder that raises leaves the frame accounting exactly as it
+        # always has.
         now_s = self.clock()
+        self._on_observation(
+            lambda: SRC.observe(
+                face_info,
+                gaze_info,
+                observed_s=now_s,
+                head_builder=self.head_builder,
+                head_policy=HeadPolicy.GAZE,
+                pnp=self.pnp,
+            ),
+            now_s,
+        )
+
+    def _on_observation(
+        self,
+        observation: FrameObservation | Callable[[], FrameObservation],
+        now_s: float | None = None,
+    ) -> None:
+        if now_s is None:
+            assert isinstance(observation, FrameObservation)
+            now_s = observation.observed_s
         with self.lock:
             self.frames += 1
             self._frame_times.append(now_s)
             target = self.current_target()
             gate = self._gate
-            gaze_status = bool(getattr(gaze_info, "status", False))
-            features = getattr(gaze_info, "features", None) if gaze_status else None
+            obs = observation() if callable(observation) else observation
+            gaze_status = obs.gaze_status
+            features = GATE.features_for(obs, GATE.RECORD_OVERLAY)
             if features is not None:
-                features = np.asarray(features, dtype=np.float32).reshape(-1)
                 if self.feature_dim is None:
                     self.feature_dim = int(features.shape[0])
             # Stored in the LIBRARY's frame, deliberately: this is the raw
@@ -696,16 +718,11 @@ class ProtocolRunner:
             # as the person's eyes must go through
             # gf_gesture.eyes_as_the_person_has_them first -- not doing so is
             # what made every wink detector watch the wrong eye.
-            left = float(getattr(face_info, "left_eye_openness", 0.0) or 0.0)
-            right = float(getattr(face_info, "right_eye_openness", 0.0) or 0.0)
-            head = self.head_builder(face_info) if gaze_status else None
-            pnp = self.pnp(face_info) if head is not None else None
-            raw = getattr(gaze_info, "raw_gaze_coordinates", None) if gaze_status else None
-            raw_cm = None if raw is None else (float(raw[0]), float(raw[1]))
-            state_obj = getattr(gaze_info, "tracking_state", None)
-            tracking = getattr(state_obj, "name", None) or (
-                str(state_obj) if state_obj is not None else "UNKNOWN"
-            )
+            left, right = obs.openness_image
+            head = obs.head6
+            pnp = obs.pnp_deg
+            raw_cm = obs.raw_gaze_cm
+            tracking = obs.tracking_label
 
             # A frame carrying no gaze is normal in ones and twos -- a blink,
             # a glance away. An unbroken run of them means the camera is not
@@ -747,33 +764,18 @@ class ProtocolRunner:
             overlay_raw_norm = None
             overlay_norm = None
             overlay_updated_s = None
-            overlay_valid = (
-                not idle and gaze_status and left > C.BLINK_THRESHOLD and right > C.BLINK_THRESHOLD
-            )
+            overlay_valid = GATE.is_gaze_sample(obs, GATE.RECORD_OVERLAY, target_active=not idle)
             if overlay_valid:
                 overlay_raw_norm = self._predict_overlay(features, head)
-            if overlay_raw_norm is not None:
-                try:
-                    overlay_norm = (
-                        overlay_raw_norm
-                        if self.overlay_filter is None
-                        else self.overlay_filter.update(overlay_raw_norm, now_s)
-                    )
-                    overlay_updated_s = now_s
-                except ValueError:
-                    overlay_norm = None
-                    if self.overlay_filter is not None:
-                        self.overlay_filter.reset()
-            elif self.overlay_filter is not None:
-                # A blink, occlusion, tracking loss or bad model result must
-                # not pull a future valid point toward stale history.
-                self.overlay_filter.reset()
+            # A blink, occlusion, tracking loss or bad model result resets the
+            # filter, so it cannot pull a future valid point toward stale history.
+            overlay_norm = GATE.filter_point(self.overlay_filter, overlay_raw_norm, now_s)
+            if overlay_norm is not None:
+                overlay_updated_s = now_s
 
             self.builder.append(
                 frame_seq=self.frames - 1,
-                timestamp_ns=int(
-                    getattr(gaze_info, "timestamp", 0) or getattr(face_info, "timestamp", 0) or 0
-                ),
+                timestamp_ns=obs.timestamp_ns,
                 elapsed_ms=elapsed_ms,
                 target_id=-1 if target is None else target.index,
                 block=0 if target is None else target.block,
@@ -789,6 +791,18 @@ class ProtocolRunner:
                 gaze_status=gaze_status,
                 accepted=accepted,
             )
+            if self.shadow_builder is not None:
+                self._append_shadow(
+                    frame_seq=self.frames - 1,
+                    timestamp_ns=obs.timestamp_ns,
+                    elapsed_ms=elapsed_ms,
+                    target=target,
+                    phase=phase,
+                    target_xy=target_xy,
+                    label_cm=label_cm,
+                    idle=idle,
+                    accepted=accepted,
+                )
             if gate is not None and gate.done:
                 self._advance(now_s)
             self.state = RunnerState(
@@ -809,6 +823,58 @@ class ProtocolRunner:
                 overlay_norm=overlay_norm,
                 overlay_updated_s=overlay_updated_s,
             )
+
+    def _append_shadow(
+        self,
+        *,
+        frame_seq: int,
+        timestamp_ns: int,
+        elapsed_ms: float | None,
+        target: Target | None,
+        phase: str,
+        target_xy: tuple[float, float] | None,
+        label_cm: tuple[float, float] | None,
+        idle: bool,
+        accepted: bool,
+    ) -> None:
+        """The shadow pipeline's row for this frame. Called under ``self.lock``.
+
+        ``accepted`` is the primary's collection decision; the shadow row is
+        accepted only if its own pipeline also produced a valid sample, so a
+        frame one arm lost is never a training row for it. Pairing at
+        analysis time then keeps only rows both arms accepted.
+        """
+
+        result = self.shadow(timestamp_ns) if self.shadow is not None else None
+        obs = CAP.observe_shadow(result, head_builder=self.head_builder)
+        status = obs.gaze_status
+        features = GATE.features_for(obs, GATE.RECORD_OVERLAY)
+        left, right = obs.openness_image
+        head = obs.head6
+        if result is None:
+            tracking = "NO_SHADOW_RESULT"
+        else:
+            # The shadow rows have always rendered a missing state as "None".
+            tracking = obs.tracking_state_name or obs.tracking_state_text
+        assert self.shadow_builder is not None
+        self.shadow_builder.append(
+            frame_seq=frame_seq,
+            timestamp_ns=timestamp_ns,
+            elapsed_ms=elapsed_ms,
+            target_id=-1 if target is None else target.index,
+            block=0 if target is None else target.block,
+            phase=phase,
+            target_xy=target_xy,
+            label_cm=label_cm,
+            features=None if idle else features,
+            head=None if idle else head,
+            pnp_deg=None,
+            raw_cm=None,
+            openness=(left, right),
+            tracking_state=tracking,
+            gaze_status=status,
+            accepted=bool(accepted and status and features is not None and not idle),
+        )
 
     def _predict_overlay(
         self, features: np.ndarray | None, head: np.ndarray | None
@@ -847,97 +913,6 @@ class ProtocolRunner:
             "valid_gaze_fraction": (self.valid_gaze_frames / self.frames) if self.frames else 0.0,
             "no_face_stall": self.no_face_stall,
         }
-
-
-# --- Library adapters (imported lazily) --------------------------------------
-
-
-def make_pass_through_calibration() -> Any:
-    from gazefollower.calibration import Calibration  # noqa: PLC0415
-
-    class PassThroughCalibration(Calibration):  # type: ignore[misc]
-        """Lets SAMPLING run without a fitted model. Its output is NOT a prediction."""
-
-        def __init__(self) -> None:
-            super().__init__()
-            self.has_calibrated = True
-
-        def calibrate(self, features, labels, ids=None):  # noqa: ANN001
-            raise RuntimeError("recording mode never trains a model")
-
-        def predict(self, features, estimated_coordinate):  # noqa: ANN001
-            return True, (float(estimated_coordinate[0]), float(estimated_coordinate[1]))
-
-        def save_model(self) -> bool:
-            return False
-
-        def release(self) -> None:
-            return None
-
-    return PassThroughCalibration()
-
-
-def _call_with_timeout(func: Callable[[], Any], timeout_s: float) -> str:
-    """Bounded call, reported as a one-line verdict for the shutdown report.
-
-    Wraps the shared helper in :mod:`gf_common`, which exists because the
-    library's ``close()`` and ``release()`` join their capture thread with no
-    timeout: a stalled camera would otherwise block cleanup before the capture
-    is released or the CSV closed. A timed-out step leaks a daemon thread,
-    which dies with the process -- strictly better than never reaching the
-    steps that follow.
-    """
-
-    finished, result = C.call_with_timeout(func, timeout_s)
-    if not finished:
-        return f"TIMEOUT after {timeout_s}s"
-    if isinstance(result, BaseException):
-        return repr(result)
-    return "ok"
-
-
-def shutdown_library(gf: Any, *, join_timeout_s: float = SHUTDOWN_STEP_TIMEOUT_S) -> dict[str, Any]:
-    """Eval-owned cleanup, every step independent and time-bounded.
-
-    The library's own ``close()`` only releases the capture when it is NOT
-    open (an inverted condition), and ``release()`` joins a possibly-None
-    thread. Neither can be relied on, and neither may prevent the steps after
-    it, so each is bounded and its verdict recorded separately.
-    """
-
-    report: dict[str, Any] = {}
-    report["library_release"] = _call_with_timeout(gf.release, join_timeout_s)
-    camera = getattr(gf, "camera", None)
-    thread = getattr(camera, "_camera_thread", None)
-    try:
-        if camera is not None:
-            camera._camera_thread_running = False
-        if thread is not None and getattr(thread, "is_alive", lambda: False)():
-            thread.join(timeout=join_timeout_s)
-            report["thread_joined"] = not thread.is_alive()
-        else:
-            report["thread_joined"] = None
-    except Exception as exc:  # noqa: BLE001
-        report["thread_joined"] = repr(exc)
-    cap = getattr(camera, "_cap", None)
-    try:
-        if cap is not None and cap.isOpened():
-            cap.release()
-            report["capture_released"] = True
-        else:
-            report["capture_released"] = False
-    except Exception as exc:  # noqa: BLE001
-        report["capture_released"] = repr(exc)
-    stream = getattr(gf, "_tmpSampleDataSteam", None)
-    try:
-        if stream is not None and not getattr(stream, "closed", True):
-            stream.close()
-            report["tmp_stream_closed"] = True
-        else:
-            report["tmp_stream_closed"] = False
-    except Exception as exc:  # noqa: BLE001
-        report["tmp_stream_closed"] = repr(exc)
-    return report
 
 
 MIN_USABLE_FPS = 25.0
@@ -1081,551 +1056,16 @@ def check_px2cm_against_library(rig: C.RigGeometry) -> None:
             raise RuntimeError(f"px2cm mismatch at ({nx}, {ny}): ours {ours} vs library {theirs}")
 
 
-# --- Dry-run fakes: real GazeFollower.process_frame, no camera, no models ----
-
-
-def make_dry_run_components(fps: float = 30.0) -> tuple[Any, Any, Any]:
-    from gazefollower.camera import Camera  # noqa: PLC0415
-    from gazefollower.misc import CameraRunningState, FaceInfo, GazeInfo, TrackingState  # noqa: PLC0415
-
-    class FakeCamera(Camera):  # type: ignore[misc]
-        def __init__(self) -> None:
-            super().__init__()
-            self._thread: threading.Thread | None = None
-            self._running = False
-            self._camera_thread = None
-            self._camera_thread_running = None
-            self._cap = None
-
-        def open(self) -> None:
-            self._running = True
-            self._thread = threading.Thread(target=self._loop, daemon=True)
-            self._camera_thread = self._thread
-            self._camera_thread_running = True
-            self._thread.start()
-
-        def _loop(self) -> None:
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            while self._running and self._camera_thread_running:
-                with self.callback_and_param_lock:
-                    cb = self.callback_func
-                if cb is not None and self.camera_running_state != CameraRunningState.CLOSING:
-                    cb(
-                        self.camera_running_state,
-                        time.time_ns(),
-                        frame,
-                        *self.callback_args,
-                        **self.callback_kwargs,
-                    )
-                time.sleep(1.0 / fps)
-
-        def close(self) -> None:
-            self._running = False
-            if self._thread is not None:
-                self._thread.join(timeout=2.0)
-
-        def release(self) -> None:
-            self.close()
-
-    class FakeFaceAlignment:
-        def __init__(self) -> None:
-            self._rng = np.random.default_rng(1)
-            self._t = 0.0
-
-        def detect(self, timestamp: int, image: np.ndarray) -> Any:
-            self._t += 0.05
-            info = FaceInfo()
-            info.timestamp = timestamp
-            info.status = True
-            info.can_gaze_estimation = True
-            info.img_w, info.img_h = image.shape[1], image.shape[0]
-            lm = np.zeros((478, 3), dtype=np.float64)
-            lm[:, 0] = 320 + self._rng.normal(scale=40, size=478)
-            lm[:, 1] = 240 + self._rng.normal(scale=40, size=478)
-            nod = 12.0 * math.sin(self._t)
-            lm[H.EYE_OUTER_IMAGE_LEFT, :2] = (250, 200)
-            lm[H.EYE_OUTER_IMAGE_RIGHT, :2] = (390, 200)
-            lm[H.NOSE_TIP, :2] = (320, 260 + nod)
-            lm[H.CHIN, :2] = (320, 340 + nod)
-            lm[H.MOUTH_IMAGE_LEFT, :2] = (290, 305 + nod)
-            lm[H.MOUTH_IMAGE_RIGHT, :2] = (350, 305 + nod)
-            info.face_landmarks = np.round(lm).astype(np.int16)
-            info.face_rect = np.array([230, 150, 180, 220])
-            info.left_rect = np.array([240, 185, 60, 30])
-            info.right_rect = np.array([340, 185, 60, 30])
-            info.left_eye_openness = 120.0
-            info.right_eye_openness = 110.0
-            return info
-
-        def release(self) -> None:
-            return None
-
-    class FakeEstimator:
-        def __init__(self) -> None:
-            self._rng = np.random.default_rng(2)
-
-        def detect(self, image: np.ndarray, face_info: Any) -> Any:
-            info = GazeInfo()
-            info.timestamp = face_info.timestamp
-            if not face_info.status:
-                info.tracking_state = TrackingState.FACE_MISSING
-                return info
-            info.features = self._rng.normal(size=EXPECTED_FEATURE_DIM).astype(np.float32)
-            info.raw_gaze_coordinates = info.features[:2]
-            info.status = True
-            info.left_openness = face_info.left_eye_openness
-            info.right_openness = face_info.right_eye_openness
-            info.tracking_state = TrackingState.SUCCESS
-            return info
-
-        def release(self) -> None:
-            return None
-
-    return FakeCamera(), FakeFaceAlignment(), FakeEstimator()
-
-
 # --- Display -----------------------------------------------------------------
 
 
-class Display:
-    """pygame fullscreen on the CHOSEN monitor; white like the library's UI.
-
-    ``origin`` is the monitor's position in the virtual desktop. On a second
-    screen it is not (0, 0), and a window opened without it lands on the
-    primary display -- where the targets would be drawn on one monitor while
-    the geometry describes another.
-    """
-
-    def __init__(
-        self,
-        width: int,
-        height: int,
-        *,
-        headless: bool,
-        origin: tuple[int, int] = (0, 0),
-        overlay_available: bool = False,
-        click_through: bool = False,
-        show_unfiltered_overlay: bool = False,
-        overlay_stale_s: float = OVERLAY_STALE_S,
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self.headless = headless
-        self.width, self.height = width, height
-        self.origin = origin
-        self._overlay_available = overlay_available
-        self._show_unfiltered_overlay = show_unfiltered_overlay
-        self._overlay_stale_s = overlay_stale_s
-        self._clock = clock
-        if headless:
-            return
-        import os  # noqa: PLC0415
-
-        # SDL reads this at video-subsystem init, so it must be set first.
-        os.environ["SDL_VIDEO_WINDOW_POS"] = f"{origin[0]},{origin[1]}"
-        import pygame  # noqa: PLC0415
-
-        pygame.init()
-        try:
-            pygame.mixer.init()
-        except Exception:  # noqa: BLE001 - sound is a courtesy
-            pass
-        self.pg = pygame
-        flags = pygame.NOFRAME if origin != (0, 0) else pygame.FULLSCREEN
-        if click_through:
-            # Borderless rather than FULLSCREEN: an exclusive fullscreen
-            # window is not a thing Windows will let clicks fall through.
-            flags = pygame.NOFRAME
-        self.screen = pygame.display.set_mode((width, height), flags)
-        pygame.display.set_caption("GAZELINK - GazeFollower recording")
-        self.overlay = None
-        if click_through:
-            import gf_overlay as OV  # noqa: PLC0415
-
-            self.overlay = OV.make_click_through(pygame.display.get_wm_info()["window"])
-            self.transparent_key = OV.TRANSPARENT_KEY
-        self.font = pygame.font.Font(None, 44)
-        self.big = pygame.font.Font(None, 64)
-        res = Path(_library_dir()) / "res"
-        self.dot = None
-        self.beep = None
-        try:
-            self.dot = pygame.transform.smoothscale(
-                pygame.image.load(str(res / "image" / "dot.png")), (70, 70)
-            )
-        except Exception:  # noqa: BLE001
-            self.dot = None
-        try:
-            self.beep = pygame.mixer.Sound(str(res / "audio" / "beep.wav"))
-        except Exception:  # noqa: BLE001
-            self.beep = None
-
-    def poll_escape(self) -> bool:
-        if self.headless:
-            return False
-        for event in self.pg.event.get():
-            if event.type == self.pg.KEYDOWN and event.key == self.pg.K_ESCAPE:
-                return True
-        return False
-
-    def poll_keys(self) -> set[str]:
-        """Every key pressed since the last call, by name.
-
-        Separate from :meth:`poll_escape` because that one drains the queue
-        and reports only one key, so a caller that needs a second key cannot
-        use both. Screens that only care about Esc keep using poll_escape.
-        """
-
-        if self.headless:
-            return set()
-        names = {self.pg.K_ESCAPE: "escape", self.pg.K_SPACE: "space"}
-        pressed: set[str] = set()
-        for event in self.pg.event.get():
-            if event.type == self.pg.KEYDOWN and event.key in names:
-                pressed.add(names[event.key])
-        return pressed
-
-    def wait_for_key(self, lines: Sequence[str], *, timeout_s: float | None = None) -> str:
-        """Hold the instruction on screen until the operator is ready.
-
-        Returns "go" on Space or Enter, "abort" on Esc, "timeout" if a
-        timeout was given and expired. A countdown used to do this job, which
-        meant the instruction vanished before it could be read; a protocol
-        that starts before the person knows what it asks for produces data
-        about their confusion rather than about their gaze.
-
-        Headless runs have nobody to press a key, so they proceed at once.
-        """
-
-        if self.headless:
-            return "go"
-        deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        prompt = list(lines) + ["", "Press SPACE or ENTER to start   (Esc to abort)"]
-        # Drain anything queued before the prompt appeared, so a stray key
-        # press during the previous protocol cannot skip this one.
-        self.pg.event.clear()
-        while True:
-            # Draw BEFORE polling: otherwise a key already in flight ends the
-            # wait on the first pass and the instruction is never shown at all,
-            # which is the failure this screen exists to prevent.
-            self.draw_message(prompt)
-            for event in self.pg.event.get():
-                if event.type == self.pg.KEYDOWN:
-                    if event.key == self.pg.K_ESCAPE:
-                        return "abort"
-                    if event.key in (self.pg.K_SPACE, self.pg.K_RETURN, self.pg.K_KP_ENTER):
-                        return "go"
-                elif event.type == self.pg.QUIT:
-                    return "abort"
-            if deadline is not None and time.monotonic() > deadline:
-                return "timeout"
-            time.sleep(0.02)
-
-    def play_beep(self) -> None:
-        if not self.headless and self.beep is not None:
-            self.beep.play()
-
-    def draw_message(self, lines: Sequence[str]) -> None:
-        if self.headless:
-            return
-        self.screen.fill((255, 255, 255))
-        y = self.height // 2 - 40 * len(lines)
-        for line in lines:
-            surf = self.big.render(line, True, (20, 20, 20))
-            self.screen.blit(surf, (self.width // 2 - surf.get_width() // 2, y))
-            y += 80
-        self.pg.display.flip()
-
-    def draw_target(self, state: RunnerState, hud: Sequence[str]) -> None:
-        """Draw the target, plus what the system currently sees.
-
-        Shown for EVERY frame of EVERY protocol, calibration points included:
-        a live dot following (or failing to follow) the target is a sanity
-        check no post-hoc number can substitute for, and hiding it during
-        calibration would exempt exactly the phase most worth watching.
-        """
-
-        if self.headless:
-            return
-        self.screen.fill((255, 255, 255))
-        target = state.target
-        if target is not None:
-            cx = int(round(target.x * self.width))
-            cy = int(round(target.y * self.height))
-            if self.dot is not None:
-                self.screen.blit(self.dot, (cx - 35, cy - 35))
-            else:
-                self.pg.draw.circle(self.screen, (30, 30, 30), (cx, cy), 24)
-                self.pg.draw.circle(self.screen, (255, 255, 255), (cx, cy), 6)
-            if state.protocol in S.CALIBRATION_PROTOCOLS and state.phase in (
-                S.PHASE_COLLECT,
-                S.PHASE_WAIT,
-            ):
-                label = self.font.render(str(state.progress), True, (255, 255, 255))
-                self.screen.blit(label, (cx - label.get_width() // 2, cy - label.get_height() // 2))
-        raw = visible_point(
-            state.raw_norm, state.frame_updated_s, self._clock(), self._overlay_stale_s
-        )
-        self._draw_live_point(raw, (255, 160, 0), radius=6)  # raw model output: orange
-        overlay = visible_overlay_point(state, self._clock(), self._overlay_stale_s)
-        if self._show_unfiltered_overlay and overlay is not None:
-            self._draw_live_point(state.overlay_raw_norm, (150, 70, 180), radius=7, cross=True)
-        self._draw_live_point(
-            overlay, (30, 110, 255), radius=10, cross=True
-        )  # filtered calibrated: blue
-        y = 20
-        for line in hud:
-            surf = self.font.render(line, True, (60, 60, 60))
-            self.screen.blit(surf, (20, y))
-            y += 40
-        legend_y = self.height - 60
-        self.pg.draw.circle(self.screen, (255, 160, 0), (30, legend_y), 6)
-        self.screen.blit(
-            self.font.render("raw model output (no calibration)", True, (90, 90, 90)),
-            (46, legend_y - 12),
-        )
-        self.pg.draw.circle(self.screen, (30, 110, 255), (30, legend_y + 28), 6)
-        self.screen.blit(
-            self.font.render(
-                "filtered calibrated"
-                if self._overlay_available
-                else "calibrated: no --overlay-model loaded",
-                True,
-                (90, 90, 90),
-            ),
-            (46, legend_y + 16),
-        )
-        self.pg.display.flip()
-
-    def draw_live(
-        self,
-        point: tuple[float, float] | None,
-        raw_model: tuple[float, float] | None,
-        unfiltered: tuple[float, float] | None,
-        hud: Sequence[str],
-        *,
-        tracking: bool,
-        zones: Sequence[Any] = (),
-        active_zone: str | None = None,
-    ) -> None:
-        """The free-running view: no target on screen, just what is reported.
-
-        "Not tracking" is drawn as an explicit banner rather than as an absent
-        dot.  With nothing on screen, a frozen prediction and a lost face look
-        identical, and the whole point of watching the dot is to be able to
-        tell those apart.
-
-        ``zones`` are drawn as OUTLINES, never filled.  This window sits over
-        the desktop as a colour-keyed hole, so a filled rectangle would hide
-        the thing the person is trying to read -- and the whole purpose of a
-        scroll band is to be looked at while reading past it.
-        """
-
-        if self.headless:
-            return
-        # In overlay mode the background is the colour Windows was told to
-        # treat as a hole, so the desktop shows through and only the dots and
-        # the text are visible. Anywhere else it is the ordinary white sheet.
-        overlay = self.overlay is not None and self.overlay.see_through
-        self.screen.fill(self.transparent_key if overlay else (255, 255, 255))
-        for zone in zones:
-            rect = self.pg.Rect(
-                int(zone.x0 * self.width),
-                int(zone.y0 * self.height),
-                int((zone.x1 - zone.x0) * self.width),
-                int((zone.y1 - zone.y0) * self.height),
-            )
-            live = zone.key == active_zone
-            # Outline only. Never (255, 0, 255): that is the colour Windows
-            # was told to treat as a hole, so a border in it would vanish.
-            # Thick and high contrast on purpose. A 3 px grey line over a
-            # busy page is invisible, and a control the person cannot find is
-            # the same as one that is not there.
-            self.pg.draw.rect(
-                self.screen,
-                (30, 110, 255) if live else (70, 110, 160),
-                rect,
-                14 if live else 6,
-            )
-            label = self.font.render(zone.key, True, (20, 20, 20))
-            plate = self.pg.Surface((label.get_width() + 16, label.get_height() + 8))
-            plate.fill((245, 245, 245))
-            self.screen.blit(plate, (rect.centerx - plate.get_width() // 2, rect.centery - 20))
-            self.screen.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - 16))
-        self._draw_live_point(raw_model, (255, 160, 0), radius=6)
-        if self._show_unfiltered_overlay:
-            self._draw_live_point(unfiltered, (150, 70, 180), radius=7, cross=True)
-        self._draw_live_point(point, (30, 110, 255), radius=10, cross=True)
-        if not tracking:
-            banner = self.big.render("tracking lost", True, (200, 40, 40))
-            self.screen.blit(banner, (self.width // 2 - banner.get_width() // 2, 60))
-        y = 20
-        # Over an unknown desktop the text needs its own ground, or it is
-        # unreadable exactly when it matters -- the mode line included.
-        colour = (20, 20, 20) if overlay else (60, 60, 60)
-        for line in hud:
-            surf = self.font.render(line, True, colour)
-            if overlay:
-                plate = self.pg.Surface((surf.get_width() + 16, surf.get_height() + 8))
-                plate.fill((245, 245, 245))
-                self.screen.blit(plate, (12, y - 4))
-            self.screen.blit(surf, (20, y))
-            y += 40
-        self.pg.display.flip()
-
-    def draw_practice(
-        self,
-        buttons: Sequence[Any],
-        point: tuple[float, float] | None,
-        *,
-        hovered: str | None,
-        progress: float,
-        prompt: Sequence[str],
-        flash: str | None = None,
-        pointer: tuple[float, float] | None = None,
-        tracking: bool,
-    ) -> None:
-        """The dwell practice screen: targets, the gaze point, and a ring.
-
-        Every target is drawn identically. The prompt names the one to look
-        at, in text, away from the targets themselves -- nothing about the
-        requested target changes its appearance, position or size, because a
-        target that stood out would measure attention capture rather than
-        whether the gaze can be put where the person intends.
-
-        The ring fills on whichever target the gaze is actually resting on,
-        which makes a wrong selection visible while it happens instead of only
-        in the report afterwards.
-        """
-
-        if self.headless:
-            return
-        self.screen.fill((250, 250, 250))
-        for button in buttons:
-            rect = self.pg.Rect(
-                int(button.x0 * self.width),
-                int(button.y0 * self.height),
-                int(button.width * self.width),
-                int(button.height * self.height),
-            )
-            filled = flash == button.key
-            self.pg.draw.rect(self.screen, (210, 228, 246) if filled else (232, 232, 236), rect)
-            self.pg.draw.rect(self.screen, (120, 130, 140), rect, 3)
-            label = self.big.render(button.key, True, (60, 60, 70))
-            self.screen.blit(
-                label,
-                (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2),
-            )
-            if hovered == button.key and progress > 0.0:
-                self._draw_progress_ring(rect.centerx, rect.centery + 140, progress)
-        # The POINTER, drawn separately from the gaze point and in a
-        # different colour. Without it a simulated run shows nothing at all
-        # where the cursor would be -- the real one does not move in
-        # simulation, so "the cursor is not there" was indistinguishable from
-        # "the cursor is broken". The two dots also make the smoothing and the
-        # dead zone visible: the pointer trails the gaze on purpose.
-        self._draw_live_point(pointer, (220, 90, 30), radius=18)
-        self._draw_live_point(point, (30, 110, 255), radius=12, cross=True)
-        if not tracking:
-            banner = self.big.render("tracking lost", True, (200, 40, 40))
-            self.screen.blit(banner, (self.width // 2 - banner.get_width() // 2, 30))
-        # The instruction goes in the CENTRE, in the dead zone between the
-        # targets -- never in a corner. Reading it is itself a gaze, and a
-        # corner prompt puts that gaze inside whichever target is nearest:
-        # measured, every wrong activation fired deep inside the wrong target
-        # (x 0.300-0.392 or 0.579-0.641), never at a boundary, and the target
-        # nearest the top-left prompt was chosen twice as often as the other.
-        # Whoever reaches 900 ms first wins, so where the person must look to
-        # READ the task decides the answer before they can act on it.
-        y = 40
-        for line in prompt:
-            surf = self.big.render(line, True, (40, 40, 50))
-            self.screen.blit(surf, (self.width // 2 - surf.get_width() // 2, y))
-            y += 70
-        self.pg.display.flip()
-
-    def _draw_progress_ring(self, cx: int, cy: int, fraction: float, radius: int = 60) -> None:
-        """Dwell progress, as an arc filling clockwise from the top.
-
-        CLAUDE.md 4.5 requires visible feedback for dwell progress: without
-        it, waiting for an activation and waiting for nothing look identical.
-        """
-
-        self.pg.draw.circle(self.screen, (200, 205, 210), (cx, cy), radius, 6)
-        span = max(0.0, min(1.0, fraction)) * 2.0 * math.pi
-        if span <= 0.0:
-            return
-        rect = self.pg.Rect(cx - radius, cy - radius, radius * 2, radius * 2)
-        start = math.pi / 2.0
-        self.pg.draw.arc(self.screen, (30, 110, 255), rect, start - span, start, 8)
-
-    def _draw_live_point(
-        self,
-        point_norm: tuple[float, float] | None,
-        colour: tuple[int, int, int],
-        *,
-        radius: int,
-        cross: bool = False,
-    ) -> None:
-        """One moving dot: what the system currently reports, on or off screen.
-
-        A point outside [0, 1] is drawn clamped to the edge with a ring, so
-        "predicting off the display" is visibly different from "not tracking
-        at all" (nothing drawn) rather than silently invisible.
-        """
-
-        if point_norm is None:
-            return
-        x, y = point_norm
-        off_screen = not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0)
-        cx = int(round(min(1.0, max(0.0, x)) * self.width))
-        cy = int(round(min(1.0, max(0.0, y)) * self.height))
-        if cross:
-            self.pg.draw.line(self.screen, colour, (cx - radius, cy), (cx + radius, cy), 3)
-            self.pg.draw.line(self.screen, colour, (cx, cy - radius), (cx, cy + radius), 3)
-        else:
-            self.pg.draw.circle(self.screen, colour, (cx, cy), radius, 0 if not off_screen else 2)
-        if off_screen:
-            self.pg.draw.circle(self.screen, (200, 40, 40), (cx, cy), radius + 6, 2)
-
-    def close(self) -> None:
-        if self.headless:
-            return
-        try:
-            self.pg.quit()
-        except Exception:  # noqa: BLE001
-            pass
-
-
-def visible_overlay_point(
-    state: RunnerState, now_s: float, stale_after_s: float = OVERLAY_STALE_S
-) -> tuple[float, float] | None:
-    """Hide a prediction when drawing continues but camera frames stop."""
-
-    return visible_point(state.overlay_norm, state.overlay_updated_s, now_s, stale_after_s)
-
-
-def visible_point(
-    point: tuple[float, float] | None,
-    updated_s: float | None,
-    now_s: float,
-    stale_after_s: float = OVERLAY_STALE_S,
-) -> tuple[float, float] | None:
-    """Return a display point only while its source frame is current."""
-
-    if point is None or updated_s is None:
-        return None
-    age_s = float(now_s) - updated_s
-    if not math.isfinite(age_s) or age_s < 0.0 or age_s > stale_after_s:
-        return None
-    return point
-
-
-def _library_dir() -> str:
-    import gazefollower  # noqa: PLC0415
-
-    return str(Path(gazefollower.__file__).resolve().parent)
-
-
+# Fonts that carry Hebrew, in the order they are tried. MEASURED rather than
+# assumed: rendered at the same size, pygame's built-in font produced
+# byte-identical ink for aleph and shin (2508 == 2508) -- the same empty box
+# twice -- while every system font gave different glyphs (Arial 7776/9504,
+# Segoe UI 10578/12900). So ``pygame.font.Font(None, ...)`` cannot draw a
+# Hebrew interface at all, and which font loaded has to be REPORTED: a
+# fallback that silently draws boxes looks exactly like a rendering bug.
 # --- Session -----------------------------------------------------------------
 
 
@@ -1667,6 +1107,68 @@ def band_target_files(targets: Path, targets_tune: Path) -> tuple[Path, Path]:
     return targets, targets_tune
 
 
+DUAL_LO_SUBDIR = "lo"
+DUAL_MIN_WARMUP_FRAMES = 10
+
+
+HI_RECORDINGS_DIR = RECORDINGS_DIR / "hi"
+
+
+def check_hi_capture_allowed(
+    *, dry_run: bool, overlay_model_dir: Path | None, out_root: Path, no_save: bool
+) -> None:
+    """Refuse a single-pipeline hi session anywhere but ``recordings/hi``.
+
+    Until models carry their capture pipeline and every live tool refuses a
+    mismatch (TASKS section 62, plan review blocker 1), hi recordings must not
+    sit where ``gf_recalibrate`` or ``gf_pool.discover`` read by default: a hi
+    calibration fitted there could be adopted into a 640x480 profile. The pool
+    key separates pipelines as well; this is the second guard. No overlay:
+    there is no hi model yet, and a lo model on hi features is a confident
+    wrong dot.
+    """
+
+    if dry_run:
+        raise SystemExit("--capture hi needs the real camera; it has no dry-run path")
+    if overlay_model_dir is not None:
+        raise SystemExit(
+            "--capture hi cannot show an overlay yet: no saved model was fitted on hi features"
+        )
+    if no_save:
+        return
+    root = Path(out_root).resolve()
+    allowed = HI_RECORDINGS_DIR.resolve()
+    if root != allowed and allowed not in root.parents:
+        raise SystemExit(f"--capture hi must write under {allowed}; use --out recordings/hi")
+
+
+def check_dual_capture_allowed(
+    *, dry_run: bool, overlay_model_dir: Path | None, out_root: Path, no_save: bool
+) -> None:
+    """Refuse a dual-resolution session that could be misread or mis-pooled.
+
+    * dry run: the fake camera has no second pipeline;
+    * overlay: every model on disk was fitted on 640x480-library features, so
+      a dot drawn from hi features would be a confident wrong answer;
+    * directly under recordings/: ``gf_pool.discover`` reads ``round*`` there,
+      and these features must never train a production model. (The pool key
+      also carries the pipeline, so this is the second of two guards.)
+    """
+
+    if dry_run:
+        raise SystemExit("--capture dual needs the real camera; it has no dry-run path")
+    if overlay_model_dir is not None:
+        raise SystemExit(
+            "--capture dual cannot show an overlay: every saved model was fitted on the "
+            "library's 640x480 features"
+        )
+    if not no_save and Path(out_root).resolve() == RECORDINGS_DIR.resolve():
+        raise SystemExit(
+            "--capture dual must not write directly into recordings/ (the training pool reads "
+            "round* there); use --out recordings/resolution"
+        )
+
+
 def run_session(
     *,
     protocols: Sequence[str],
@@ -1695,6 +1197,7 @@ def run_session(
     pose_blocks: int = len(POSE_SEQUENCE),
     advance_timeout_s: float | None = None,
     no_save: bool = False,
+    capture: str = "library",
 ) -> SessionResult:
     import gazefollower  # noqa: PLC0415  (initialises native components; unavoidable for the live path)
     from gazefollower import GazeFollower  # noqa: PLC0415
@@ -1807,10 +1310,30 @@ def run_session(
                 "B for the multi-pose calibration; FULL, MOVE for the full-screen sessions)"
             )
 
+    if capture not in ("library", "dual", "hi"):
+        raise ValueError(f"unknown capture mode {capture!r}")
+    dual = capture == "dual"
+    if dual:
+        check_dual_capture_allowed(
+            dry_run=dry_run, overlay_model_dir=overlay_model_dir, out_root=out_root, no_save=no_save
+        )
+    if capture == "hi":
+        check_hi_capture_allowed(
+            dry_run=dry_run, overlay_model_dir=overlay_model_dir, out_root=out_root, no_save=no_save
+        )
     kwargs: dict[str, Any] = {"config": config, "calibration": make_pass_through_calibration()}
+    dual_camera: Any = None
     if dry_run:
         camera, face_alignment, estimator = make_dry_run_components()
         kwargs.update(camera=camera, face_alignment=face_alignment, gaze_estimator=estimator)
+    elif dual:
+        dual_camera, face_alignment, estimator = CAP.make_dual_components()
+        kwargs.update(camera=dual_camera, face_alignment=face_alignment, gaze_estimator=estimator)
+    elif capture == "hi":
+        # The same camera class with no second arm, so the warm-up shape
+        # check, per-protocol stats and metadata below apply unchanged.
+        dual_camera, face_alignment, estimator = CAP.make_hi_components()
+        kwargs.update(camera=dual_camera, face_alignment=face_alignment, gaze_estimator=estimator)
     gf = GazeFollower(**kwargs)
     library_tmp = [str(getattr(gf, "_tmpSampleDataPath", ""))]
 
@@ -1846,6 +1369,11 @@ def run_session(
         "overlay_filter": None
         if overlay_filter_settings is None
         else asdict(overlay_filter_settings),
+        "capture": {
+            "pipeline": {"dual": CAP.PIPELINE_HI, "hi": CAP.PIPELINE_HI_SINGLE}.get(
+                capture, CAP.LIBRARY_PIPELINE
+            )
+        },
     }
 
     overlay_model = None
@@ -1896,7 +1424,7 @@ def run_session(
             # operator spends a protocol on it. The row is assembled exactly
             # as ProtocolRunner._predict_overlay assembles it, head columns
             # included, or the check would not be measuring what will run.
-            if overlay_model is not None and getattr(gaze_info, "status", False):
+            if overlay_model is not None and SRC.gaze_status_of(gaze_info):
                 if len(preflight) < PREFLIGHT_MAX_FRAMES:
                     row = _overlay_design_row(overlay_model, face_info, gaze_info)
                     if row is not None:
@@ -1912,6 +1440,14 @@ def run_session(
         gf.camera.start_sampling()
         display.draw_message(["Camera warming up..."])
         _sleep_with_escape(display, CAMERA_WARMUP_S / speed)
+        if dual_camera is not None and dual_camera.usable_frames() < DUAL_MIN_WARMUP_FRAMES:
+            # Caught here, not by the watchdog minutes later: a camera that
+            # ignored 1920x1080 has every frame dropped and looks like silence.
+            raise SystemExit(
+                f"ABORTED before recording: the camera delivered {dual_camera.usable_frames()} "
+                f"usable frames in {CAP.SOURCE_MODE[0]}x{CAP.SOURCE_MODE[1]} during warm-up: "
+                f"{dual_camera.describe()['stats']}"
+            )
         # No runner is installed yet, so nothing is recorded during this wait.
         if overlay_model is not None and not skip_model_check:
             # Both models are checked: a fresh x model paired with a stale y
@@ -1977,6 +1513,13 @@ def run_session(
                 instruction=spec.instruction,
             )
             builder = S.RecordingBuilder(spec.name, round_id, meta)
+            shadow_builder = (
+                S.RecordingBuilder(
+                    spec.name, round_id, dict(meta, capture={"pipeline": CAP.PIPELINE_LO})
+                )
+                if dual
+                else None
+            )
             runner = ProtocolRunner(
                 spec,
                 builder,
@@ -1985,6 +1528,8 @@ def run_session(
                 overlay_model=overlay_model,
                 overlay_model_y=overlay_model_y,
                 overlay_filter_settings=overlay_filter_settings,
+                shadow=None if not dual else dual_camera.shadow_for,
+                shadow_builder=shadow_builder,
             )
             remaining = [s.name for s in specs[specs.index(spec) :]]
             # The wait is unbounded by design, so the recorder must NOT be
@@ -2019,6 +1564,8 @@ def run_session(
             ):
                 result.aborted = True
                 break
+            if dual_camera is not None:
+                dual_camera.reset_stats()  # latency and frame counts per protocol
             runner_ref["runner"] = runner
             runner.start()
             # Armed here, not before the wait: the clock for "frames have
@@ -2108,15 +1655,24 @@ def run_session(
             time.sleep(DRAIN_S)
             with runner.lock:
                 rec = runner.builder.freeze()
+                rec_lo = None if runner.shadow_builder is None else runner.shadow_builder.freeze()
             rec.meta["integrity"] = runner.integrity(
                 watchdog_tripped=watchdog, aborted=result.aborted
             )
             rec.meta["integrity"]["failure"] = result.failure
             rec.meta["integrity"]["fps_median"] = runner.fps_median()
+            if dual_camera is not None:
+                described = dual_camera.describe()
+                rec.meta["capture"] = dict(rec.meta["capture"], **described)
+                if rec_lo is not None:
+                    rec_lo.meta["integrity"] = dict(rec.meta["integrity"])
+                    rec_lo.meta["capture"] = dict(rec_lo.meta["capture"], **described)
             result.protocols_run.append(spec.name)
             if round_dir is not None:
                 npz_path, _ = rec.save(round_dir)
                 result.recordings[spec.name] = npz_path
+                if rec_lo is not None:
+                    rec_lo.save(round_dir / DUAL_LO_SUBDIR)
             dim = runner.feature_dim
             if dim is not None and dim != EXPECTED_FEATURE_DIM:
                 print(f"WARNING: feature dim {dim} != expected {EXPECTED_FEATURE_DIM}")
@@ -2179,15 +1735,6 @@ def _estimate_seconds(spec: ProtocolSpec) -> float:
         per_point = C.PREPARE_S + C.N_FRAMES_PER_POINT / 30.0 + C.WAIT_S
         return (stored + 1) * per_point  # + the unstored warm-up point
     return stored * (spec.settle_s + spec.collect_s)
-
-
-def _sleep_with_escape(display: Display, seconds: float) -> bool:
-    end = time.monotonic() + seconds
-    while time.monotonic() < end:
-        if display.poll_escape():
-            return True
-        time.sleep(0.02)
-    return False
 
 
 def resolve_output_root(candidate: Path) -> Path:
@@ -2282,70 +1829,6 @@ def prepare_output_dir(
     round_dir = root / f"round{round_id}"
     guard_existing_round(round_dir, allow_overwrite=allow_overwrite)
     return round_dir
-
-
-def _overlay_design_row(
-    model: Any,
-    face_info: Any,
-    gaze_info: Any,
-    head_builder: Callable[[Any], np.ndarray | None] = H.build,
-) -> np.ndarray | None:
-    """One model-ready row from a live frame, or None if this frame cannot make one.
-
-    A model fitted with head columns needs those columns here too: feeding it
-    the bare feature vector raises on the column count, and doing that during
-    warm-up would abort the session for a configuration the recorder fully
-    supports. Never raises -- a frame the check cannot use is one fewer
-    sample, not a failed recording.
-    """
-
-    try:
-        features = getattr(gaze_info, "features", None)
-        if features is None:
-            return None
-        features = np.asarray(features, dtype=np.float64).reshape(1, -1)
-        head_names = model.schema.head_names
-        if not head_names:
-            return features.reshape(-1)
-        head = head_builder(face_info)
-        if head is None:
-            return None
-        design = S.assemble(features, head.reshape(1, -1), head_names, H.HEAD6_NAMES)
-        return np.asarray(design, dtype=np.float64).reshape(-1)
-    except Exception:  # noqa: BLE001 - a preflight sample must never break recording
-        return None
-
-
-def preflight_verdict(
-    activation: np.ndarray | None,
-    *,
-    minimum: float = PREFLIGHT_MIN_ACTIVATION,
-) -> tuple[bool, str]:
-    """Is this model usable in the conditions the camera is seeing right now?
-
-    Returns (ok, message). Answers ok for anything it cannot measure -- a
-    ridge model, no frames yet -- because refusing on absent evidence would
-    block recording for no reason. Only a measured collapse fails.
-    """
-
-    if activation is None:
-        return True, "model has no kernel to check (not an SVR); skipping"
-    finite = activation[np.isfinite(activation)]
-    if finite.size == 0:
-        return True, "no valid frames to check the model against; skipping"
-    median = float(np.median(finite))
-    frozen = float(np.mean(finite < 0.01))
-    if median >= minimum:
-        return True, f"model matches current conditions (activation {median:.3f})"
-    return False, (
-        f"this model does not fit the current conditions: median support "
-        f"activation {median:.3f} (healthy is above {minimum:.2f}), and "
-        f"{100.0 * frozen:.0f}% of frames carry no calibration information "
-        "at all.\nThe overlay point would freeze on a fixed wrong position "
-        "rather than follow your eye.\nRecalibrate (run a round with "
-        "protocol A) and fit a model from it, or pass --skip-model-check to "
-        "record anyway."
-    )
 
 
 def _holds_usable_rows(npz_path: Path) -> bool:
@@ -2584,6 +2067,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="discard an existing recording for this round id (refused by default)",
     )
     parser.add_argument(
+        "--capture",
+        choices=("library", "dual", "hi"),
+        default="library",
+        help=(
+            "library (default): the library's own camera, 640x480. hi: read 1920x1080, take a "
+            "centred 1440x1080 crop and run ONE pipeline on it (writes only under "
+            "recordings/hi; no overlay). dual: read 1920x1080, take a "
+            "centred 1440x1080 crop, and run TWO pipelines on every frame -- the crop itself "
+            "(hi) and the crop reduced to 640x480 (lo, saved under round*/lo/) -- so the two "
+            "resolutions are compared on identical frames. Experiment only: refuses an overlay "
+            "and refuses to write directly into recordings/."
+        ),
+    )
+    parser.add_argument(
         "--no-save",
         action="store_true",
         help=(
@@ -2780,6 +2277,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("SETUP CHANGED since the previous recording in this round:")
             for change in comparison["critical_changes"]:
                 print(f"  {change['field']}: {change['before']} -> {change['after']}")
+            layout = comparison.get("code_layout_changed")
+            if layout:
+                print(f"  code layout: {layout['note']}")
     if args.eye_distance_cm is None:
         print(
             "NOTE: no --eye-distance-cm given; angular error will be unavailable for this session"
@@ -2811,6 +2311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pose_blocks=args.pose_blocks,
         advance_timeout_s=args.advance_timeout_s,
         no_save=args.no_save,
+        capture=args.capture,
     )
     if result.saved and result.recordings:
         manifest.save(args.out / f"round{args.round}" / "setup.json")

@@ -238,7 +238,7 @@ class SeparationTests(unittest.TestCase):
     """The audit this project applies to every file that can reach the OS."""
 
     def test_the_scroll_logic_cannot_reach_the_os_at_all(self) -> None:
-        source = (Path(__file__).resolve().parent.parent / "gf_scroll.py").read_text(
+        source = Path(__import__("gf_scroll").__file__).read_text(
             encoding="utf-8"
         )
         for forbidden in ("SendInput", "MOUSEEVENTF", "SetCursorPos", "ctypes", "windll"):
@@ -255,7 +255,7 @@ class SeparationTests(unittest.TestCase):
     def test_the_click_module_still_never_moves_the_pointer(self) -> None:
         """The wheel was added to that file; the existing audit must still hold."""
 
-        source = (Path(__file__).resolve().parent.parent / "gf_click.py").read_text(
+        source = Path(__import__("gf_click").__file__).read_text(
             encoding="utf-8"
         )
         for forbidden in ("SetCursorPos", "MOUSEEVENTF_MOVE", "mouse_move"):

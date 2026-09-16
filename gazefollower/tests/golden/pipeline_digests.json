@@ -1,0 +1,62 @@
+{
+ "synthetic": {
+  "live": {
+   "frames": 300,
+   "valid": 275,
+   "winks": 1,
+   "gestures": 0,
+   "sha256": "fd11dc4080761769e938ffdc8cf645bb883bee5bdceaca50b25a04c3e7548f8f"
+  },
+  "record": {
+   "frames": 300,
+   "overlay_shown": 275,
+   "sha256": "1723409b7d7ce2b7443ecb567ae97c1cb2d6a7aafc91d91af49d8c0c410f093b",
+   "recording_sha256": "9efea225a5fef55a1e42ce1dcd88980c347d35b88ec986bb39fd4e10388f89a8"
+  }
+ },
+ "round46_T1_pooled": {
+  "live": {
+   "frames": 902,
+   "valid": 902,
+   "winks": 0,
+   "gestures": 0,
+   "sha256": "19aee07b89e0d95d4755eb7f3d6f82871671b7ffc2c2592fa007bdae26c8da0e"
+  },
+  "record": {
+   "frames": 902,
+   "overlay_shown": 902,
+   "sha256": "97f43ca0c4c133dd2a5612c0cfdd41ee3b7bdaf0cf01d14949715f90cd8dceb5",
+   "recording_sha256": "f7d8f318a92c018bbfd870f88f81e7fb0e3500821ed652ab9476afb60ce47b45"
+  }
+ },
+ "round46_A_pooled": {
+  "live": {
+   "frames": 1046,
+   "valid": 1046,
+   "winks": 0,
+   "gestures": 0,
+   "sha256": "519098f43de334016f7cd8119819f91444cbb2c8876bb86f422c4c7a9e6225a9"
+  },
+  "record": {
+   "frames": 1046,
+   "overlay_shown": 1046,
+   "sha256": "cc4dc2f302fe7412198767c035b7b52f3a615027732716fcf7bd868ce31d04f4",
+   "recording_sha256": "1b40b9355ddcab83a00a92bd04fa8bb93c5ea7a940113fe4ad4bf39cc2823a23"
+  }
+ },
+ "resolution_round3_T1_hi": {
+  "live": {
+   "frames": 1197,
+   "valid": 1196,
+   "winks": 0,
+   "gestures": 0,
+   "sha256": "7775cb66eb6f0ba1bba5eabf5c38f5aecb0d5055c2ac6b2f0280f4a357d9dac8"
+  },
+  "record": {
+   "frames": 1197,
+   "overlay_shown": 895,
+   "sha256": "16532b09df2ab4b780a18e48493358e607b157b257b4db15bb4c4538ecda1165",
+   "recording_sha256": "907993249434a7e89732e5d0a34ccdc2dc54c20d5c8b2f1d4466e44629125986"
+  }
+ }
+}

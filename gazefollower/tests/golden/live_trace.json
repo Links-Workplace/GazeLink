@@ -1,0 +1,2947 @@
+{
+ "cursor_follow_loss_recovery": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    1536,
+    720
+   ],
+   [
+    "move",
+    10.0,
+    1555,
+    720
+   ],
+   [
+    "move",
+    15.0,
+    1570,
+    720
+   ],
+   [
+    "move",
+    20.0,
+    1587,
+    720
+   ],
+   [
+    "move",
+    25.0,
+    1605,
+    720
+   ],
+   [
+    "move",
+    30.0,
+    1624,
+    720
+   ],
+   [
+    "move",
+    35.0,
+    1643,
+    720
+   ],
+   [
+    "move",
+    40.0,
+    1663,
+    720
+   ],
+   [
+    "move",
+    45.0,
+    1683,
+    720
+   ],
+   [
+    "move",
+    50.0,
+    1703,
+    720
+   ],
+   [
+    "move",
+    55.0,
+    1723,
+    720
+   ],
+   [
+    "move",
+    60.0,
+    1743,
+    720
+   ],
+   [
+    "move",
+    65.0,
+    1764,
+    720
+   ],
+   [
+    "move",
+    70.0,
+    1784,
+    720
+   ],
+   [
+    "move",
+    75.0,
+    1805,
+    720
+   ],
+   [
+    "move",
+    80.0,
+    1825,
+    720
+   ],
+   [
+    "move",
+    85.0,
+    1846,
+    720
+   ],
+   [
+    "move",
+    90.0,
+    1866,
+    720
+   ],
+   [
+    "move",
+    95.0,
+    1887,
+    720
+   ],
+   [
+    "move",
+    100.0,
+    1907,
+    720
+   ],
+   [
+    "move",
+    105.0,
+    1928,
+    720
+   ],
+   [
+    "move",
+    110.0,
+    1948,
+    720
+   ],
+   [
+    "move",
+    115.0,
+    1969,
+    720
+   ],
+   [
+    "move",
+    120.0,
+    1989,
+    720
+   ],
+   [
+    "move",
+    125.0,
+    2010,
+    720
+   ],
+   [
+    "move",
+    130.0,
+    2030,
+    720
+   ],
+   [
+    "move",
+    135.0,
+    2051,
+    720
+   ],
+   [
+    "move",
+    140.0,
+    2071,
+    720
+   ],
+   [
+    "move",
+    145.0,
+    2092,
+    720
+   ],
+   [
+    "move",
+    150.0,
+    2112,
+    720
+   ],
+   [
+    "move",
+    155.0,
+    2132,
+    720
+   ],
+   [
+    "move",
+    160.0,
+    2153,
+    720
+   ],
+   [
+    "move",
+    165.0,
+    2173,
+    720
+   ],
+   [
+    "move",
+    170.0,
+    2194,
+    720
+   ],
+   [
+    "move",
+    175.0,
+    2214,
+    720
+   ],
+   [
+    "move",
+    180.0,
+    2235,
+    720
+   ],
+   [
+    "move",
+    185.0,
+    2255,
+    720
+   ],
+   [
+    "move",
+    190.0,
+    2276,
+    720
+   ],
+   [
+    "move",
+    195.0,
+    2296,
+    720
+   ],
+   [
+    "move",
+    200.0,
+    2317,
+    720
+   ],
+   [
+    "move",
+    205.0,
+    2337,
+    720
+   ],
+   [
+    "move",
+    210.0,
+    2358,
+    720
+   ],
+   [
+    "move",
+    215.0,
+    2378,
+    720
+   ],
+   [
+    "move",
+    220.0,
+    2399,
+    720
+   ],
+   [
+    "move",
+    225.0,
+    2419,
+    720
+   ],
+   [
+    "move",
+    230.0,
+    2440,
+    720
+   ],
+   [
+    "move",
+    235.0,
+    2460,
+    720
+   ],
+   [
+    "move",
+    240.0,
+    2481,
+    720
+   ],
+   [
+    "move",
+    245.0,
+    2501,
+    720
+   ],
+   [
+    "move",
+    250.0,
+    2521,
+    720
+   ],
+   [
+    "move",
+    255.0,
+    2542,
+    720
+   ],
+   [
+    "move",
+    260.0,
+    2562,
+    720
+   ],
+   [
+    "move",
+    265.0,
+    2583,
+    720
+   ],
+   [
+    "move",
+    270.0,
+    2603,
+    720
+   ],
+   [
+    "move",
+    275.0,
+    2624,
+    720
+   ],
+   [
+    "move",
+    280.0,
+    2644,
+    720
+   ],
+   [
+    "move",
+    285.0,
+    2665,
+    720
+   ],
+   [
+    "move",
+    290.0,
+    2685,
+    720
+   ],
+   [
+    "move",
+    295.0,
+    2706,
+    720
+   ],
+   [
+    "move",
+    300.0,
+    2726,
+    720
+   ],
+   [
+    "move",
+    305.0,
+    2747,
+    720
+   ],
+   [
+    "move",
+    310.0,
+    2767,
+    720
+   ],
+   [
+    "move",
+    315.0,
+    2788,
+    720
+   ],
+   [
+    "move",
+    320.0,
+    2808,
+    720
+   ],
+   [
+    "move",
+    325.0,
+    2829,
+    720
+   ],
+   [
+    "move",
+    330.0,
+    2849,
+    720
+   ],
+   [
+    "move",
+    335.0,
+    2870,
+    720
+   ],
+   [
+    "move",
+    340.0,
+    2890,
+    720
+   ],
+   [
+    "move",
+    345.0,
+    2911,
+    720
+   ],
+   [
+    "move",
+    350.0,
+    2931,
+    720
+   ],
+   [
+    "move",
+    355.0,
+    2951,
+    720
+   ],
+   [
+    "move",
+    360.0,
+    2972,
+    720
+   ],
+   [
+    "move",
+    365.0,
+    2992,
+    720
+   ],
+   [
+    "move",
+    370.0,
+    3013,
+    720
+   ],
+   [
+    "move",
+    375.0,
+    3033,
+    720
+   ],
+   [
+    "move",
+    380.0,
+    3054,
+    720
+   ],
+   [
+    "move",
+    385.0,
+    3074,
+    720
+   ],
+   [
+    "move",
+    390.0,
+    3095,
+    720
+   ],
+   [
+    "move",
+    395.0,
+    3115,
+    720
+   ],
+   [
+    "move",
+    400.0,
+    3136,
+    720
+   ],
+   [
+    "move",
+    405.0,
+    3156,
+    720
+   ],
+   [
+    "move",
+    410.0,
+    3177,
+    720
+   ],
+   [
+    "move",
+    415.0,
+    3197,
+    720
+   ],
+   [
+    "move",
+    420.0,
+    3218,
+    720
+   ],
+   [
+    "move",
+    425.0,
+    3238,
+    720
+   ],
+   [
+    "move",
+    430.0,
+    3259,
+    720
+   ],
+   [
+    "move",
+    435.0,
+    3279,
+    720
+   ],
+   [
+    "move",
+    440.0,
+    3300,
+    720
+   ],
+   [
+    "move",
+    445.0,
+    3320,
+    720
+   ],
+   [
+    "move",
+    450.0,
+    3341,
+    720
+   ],
+   [
+    "move",
+    455.0,
+    3361,
+    720
+   ],
+   [
+    "move",
+    460.0,
+    3381,
+    720
+   ],
+   [
+    "move",
+    465.0,
+    3402,
+    720
+   ],
+   [
+    "move",
+    470.0,
+    3422,
+    720
+   ],
+   [
+    "move",
+    475.0,
+    3443,
+    720
+   ],
+   [
+    "move",
+    480.0,
+    3463,
+    720
+   ],
+   [
+    "move",
+    485.0,
+    3484,
+    720
+   ],
+   [
+    "move",
+    490.0,
+    3504,
+    720
+   ],
+   [
+    "move",
+    495.0,
+    3525,
+    720
+   ],
+   [
+    "move",
+    500.0,
+    3545,
+    720
+   ],
+   [
+    "move",
+    805.0,
+    3145,
+    576
+   ],
+   [
+    "move",
+    810.0,
+    2745,
+    576
+   ],
+   [
+    "move",
+    815.0,
+    2560,
+    576
+   ],
+   [
+    "move",
+    1205.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "WAITING FOR YOUR FACE - resumes on its own",
+   "ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 0",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 181 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 103, 'frozen_frames': 60, 'clamped_steps': 2, 'held_by_dead_zone': 78, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 103, 'frozen_frames': 60, 'clamped_steps': 2, 'held_by_dead_zone': 78, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 36 frames, last frame tracking"
+  ],
+  "draw_count": 243,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    241
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "df3bc150dd36fa5a12cc0e27840f16a24998840a1c807e624ea3dd979ff50d2c"
+ },
+ "blink_then_wink_double_click": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    3071,
+    720
+   ],
+   [
+    "move",
+    705.0,
+    3071,
+    720
+   ],
+   [
+    "button",
+    705.0,
+    2
+   ],
+   [
+    "button",
+    705.0,
+    4
+   ],
+   [
+    "button",
+    765.0,
+    2
+   ],
+   [
+    "button",
+    765.0,
+    4
+   ],
+   [
+    "move",
+    1105.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 1 (double 1, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 1",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {'DOUBLE_CLICK': 1}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 209 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 2, 'frozen_frames': 20, 'clamped_steps': 0, 'held_by_dead_zone': 121, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 1, 'doubles': 1, 'last_double_gap_ms': 60.0, 'system_double_click_ms': 500, 'last_double_within_system_window': True, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 2, 'frozen_frames': 20, 'clamped_steps': 0, 'held_by_dead_zone': 121, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 33 frames, last frame tracking"
+  ],
+  "draw_count": 211,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    209
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "fbae09470e1bb7bd5f91bd1c00731cf7e6643b616999314994c72fa48d17da53"
+ },
+ "pause_and_resume_with_space": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2048,
+    863
+   ],
+   [
+    "move",
+    905.0,
+    2048,
+    863
+   ],
+   [
+    "button",
+    905.0,
+    2
+   ],
+   [
+    "button",
+    905.0,
+    4
+   ],
+   [
+    "button",
+    965.0,
+    2
+   ],
+   [
+    "button",
+    965.0,
+    4
+   ],
+   [
+    "move",
+    1205.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "PAUSED",
+   "ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 1 (double 1, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 2",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 1",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {'DOUBLE_CLICK': 1}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 229 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 2, 'frozen_frames': 80, 'clamped_steps': 0, 'held_by_dead_zone': 101, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 1, 'doubles': 1, 'last_double_gap_ms': 60.0, 'system_double_click_ms': 500, 'last_double_within_system_window': True, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 2, 'frozen_frames': 80, 'clamped_steps': 0, 'held_by_dead_zone': 101, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 36 frames, last frame tracking"
+  ],
+  "draw_count": 231,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    229
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "fa42994fbea591f797f877d7cccf58d3e7bd1a109015063e208de07f99a92ee5"
+ },
+ "stale_and_duplicate_winks": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2560,
+    720
+   ],
+   [
+    "move",
+    505.0,
+    2560,
+    720
+   ],
+   [
+    "button",
+    505.0,
+    2
+   ],
+   [
+    "button",
+    505.0,
+    4
+   ],
+   [
+    "move",
+    1005.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 1 (double 0, right 0)",
+   "  click type at the end  : single",
+   "  winks detected         : 3",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : single",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'single', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 1",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {'LEFT_CLICK': 1}, 'refused': {'duplicate': 1}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 201 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 2, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 101, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 1, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 2, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 101, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 30 frames, last frame tracking"
+  ],
+  "draw_count": 203,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    201
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "d660f33e58519ca9e41aa94651555e4b8b1513d804d94a46590a4283702eb4ee"
+ },
+ "wink_with_no_aim": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2560,
+    720
+   ],
+   [
+    "move",
+    605.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 1",
+   "  winks with nowhere to go: 1",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {'DOUBLE_CLICK': 1}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 121 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 1, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 120, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 1, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 120, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 18 frames, last frame tracking"
+  ],
+  "draw_count": 123,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    121
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "30c84d27ccd9f19c1b81202fdccb122442e125c1e0e4c4c738a50afc24389706"
+ },
+ "menu_click_type_then_right_click": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2560,
+    720
+   ],
+   [
+    "move",
+    905.0,
+    2960,
+    1120
+   ],
+   [
+    "move",
+    910.0,
+    3148,
+    1238
+   ],
+   [
+    "move",
+    1205.0,
+    2942,
+    1057
+   ],
+   [
+    "move",
+    1210.0,
+    2808,
+    939
+   ],
+   [
+    "move",
+    1215.0,
+    2721,
+    862
+   ],
+   [
+    "move",
+    1220.0,
+    2665,
+    812
+   ],
+   [
+    "move",
+    1225.0,
+    2628,
+    780
+   ],
+   [
+    "move",
+    1230.0,
+    2604,
+    759
+   ],
+   [
+    "move",
+    1235.0,
+    2589,
+    745
+   ],
+   [
+    "move",
+    1245.0,
+    2572,
+    731
+   ],
+   [
+    "move",
+    1285.0,
+    2560,
+    720
+   ],
+   [
+    "move",
+    1705.0,
+    2560,
+    720
+   ],
+   [
+    "button",
+    1705.0,
+    8
+   ],
+   [
+    "button",
+    1705.0,
+    16
+   ],
+   [
+    "move",
+    2105.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "mode MENU - long close",
+   "click type: right",
+   "mode CURSOR - click type chosen",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 1 (double 0, right 1)",
+   "  click type at the end  : right",
+   "  winks detected         : 1",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 1, chose 2, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'right', 'tiles the gaze reached': {'click-type': 10, 'dead zone': 60, 'single': 60, 'right': 10}, 'frames with the menu open': 140, 'frames refused before the gaze was seen in the dead zone': 60}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {'RIGHT_CLICK': 1}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 421 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 13, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 190, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 1, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 13, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 190, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 63 frames, last frame tracking"
+  ],
+  "draw_count": 423,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    41
+   ],
+   [
+    "board",
+    139
+   ],
+   [
+    "live",
+    241
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "dab7ef01d03f84fcfc63be6dc57093be942fd1028fdf43dc4ead330cdab428e2"
+ },
+ "menu_second_long_close_ignored_and_wink_in_menu": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2560,
+    720
+   ],
+   [
+    "move",
+    1005.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "mode MENU - long close",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 1",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 1 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 1, chose 0, commands sent 0",
+   "  long closes while it was already open: 1 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'dead zone': 160}, 'frames with the menu open': 160, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 201 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 1, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 40, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 1, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 40, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 30 frames, last frame tracking"
+  ],
+  "draw_count": 203,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    41
+   ],
+   [
+    "board",
+    160
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "99f25fbd1a5a244e3ccd510466561370b4cf2651bf5d39f031e1097680a3f393"
+ },
+ "scroll_seed_notches_and_face_loss": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2560,
+    720
+   ],
+   [
+    "move",
+    400.0,
+    2560,
+    720
+   ],
+   [
+    "wheel",
+    1910.0,
+    120
+   ],
+   [
+    "wheel",
+    2710.0,
+    120
+   ],
+   [
+    "move",
+    2805.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "mode MENU - long close",
+   "mode SCROLL - chosen in the menu",
+   "WAITING FOR YOUR FACE - resumes on its own",
+   "ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 1",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 2 notches over 1 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 1 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 1, chose 1, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'scroll': 10, 'dead zone': 30}, 'frames with the menu open': 40, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 2, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: SCROLL UP 360 (75%), the middle 80 (17%), no point 40 (8%)",
+   "  eye ratios             : 521 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 2, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 40, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 2, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 40, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 84 frames, last frame tracking"
+  ],
+  "draw_count": 563,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    41
+   ],
+   [
+    "board",
+    39
+   ],
+   [
+    "live",
+    481
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "1db7df7beb85b2a3ca842f29085b11402cc9374007ba438b425d9dd41149013a"
+ },
+ "start_scrolling_down": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "wheel",
+    710.0,
+    -120
+   ],
+   [
+    "wheel",
+    865.0,
+    -120
+   ],
+   [
+    "wheel",
+    1020.0,
+    -120
+   ],
+   [
+    "wheel",
+    1175.0,
+    -120
+   ],
+   [
+    "wheel",
+    1330.0,
+    -120
+   ],
+   [
+    "wheel",
+    1485.0,
+    -120
+   ],
+   [
+    "move",
+    1505.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 0",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 6 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 6, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: SCROLL DOWN 260 (86%), the middle 41 (14%)",
+   "  eye ratios             : 301 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 0, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 0, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 0, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 0, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 45 frames, last frame tracking"
+  ],
+  "draw_count": 303,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    301
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "caf12f7c37e53be422583471ef135fd200d5c53af40851db96d3b8a5669cb0ff"
+ },
+ "keyboard_type_then_target_lost": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    2560,
+    720
+   ],
+   [
+    "key",
+    3205.0,
+    0,
+    1489,
+    4
+   ],
+   [
+    "key",
+    3205.0,
+    0,
+    1489,
+    6
+   ],
+   [
+    "move",
+    6415.0,
+    2960,
+    1120
+   ],
+   [
+    "move",
+    6420.0,
+    3148,
+    1238
+   ],
+   [
+    "move",
+    7505.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "mode MENU - long close",
+   "typing into: window 4242",
+   "mode KEYBOARD - chosen in the menu",
+   "the window being typed into changed - the keyboard closed",
+   "mode CURSOR - the window being typed into changed - the keyboard closed",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 4",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 1, chose 1, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'keyboard': 10, 'dead zone': 30}, 'frames with the menu open': 40, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 2 keys chosen, 1 characters typed, 1 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 2, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 1, 'commands_sent': 0, 'target': 'window 4242', 'target_lost': True, 'refused_target_changed': 1, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {'TYPE_TEXT': 2}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 1501 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 3, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 256, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 3, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 256, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 225 frames, last frame tracking"
+  ],
+  "draw_count": 1503,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    41
+   ],
+   [
+    "board",
+    39
+   ],
+   [
+    "scan",
+    1202
+   ],
+   [
+    "live",
+    219
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "3a4cb395e8938f5d5d62d949cc83becce3a5084d3c3c1999d81651932fb70450"
+ },
+ "paused_menu_command_refused_then_resume": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    2805.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting PAUSED",
+   "mode MENU - long close",
+   "mode CURSOR - menu closed",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : PAUSED",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 0",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 1, chose 2, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'more-1': 10, 'dead zone': 60, 'back': 10, 'more-2': 60}, 'frames with the menu open': 140, 'frames refused before the gaze was seen in the dead zone': 60}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {}, 'refused': {'paused': 1}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 561 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 0, 'frozen_frames': 422, 'clamped_steps': 0, 'held_by_dead_zone': 0, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 0, 'frozen_frames': 422, 'clamped_steps': 0, 'held_by_dead_zone': 0, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 84 frames, last frame tracking"
+  ],
+  "draw_count": 563,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    41
+   ],
+   [
+    "board",
+    139
+   ],
+   [
+    "live",
+    381
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "7d7e55ce9ac9d6801bef830676d969aebf03387f3ceaab7b2b568a8e6f5db899"
+ },
+ "escape_stops_everything": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    1536,
+    720
+   ],
+   [
+    "move",
+    10.0,
+    1555,
+    720
+   ],
+   [
+    "move",
+    15.0,
+    1570,
+    720
+   ],
+   [
+    "move",
+    20.0,
+    1587,
+    720
+   ],
+   [
+    "move",
+    25.0,
+    1605,
+    720
+   ],
+   [
+    "move",
+    30.0,
+    1624,
+    720
+   ],
+   [
+    "move",
+    35.0,
+    1643,
+    720
+   ],
+   [
+    "move",
+    40.0,
+    1663,
+    720
+   ],
+   [
+    "move",
+    45.0,
+    1683,
+    720
+   ],
+   [
+    "move",
+    50.0,
+    1703,
+    720
+   ],
+   [
+    "move",
+    55.0,
+    1723,
+    720
+   ],
+   [
+    "move",
+    60.0,
+    1743,
+    720
+   ],
+   [
+    "move",
+    65.0,
+    1764,
+    720
+   ],
+   [
+    "move",
+    70.0,
+    1784,
+    720
+   ],
+   [
+    "move",
+    75.0,
+    1805,
+    720
+   ],
+   [
+    "move",
+    80.0,
+    1825,
+    720
+   ],
+   [
+    "move",
+    85.0,
+    1846,
+    720
+   ],
+   [
+    "move",
+    90.0,
+    1866,
+    720
+   ],
+   [
+    "move",
+    95.0,
+    1887,
+    720
+   ],
+   [
+    "move",
+    100.0,
+    1907,
+    720
+   ],
+   [
+    "move",
+    105.0,
+    1928,
+    720
+   ],
+   [
+    "move",
+    110.0,
+    1948,
+    720
+   ],
+   [
+    "move",
+    115.0,
+    1969,
+    720
+   ],
+   [
+    "move",
+    120.0,
+    1989,
+    720
+   ],
+   [
+    "move",
+    125.0,
+    2010,
+    720
+   ],
+   [
+    "move",
+    130.0,
+    2030,
+    720
+   ],
+   [
+    "move",
+    135.0,
+    2051,
+    720
+   ],
+   [
+    "move",
+    140.0,
+    2071,
+    720
+   ],
+   [
+    "move",
+    145.0,
+    2092,
+    720
+   ],
+   [
+    "move",
+    150.0,
+    2112,
+    720
+   ],
+   [
+    "move",
+    155.0,
+    2132,
+    720
+   ],
+   [
+    "move",
+    160.0,
+    2153,
+    720
+   ],
+   [
+    "move",
+    165.0,
+    2173,
+    720
+   ],
+   [
+    "move",
+    170.0,
+    2194,
+    720
+   ],
+   [
+    "move",
+    175.0,
+    2214,
+    720
+   ],
+   [
+    "move",
+    180.0,
+    2235,
+    720
+   ],
+   [
+    "move",
+    185.0,
+    2255,
+    720
+   ],
+   [
+    "move",
+    190.0,
+    2276,
+    720
+   ],
+   [
+    "move",
+    195.0,
+    2296,
+    720
+   ],
+   [
+    "move",
+    200.0,
+    2317,
+    720
+   ],
+   [
+    "move",
+    205.0,
+    2337,
+    720
+   ],
+   [
+    "move",
+    210.0,
+    2358,
+    720
+   ],
+   [
+    "move",
+    215.0,
+    2378,
+    720
+   ],
+   [
+    "move",
+    220.0,
+    2399,
+    720
+   ],
+   [
+    "move",
+    225.0,
+    2419,
+    720
+   ],
+   [
+    "move",
+    230.0,
+    2440,
+    720
+   ],
+   [
+    "move",
+    235.0,
+    2460,
+    720
+   ],
+   [
+    "move",
+    240.0,
+    2481,
+    720
+   ],
+   [
+    "move",
+    245.0,
+    2501,
+    720
+   ],
+   [
+    "move",
+    250.0,
+    2521,
+    720
+   ],
+   [
+    "move",
+    255.0,
+    2542,
+    720
+   ],
+   [
+    "move",
+    260.0,
+    2562,
+    720
+   ],
+   [
+    "move",
+    265.0,
+    2583,
+    720
+   ],
+   [
+    "move",
+    270.0,
+    2603,
+    720
+   ],
+   [
+    "move",
+    275.0,
+    2624,
+    720
+   ],
+   [
+    "move",
+    280.0,
+    2644,
+    720
+   ],
+   [
+    "move",
+    285.0,
+    2665,
+    720
+   ],
+   [
+    "move",
+    290.0,
+    2685,
+    720
+   ],
+   [
+    "move",
+    295.0,
+    2706,
+    720
+   ],
+   [
+    "move",
+    300.0,
+    2726,
+    720
+   ],
+   [
+    "move",
+    305.0,
+    2747,
+    720
+   ],
+   [
+    "move",
+    310.0,
+    2767,
+    720
+   ],
+   [
+    "move",
+    315.0,
+    2788,
+    720
+   ],
+   [
+    "move",
+    320.0,
+    2808,
+    720
+   ],
+   [
+    "move",
+    325.0,
+    2829,
+    720
+   ],
+   [
+    "move",
+    330.0,
+    2849,
+    720
+   ],
+   [
+    "move",
+    335.0,
+    2870,
+    720
+   ],
+   [
+    "move",
+    340.0,
+    2890,
+    720
+   ],
+   [
+    "move",
+    345.0,
+    2911,
+    720
+   ],
+   [
+    "move",
+    350.0,
+    2931,
+    720
+   ],
+   [
+    "move",
+    355.0,
+    2951,
+    720
+   ],
+   [
+    "move",
+    360.0,
+    2972,
+    720
+   ],
+   [
+    "move",
+    365.0,
+    2992,
+    720
+   ],
+   [
+    "move",
+    370.0,
+    3013,
+    720
+   ],
+   [
+    "move",
+    375.0,
+    3033,
+    720
+   ],
+   [
+    "move",
+    380.0,
+    3054,
+    720
+   ],
+   [
+    "move",
+    385.0,
+    3074,
+    720
+   ],
+   [
+    "move",
+    390.0,
+    3095,
+    720
+   ],
+   [
+    "move",
+    395.0,
+    3115,
+    720
+   ],
+   [
+    "move",
+    400.0,
+    3136,
+    720
+   ],
+   [
+    "move",
+    405.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "starting ACTIVE - wink to click",
+   "library shut",
+   "",
+   "session:",
+   "  mode at the end        : ACTIVE - wink to click",
+   "  toggled by             : key",
+   "  clicks                 : 0 (double 0, right 0)",
+   "  click type at the end  : double",
+   "  winks detected         : 0",
+   "  winks with nowhere to go: 0",
+   "  winks while paused     : 0",
+   "  wink action            : double",
+   "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
+   "  scrolling              : 0 notches over 0 entries",
+   "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
+   "  winks while scrolling  : 0 (none clicked)",
+   "  winks while the menu was open: 0 (none clicked)",
+   "  winks dropped at a change of mode: 0",
+   "  menu                   : opened 0, chose 0, commands sent 0",
+   "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
+   "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
+   "  winks that arrived too late: 0",
+   "  winks dropped mid-frame by a mode change: 0",
+   "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
+   "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
+   "  hebrew font            : fake",
+   "  action router          : {'accepted': {}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
+   "  while scrolling, the gaze was in: scroll mode was never entered",
+   "  eye ratios             : 81 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  head pitch             : no head pose on any frame",
+   "  overlay                : None",
+   "  cursor                 : {'enabled': True, 'moves': 80, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 1, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 80, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 1, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 12 frames, last frame tracking"
+  ],
+  "draw_count": 83,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    81
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "b72a83924ff5736917d4ff26dbcf14f2c1b27f073f3cfa868fc0a327e1b56c4b"
+ },
+ "cursor_only_no_clicks": {
+  "returncode": 0,
+  "inputs": [
+   [
+    "move",
+    0.0,
+    1536,
+    720
+   ],
+   [
+    "move",
+    10.0,
+    1555,
+    720
+   ],
+   [
+    "move",
+    15.0,
+    1570,
+    720
+   ],
+   [
+    "move",
+    20.0,
+    1587,
+    720
+   ],
+   [
+    "move",
+    25.0,
+    1605,
+    720
+   ],
+   [
+    "move",
+    30.0,
+    1624,
+    720
+   ],
+   [
+    "move",
+    35.0,
+    1643,
+    720
+   ],
+   [
+    "move",
+    40.0,
+    1663,
+    720
+   ],
+   [
+    "move",
+    45.0,
+    1683,
+    720
+   ],
+   [
+    "move",
+    50.0,
+    1703,
+    720
+   ],
+   [
+    "move",
+    55.0,
+    1723,
+    720
+   ],
+   [
+    "move",
+    60.0,
+    1743,
+    720
+   ],
+   [
+    "move",
+    65.0,
+    1764,
+    720
+   ],
+   [
+    "move",
+    70.0,
+    1784,
+    720
+   ],
+   [
+    "move",
+    75.0,
+    1805,
+    720
+   ],
+   [
+    "move",
+    80.0,
+    1825,
+    720
+   ],
+   [
+    "move",
+    85.0,
+    1846,
+    720
+   ],
+   [
+    "move",
+    90.0,
+    1866,
+    720
+   ],
+   [
+    "move",
+    95.0,
+    1887,
+    720
+   ],
+   [
+    "move",
+    100.0,
+    1907,
+    720
+   ],
+   [
+    "move",
+    105.0,
+    1928,
+    720
+   ],
+   [
+    "move",
+    110.0,
+    1948,
+    720
+   ],
+   [
+    "move",
+    115.0,
+    1969,
+    720
+   ],
+   [
+    "move",
+    120.0,
+    1989,
+    720
+   ],
+   [
+    "move",
+    125.0,
+    2010,
+    720
+   ],
+   [
+    "move",
+    130.0,
+    2030,
+    720
+   ],
+   [
+    "move",
+    135.0,
+    2051,
+    720
+   ],
+   [
+    "move",
+    140.0,
+    2071,
+    720
+   ],
+   [
+    "move",
+    145.0,
+    2092,
+    720
+   ],
+   [
+    "move",
+    150.0,
+    2112,
+    720
+   ],
+   [
+    "move",
+    155.0,
+    2132,
+    720
+   ],
+   [
+    "move",
+    160.0,
+    2153,
+    720
+   ],
+   [
+    "move",
+    165.0,
+    2173,
+    720
+   ],
+   [
+    "move",
+    170.0,
+    2194,
+    720
+   ],
+   [
+    "move",
+    175.0,
+    2214,
+    720
+   ],
+   [
+    "move",
+    180.0,
+    2235,
+    720
+   ],
+   [
+    "move",
+    185.0,
+    2255,
+    720
+   ],
+   [
+    "move",
+    190.0,
+    2276,
+    720
+   ],
+   [
+    "move",
+    195.0,
+    2296,
+    720
+   ],
+   [
+    "move",
+    200.0,
+    2317,
+    720
+   ],
+   [
+    "move",
+    205.0,
+    2337,
+    720
+   ],
+   [
+    "move",
+    210.0,
+    2358,
+    720
+   ],
+   [
+    "move",
+    215.0,
+    2378,
+    720
+   ],
+   [
+    "move",
+    220.0,
+    2399,
+    720
+   ],
+   [
+    "move",
+    225.0,
+    2419,
+    720
+   ],
+   [
+    "move",
+    230.0,
+    2440,
+    720
+   ],
+   [
+    "move",
+    235.0,
+    2460,
+    720
+   ],
+   [
+    "move",
+    240.0,
+    2481,
+    720
+   ],
+   [
+    "move",
+    245.0,
+    2501,
+    720
+   ],
+   [
+    "move",
+    250.0,
+    2521,
+    720
+   ],
+   [
+    "move",
+    255.0,
+    2542,
+    720
+   ],
+   [
+    "move",
+    260.0,
+    2562,
+    720
+   ],
+   [
+    "move",
+    265.0,
+    2583,
+    720
+   ],
+   [
+    "move",
+    270.0,
+    2603,
+    720
+   ],
+   [
+    "move",
+    275.0,
+    2624,
+    720
+   ],
+   [
+    "move",
+    280.0,
+    2644,
+    720
+   ],
+   [
+    "move",
+    285.0,
+    2665,
+    720
+   ],
+   [
+    "move",
+    290.0,
+    2685,
+    720
+   ],
+   [
+    "move",
+    295.0,
+    2706,
+    720
+   ],
+   [
+    "move",
+    300.0,
+    2726,
+    720
+   ],
+   [
+    "move",
+    305.0,
+    2747,
+    720
+   ],
+   [
+    "move",
+    310.0,
+    2767,
+    720
+   ],
+   [
+    "move",
+    315.0,
+    2788,
+    720
+   ],
+   [
+    "move",
+    320.0,
+    2808,
+    720
+   ],
+   [
+    "move",
+    325.0,
+    2829,
+    720
+   ],
+   [
+    "move",
+    330.0,
+    2849,
+    720
+   ],
+   [
+    "move",
+    335.0,
+    2870,
+    720
+   ],
+   [
+    "move",
+    340.0,
+    2890,
+    720
+   ],
+   [
+    "move",
+    345.0,
+    2911,
+    720
+   ],
+   [
+    "move",
+    350.0,
+    2931,
+    720
+   ],
+   [
+    "move",
+    355.0,
+    2951,
+    720
+   ],
+   [
+    "move",
+    360.0,
+    2972,
+    720
+   ],
+   [
+    "move",
+    365.0,
+    2992,
+    720
+   ],
+   [
+    "move",
+    370.0,
+    3013,
+    720
+   ],
+   [
+    "move",
+    375.0,
+    3033,
+    720
+   ],
+   [
+    "move",
+    380.0,
+    3054,
+    720
+   ],
+   [
+    "move",
+    385.0,
+    3074,
+    720
+   ],
+   [
+    "move",
+    390.0,
+    3095,
+    720
+   ],
+   [
+    "move",
+    395.0,
+    3115,
+    720
+   ],
+   [
+    "move",
+    400.0,
+    3136,
+    720
+   ],
+   [
+    "move",
+    405.0,
+    3156,
+    720
+   ],
+   [
+    "move",
+    410.0,
+    3177,
+    720
+   ],
+   [
+    "move",
+    415.0,
+    3197,
+    720
+   ],
+   [
+    "move",
+    420.0,
+    3218,
+    720
+   ],
+   [
+    "move",
+    425.0,
+    3238,
+    720
+   ],
+   [
+    "move",
+    430.0,
+    3259,
+    720
+   ],
+   [
+    "move",
+    435.0,
+    3279,
+    720
+   ],
+   [
+    "move",
+    440.0,
+    3300,
+    720
+   ],
+   [
+    "move",
+    445.0,
+    3320,
+    720
+   ],
+   [
+    "move",
+    450.0,
+    3341,
+    720
+   ],
+   [
+    "move",
+    455.0,
+    3361,
+    720
+   ],
+   [
+    "move",
+    460.0,
+    3381,
+    720
+   ],
+   [
+    "move",
+    465.0,
+    3402,
+    720
+   ],
+   [
+    "move",
+    470.0,
+    3422,
+    720
+   ],
+   [
+    "move",
+    475.0,
+    3443,
+    720
+   ],
+   [
+    "move",
+    480.0,
+    3463,
+    720
+   ],
+   [
+    "move",
+    485.0,
+    3484,
+    720
+   ],
+   [
+    "move",
+    490.0,
+    3504,
+    720
+   ],
+   [
+    "move",
+    495.0,
+    3525,
+    720
+   ],
+   [
+    "move",
+    500.0,
+    3545,
+    720
+   ],
+   [
+    "move",
+    505.0,
+    3558,
+    720
+   ],
+   [
+    "move",
+    515.0,
+    3573,
+    720
+   ],
+   [
+    "move",
+    605.0,
+    0,
+    0
+   ]
+  ],
+  "stdout": [
+   "dpi awareness: PER_MONITOR (fake)",
+   "profile trace: model <tests> (4 columns)",
+   "library shut",
+   "cursor: {'enabled': True, 'moves': 102, 'frozen_frames': 0, 'clamped_steps': 0, 'held_by_dead_zone': 19, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "live view ended: 18 frames, last frame tracking"
+  ],
+  "draw_count": 123,
+  "draw_kinds": [
+   [
+    "message",
+    1
+   ],
+   [
+    "live",
+    121
+   ],
+   [
+    "close",
+    1
+   ]
+  ],
+  "draw_sha256": "ebb6a91c21f1812a3b368f4a27f868d5b06da5569f303a251853071f219a8cd6"
+ },
+ "refused_eyes_toggle_with_menu": {
+  "returncode": "SystemExit: --toggle-by eyes and the menu are the same gesture: a long close cannot both open the menu and switch PAUSED/ACTIVE. Use --no-menu to keep the eyes toggle, or leave the default and switch with SPACE. The menu's own PAUSE tile switches the mode without a key, and it opens while paused.",
+  "inputs": [],
+  "stdout": [],
+  "draw_count": 0,
+  "draw_kinds": [],
+  "draw_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+ }
+}
