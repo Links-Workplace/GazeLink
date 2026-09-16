@@ -1,0 +1,161 @@
+{
+  "name": "group1_corrected_trial",
+  "model_dir": "recordings/pilot_cam/round5/models/group1_corrected_20260916",
+  "rig": {
+    "camera_x_cm": 60.0,
+    "camera_y_cm": -2.0,
+    "screen_w_cm": 120.0,
+    "screen_h_cm": 33.75,
+    "device_w_px": 5120,
+    "device_h_px": 1440
+  },
+  "filter": {
+    "kind": "one-euro",
+    "reset_gap_ms": 250.0,
+    "ema_cutoff_hz": 2.0,
+    "one_euro_min_cutoff_hz": 0.4,
+    "one_euro_beta_hz_per_px_s": 0.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "kalman_acceleration_noise_px2_s4": 400.0,
+    "kalman_measurement_noise_px2": 900.0
+  },
+  "screen": {
+    "screen_id": "LS49C95xU",
+    "connector": "\\\\.\\DISPLAY1",
+    "width_px": 5120,
+    "height_px": 1440,
+    "width_mm": 1192.0,
+    "height_mm": 336.0
+  },
+  "gesture": {
+    "wink": {
+      "shut_ratio": 0.45,
+      "asymmetry": 2.5,
+      "hold_ms": 35.0,
+      "bridge_ms": 40.0,
+      "cooldown_ms": 120.0
+    },
+    "gate": {
+      "shut_fraction": 0.55,
+      "steady_fraction": 0.8,
+      "adapt": 0.02
+    },
+    "eye_frame": "the person's own left and right, not the camera's",
+    "measured_utc": "2026-09-09T10:16:50.891241+00:00",
+    "evidence": {
+      "source": "results/click/a_20260909_101650.json",
+      "frames": 12818,
+      "selections": 25,
+      "per_button": {
+        "LEFT": 10,
+        "RIGHT": 15
+      },
+      "winks_on_no_button": 0,
+      "fired_twice": 0,
+      "deepest_right": 0.008109400687977815,
+      "deepest_left": 0.14173689684909702,
+      "frames_right_under_gate": 2721,
+      "frames_left_under_gate": 609,
+      "note": "Held unchanged from the built-in values because they were validated as they stand: 25 selections, none on the wrong target, none fired twice, with the right eye reaching 0.008 of its baseline while the left stayed above 0.14. Changing numbers that a measurement endorsed would be guessing again. Simulation only -- no OS click had been emitted when this was recorded.",
+      "real_os_clicks": {
+        "runs": [
+          {
+            "report": "results/click/a_20260909_102007.json",
+            "seconds": 77.1,
+            "clicks": 12,
+            "per_button": {
+              "LEFT": 3,
+              "RIGHT": 9
+            },
+            "winks_on_no_button": 0,
+            "failed": 0,
+            "button_stuck": false,
+            "refused_too_soon": 0,
+            "every_click_inside_its_button": true
+          },
+          {
+            "report": "results/click/a_20260909_102634.json",
+            "seconds": 41.3,
+            "clicks": 4,
+            "per_button": {
+              "LEFT": 2,
+              "RIGHT": 2
+            },
+            "winks_on_no_button": 0,
+            "failed": 0,
+            "button_stuck": false,
+            "refused_too_soon": 0,
+            "every_click_inside_its_button": true
+          }
+        ],
+        "total_clicks": 16,
+        "note": "Real Windows left clicks, emitted by wink, on a verified ruler. Across both runs: no click landed outside the button it selected, no wink landed on no button, no click fired twice, and the left button was never left held. The earlier line in this record describing simulation stands as the step before these."
+      }
+    },
+    "updated_utc": "2026-09-10",
+    "changes": [
+      "cooldown_ms 700 -> 120: at 700 the soonest a second wink could fire was about 900 ms after the first, against Windows' 500 ms double-click window, so two winks could never open anything. The eye having to reopen is what stops one closure firing twice; the cooldown was only ever a guard against jitter around that.",
+      "gate.steady_fraction 0.80 added: between shut and steady the blink gate still passes and a gaze point is produced from an eye already half behind its lid. Following it is what made the pointer lurch as a wink began.",
+      "bridge_ms 100 added: over a two-minute session 103 frames matched the wink rule and only two winks fired, because a single frame popping out of the rule restarted the hold from zero. The eye-close detector has had this since it was written; the wink detector did not.",
+      "hold_ms 140 -> 50 and bridge_ms 100 -> 40: three measured sessions matched 3, 4 and 9 frames of the wink rule and fired ZERO winks. The winks were deep enough (right to 0.14-0.17) and asymmetric enough (left 4-6x that) and simply too short. The detector runs at the camera's ~30 fps and the first matching frame only starts the clock, so 140 ms asked for four unbroken frames; 50 ms asks for three, which is what was measured.",
+      "hold_ms 50 -> 35: the operator ran every live session with --wink-hold-ms 35 and nothing else, from the first one onwards. At 50 two consecutive sessions produced ZERO winks over 1553 and 335 samples; at 35 the same person and the same camera produced 3, 4, 2 and 19 winks, and the 19-wink session sent 15 double clicks with no failed press and no stuck button. The value is written down because it was measured and used, not because it was reasoned about: leaving the default at a number every session had to override was a default that described nobody."
+    ]
+  },
+  "cursor": {
+    "smoothing": 0.6,
+    "dead_zone_px": 6,
+    "max_step_px": 400,
+    "chosen_by": "operator, live, 8.9.2026: 0.35/12 felt jumpy, 0.6/6 felt right"
+  },
+  "calibration": {
+    "recording": "C:\\Users\\User\\Desktop\\focus\\gazefollower\\recordings\\pilot_cam\\round5",
+    "protocol": "B",
+    "round_id": 5,
+    "session": "20260916_123016",
+    "pose_set": "extended"
+  },
+  "pose": {
+    "roll_deg": 5.5872439642043465,
+    "yaw_ratio": 0.015623171445289652,
+    "pitch_a": -0.4732174955062912,
+    "eye_mid_x": 0.5625,
+    "eye_mid_y": 0.359375,
+    "iod_norm": 0.1352803801369585
+  },
+  "scores": {
+    "status": "TRIAL. Not adopted, never activated. Approved by the operator on a live view, 2026-09-16.",
+    "model": "group1_locked_20260916 (round3/A + round5/B, 258 features, no head columns) PLUS an axis correction",
+    "correction": "x gain 1.2354 offset -0.1150, y gain 0.9659 offset +0.0366  [from round3:T1, round4:T1, round5:T1]",
+    "correction_fitted_on": [
+      "round3:T1",
+      "round4:T1",
+      "round5:T1"
+    ],
+    "held_out_evidence": {
+      "unit": "per-presentation mean of the raw error, logical px",
+      "round12": {
+        "locked": 142,
+        "corrected": 112
+      },
+      "round13": {
+        "locked": 149,
+        "corrected": 98
+      },
+      "round13_filtered": {
+        "locked": 139,
+        "corrected": 89
+      }
+    },
+    "NOT_verified": "every recording behind this is from 2026-09-16. The gain measured 1.16-1.25 across sittings, so it is not a constant. A previous OFFSET correction worked within a sitting and failed between days. Verify on another day before adoption.",
+    "mechanism_unproven": "the 3x3 calibration grid is a HYPOTHESIS for why the deviation exists, not a demonstrated cause. One of its two predictions failed: error magnitude grows with distance from a calibration column (r=0.64) but the direction is not systematically away from it (10 of 18, chance 9). The correction working does not explain why the error was there.",
+    "not_compared_to": "pooled_trial, the active profile, which was calibrated at camera_y_cm 63.6 while this is -2.0. No valid comparison exists yet.",
+    "distance_from_spec": "about 2.5 degrees at 60 cm against a target of 1.5."
+  },
+  "x_range": [
+    0.3,
+    0.7
+  ],
+  "capture_pipeline": "640x480-library",
+  "created_utc": "2026-09-16T11:40:22+00:00",
+  "version": "profile-1"
+}

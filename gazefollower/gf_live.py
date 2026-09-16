@@ -41,6 +41,7 @@ from gazelink_core.app import environment as ENV  # noqa: E402
 from gazelink_core.app import live_session as SESSION  # noqa: E402
 from gazelink_core.app import telemetry as TELEMETRY  # noqa: E402
 from gazelink_core.app.options import LiveOptions  # noqa: E402
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 from gazelink_core.calibration import model as MODEL  # noqa: E402
 from gazelink_core.domain.clock import MonotonicClock  # noqa: E402
 from gazelink_core.domain.observation import HeadPolicy  # noqa: E402
@@ -174,7 +175,11 @@ def real_environment() -> ENV.LiveEnvironment:
         ).open(),
         warm_up=lambda display, seconds: UI.sleep_with_escape(display, seconds),
         make_runner=lambda *a, **kw: LiveRunner(*a, **kw),
-        load_model=lambda path: MODEL.FittedModel.load(path),
+        # Honours a correction.json beside the model, so the point drawn here
+        # and the point scored afterwards are the same thing. Loading the bare
+        # model would silently show the UNCORRECTED prediction under the
+        # corrected model's name.
+        load_model=lambda path: CORR.load_with_correction(path, MODEL.FittedModel.load),
         make_display=lambda *a, **kw: UI.Display(*a, **kw),
         pick_monitor=lambda selector: GD.pick_monitor(selector),
         virtual_desktop=lambda: SC.virtual_desktop(),

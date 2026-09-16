@@ -174,6 +174,86 @@ Keep hardware/model-specific code behind adapters where practical. Keep pure mat
 
 Avoid premature platform/API work before the current milestone's user outcome is working, unless the user explicitly requests it.
 
+5.1 Mandatory OOP and modularity policy
+
+Apply this policy to every new feature, fix, experiment, recorder, analysis tool, and refactor. Architecture is part of completion, not a later cleanup task. Deliver modular code in the current task; do not defer an avoidable monolith to a future refactor or wait for the user to request modularity again.
+
+Use the repository's approved architecture and existing packages as the starting point. These rules extend the architecture principles above; they do not authorize replacing the approved design or reorganizing unrelated subsystems.
+
+5.2 Responsibility and dependency map before implementation
+
+Before meaningful code changes, inspect the affected code and include a short responsibility map in the implementation plan:
+
+Existing components to reuse and their actual paths.
+
+Each new or changed module/class, its single primary responsibility, and why it belongs in that package.
+
+Input/output contracts, units, dependencies, and ownership of mutable state or resources.
+
+The entry point that wires the components together and the relevant behavior checks.
+
+For a small fix, a few sentences suffice. Do not invent a new framework or produce a large design document for routine work. Make routine implementation decisions autonomously within the approved scope.
+
+5.3 OOP where it owns behavior; functions where they suffice
+
+Give each class one cohesive responsibility and explicit state ownership. Encapsulate state transitions behind methods that preserve invariants; avoid unrelated public mutable flags.
+
+Use classes for stateful services, resource lifecycles, interchangeable adapters, and domain behavior. Use typed data structures for configuration and results, and pure functions for stateless calculations. A class containing only unrelated static methods is not modular OOP.
+
+Prefer composition over inheritance. Introduce a small Protocol or interface at an actual substitution boundary, such as a real/fake camera, model, clock, storage, or OS-input adapter. Do not build speculative class hierarchies or a dependency-injection framework.
+
+Pass dependencies explicitly through constructors or function parameters. Do not hide them in mutable globals, service locators, singleton registries, or long closures sharing nonlocal state.
+
+Keep domain calculations and state machines independent of CLI parsing, UI frameworks, camera libraries, file I/O, and OS input. Outer adapters depend on core contracts; core modules must not import entry-point scripts or concrete UI/OS adapters.
+
+Create and wire resources in a clear composition root. One component owns each resource's startup and cleanup; cleanup must still occur when reporting or other shutdown steps fail.
+
+Keep per-frame paths efficient. Modularity does not justify unnecessary copies, allocations, wrappers, or synchronization in the live pipeline.
+
+5.4 Package layout, entry points, and file-size guardrails
+
+Place code under the existing package for its responsibility. Reuse the post-refactor core packages where present and verified. Do not rebuild a parallel architecture inside a gf_*.py script, experiment, or scratchpad.
+
+Keep CLI and launcher files thin: parse arguments, build configuration, wire components, invoke a use case, and report its result. Move algorithms, state machines, persistence, protocol definitions, rendering, and scoring into cohesive modules.
+
+Use responsibility-based names. Do not split a large file into part1/part2, unrelated utils/helpers modules, or one equally large class. Folder organization must reflect real dependency and responsibility boundaries.
+
+Review size before a module exceeds 400 physical lines, a class exceeds 200 lines, or a function/method exceeds 60 lines. These are review triggers, not evidence of a defect on their own.
+
+Do not create or grow a hand-written source module beyond 600 physical lines by default. Split at a real responsibility boundary before delivery. A narrowly justified cohesive exception must be documented in the task evidence and examined by the existing section 7.5 reviewer; routine exceptions do not introduce a separate user-approval round.
+
+Exclude generated code, vendored files, and data-only fixtures from these size limits. Do not evade the limits by compressing code, deleting useful documentation, or scattering one responsibility across arbitrary files. Organize tests by behavior or subsystem as they grow.
+
+Existing oversized files are not permission to add unrelated behavior. For new responsibilities, extract or create the relevant component and leave only delegation/wiring in the old file. A small bug fix may remain local; do not launch a repository-wide refactor merely because a legacy file is large.
+
+Preserve public entry points and compatibility with thin wrappers where needed. Keep extraction scoped to the current task and verify affected behavior.
+
+5.5 Experiments and analysis tools follow the same rules
+
+Temporary location is not an architecture exemption. Reusable experiment logic belongs in cohesive modules, with a thin runner; it must reuse core functionality instead of copying the production pipeline.
+
+For a multi-pose experiment, for example, separate declarative pose definitions and instructions, recording orchestration, feature/coverage calculations, model comparison and decision rules, and report output. Choose concrete files and classes only after inspecting existing components; this is a responsibility map, not a requirement to create five new services.
+
+Keep experiment constants and selection criteria in typed, discoverable configuration. Do not mix fitting, metric computation, acceptance decisions, plots, UI events, and file writes in one main() function. A genuinely short one-off stateless calculation may remain a function or small script.
+
+5.6 Architecture acceptance gate
+
+Before calling an implementation complete, the lead and the existing section 7.5 reviewer must inspect the actual changes and confirm:
+
+New behavior is in the correct package, with a clear owner and focused interfaces.
+
+Entry points remain thin; no duplicate pipeline, circular dependency, hidden mutable state, or oversized catch-all class/module was introduced.
+
+Newly introduced responsibilities were not appended to an existing monolith for convenience.
+
+Size-triggered modules/classes/functions were examined; any exception has a concrete reason and review outcome.
+
+Relevant tests check public behavior, state transitions, contracts, and wiring. Test core logic without a live camera or real OS input; do not add brittle tests solely to assert a class exists or a file has a particular length.
+
+Extracted behavior and public commands remain compatible, except for explicitly intended changes. Report checks actually run and any unverified hardware behavior.
+
+Include a concise architecture summary in the final task report: responsibilities, affected paths, reuse decisions, size exceptions, and verification. Unresolved responsibility violations or unjustified monolith growth are acceptance blockers even when tests pass. Address them within the current task before marking it DONE. This gate is part of existing QA, not an additional review loop.
+
 Multi-agent orchestration
 
 Use the full multi-agent workflow when the user asks for agents, sub-agents, parallel work, delegation, or splitting the task. Also use it when a large task contains genuinely independent workstreams that can be completed without overlapping edits.
@@ -485,6 +565,8 @@ Re-read the requested outcome, exact TASKS.md entry, relevant spec.MD milestone,
 Review project-scoped git status and the complete diff only after resolving a valid project Git root; otherwise inspect the scoped files directly as required in section 2.
 
 Confirm only intended files changed.
+
+Verify the mandatory OOP and modularity policy in sections 5.1-5.6: responsibility boundaries, thin entry points, reuse, size exceptions, and architecture review evidence.
 
 Run relevant tests and static checks available in the repository.
 

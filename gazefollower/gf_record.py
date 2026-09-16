@@ -107,6 +107,8 @@ from gazelink_core.ui.prompt_layout import (  # noqa: E402,F401
     prompt_button_gaps,
     prompt_layout,
 )
+from gazelink_core.calibration import correction as CORR  # noqa: E402
+from gazelink_core.calibration import poses as POSES  # noqa: E402
 from gazelink_core.ui.pygame_display import (  # noqa: E402,F401
     _HEBREW_RANGE,
     HEBREW_FONTS,
@@ -189,20 +191,15 @@ INSTRUCTIONS = {
 #     correlated with target_y at r=+0.871, so the head numbers could be
 #     learned as a shortcut to the answer instead of as a correction.
 #
-# The instructions are deliberately in plain language and deliberately vague
-# about magnitude ("a little"): the operator cannot see their own yaw_ratio,
-# and asking for a number they cannot observe would produce a guess recorded
-# as a measurement.  Whether the poses actually covered the needed range is
-# decided afterwards, from the recording, by pose_coverage().
-POSE_SEQUENCE: tuple[tuple[str, str], ...] = (
-    ("centre", "Sit comfortably and face the screen straight on."),
-    ("left", "Turn your head a LITTLE to the left. Stay comfortable."),
-    ("centre_2", "Face the screen straight on again."),
-    ("right", "Turn your head a LITTLE to the right. Stay comfortable."),
-    ("centre_3", "Face the screen straight on again."),
-    ("chin_down", "Tip your chin down a LITTLE. Keep your eyes on the dots."),
-    ("centre_4", "Face the screen straight on again."),
-)
+# Pose sequences for protocol B live in the core: which poses, in which order,
+# and what the operator is told to do is a decision about the experiment, not
+# about camera handling or file layout, and it is testable without hardware.
+# The names below are kept so anything importing them keeps working.
+POSE_SEQUENCE: tuple[tuple[str, str], ...] = POSES.STANDARD.as_tuples()
+POSE_SEQUENCE_EXTENDED: tuple[tuple[str, str], ...] = POSES.EXTENDED.as_tuples()
+POSE_SETS = POSES.POSE_SETS
+DEFAULT_POSE_SET = POSES.DEFAULT_POSE_SET
+resolve_poses = POSES.resolve_poses
 
 
 # --- Gates: per-target state machines, driven by frame arrival --------------
@@ -290,6 +287,11 @@ class ProtocolSpec:
     settle_s: float = C.DEFAULT_SETTLE_MS / 1000.0
     collect_s: float = C.DEFAULT_COLLECT_MS / 1000.0
     instruction: str = ""
+    # True when every block opens with a pose the operator must take up. The
+    # runner prompts before the FIRST block too, not only on a change: in the
+    # supplement set block one carries the actual instruction, and it was
+    # silently never shown (round9, aborted after 24 rows).
+    uses_poses: bool = False
 
     def exported_targets(self) -> list[dict[str, Any]]:
         return [
@@ -329,8 +331,10 @@ def protocol_b(
     per block so that target order and pose are not locked together either.
     """
 
-    if not 1 <= n_blocks <= len(POSE_SEQUENCE):
-        raise ValueError(f"n_blocks must be 1..{len(POSE_SEQUENCE)}, got {n_blocks}")
+    # The upper bound belongs to resolve_poses, which knows which pose set is
+    # running; this only refuses a sequence with no blocks in it at all.
+    if n_blocks < 1:
+        raise ValueError(f"n_blocks must be >= 1, got {n_blocks}")
     sequence = C.NINE_POINT_SEQUENCE if grid_x is None else C.nine_point_sequence(grid_x)
     points = list(sequence[1:])
     targets: list[Target] = []
@@ -341,7 +345,9 @@ def protocol_b(
         ordered = list(enumerate(points))
         random.Random(order_seed + block).shuffle(ordered)
         targets += [Target(i, f"CAL_{i}", x, y, block=block) for i, (x, y) in ordered]
-    return ProtocolSpec("B", targets, "calibration", instruction=INSTRUCTIONS["B"])
+    return ProtocolSpec(
+        "B", targets, "calibration", instruction=INSTRUCTIONS["B"], uses_poses=True
+    )
 
 
 def protocol_timed(
@@ -614,7 +620,8 @@ class ProtocolRunner:
             self.finished = True
             return
         target = self.spec.targets[self._index]
-        if previous is not None and target.block != previous.block:
+        first_block = previous is None and self.spec.uses_poses
+        if first_block or (previous is not None and target.block != previous.block):
             # A pose change needs the person to move, which cannot be timed
             # from here.  Park with no gate -- _on_frame already treats a
             # missing gate as idle, so nothing is stored and no embedding is
@@ -1084,6 +1091,20 @@ class SessionResult:
     shutdown: dict[str, Any] = field(default_factory=dict)
 
 
+def held_condition_lines(hold: str | None) -> tuple[str, ...]:
+    """The start-screen lines for a condition held across a whole run.
+
+    Pure and separately testable because the alternative -- proving it by
+    running a session -- takes minutes and did not, in fact, exercise the
+    failure it was supposed to: a check protocol has no pose blocks, so the
+    dry run that "verified" this feature never reached the code that broke it.
+    """
+
+    if not hold:
+        return ()
+    return (f"HOLD THIS THROUGHOUT:  {hold}", "")
+
+
 def band_target_files(targets: Path, targets_tune: Path) -> tuple[Path, Path]:
     """Swap the default target sets for their central-band versions.
 
@@ -1194,7 +1215,10 @@ def run_session(
     skip_model_check: bool = False,
     target_order_seed: int | None = None,
     repeat_first: int = 0,
-    pose_blocks: int = len(POSE_SEQUENCE),
+    pose_blocks: int | None = None,
+    pose_set: str = DEFAULT_POSE_SET,
+    pose_start: int = 1,
+    hold: str | None = None,
     advance_timeout_s: float | None = None,
     no_save: bool = False,
     capture: str = "library",
@@ -1236,13 +1260,16 @@ def run_session(
     # not there. The run is marked as not faithful to the library's protocol.
     grid_x = None if x_range is None else (x_range[0], 0.5, x_range[1])
     calibration_grid = GT.calibration_points(grid_x)
+    # Raises before the camera is opened: a bad --pose-set or --pose-start is a
+    # typo, and finding it after the operator has sat down costs a session.
+    poses = resolve_poses(pose_set, pose_blocks, pose_start)
 
     specs: list[ProtocolSpec] = []
     for name in protocols:
         if name == "A":
             specs.append(protocol_a(grid_x))
         elif name == "B":
-            specs.append(protocol_b(grid_x, n_blocks=pose_blocks))
+            specs.append(protocol_b(grid_x, n_blocks=len(poses)))
         elif name == "TUNE":
             specs.append(
                 protocol_timed(
@@ -1381,10 +1408,18 @@ def run_session(
     if overlay_model_dir is not None:
         import gf_fit as FIT  # noqa: PLC0415 - only needed when an overlay is requested
 
-        overlay_model = FIT.FittedModel.load(overlay_model_dir)
+        # A correction.json beside the model is applied to the point that is
+        # DRAWN, so the dot on screen and the numbers scored afterwards cannot
+        # come from different things. Printed loudly: a silently corrected
+        # overlay would look like a better model.
+        overlay_model = CORR.load_with_correction(overlay_model_dir, FIT.FittedModel.load)
         print(
             f"overlay model loaded from {overlay_model_dir} (columns: {len(overlay_model.schema.columns)})"
         )
+        if isinstance(overlay_model, CORR.CorrectedModel):
+            print(f"  WITH A CORRECTION LAYER: {overlay_model.correction.describe()}")
+            if overlay_model.correction.note:
+                print(f"  {overlay_model.correction.note}")
         if overlay_model_y_dir is not None:
             overlay_model_y = FIT.FittedModel.load(overlay_model_y_dir)
             print(f"vertical overlay model loaded from {overlay_model_y_dir}")
@@ -1395,10 +1430,21 @@ def run_session(
     # than left to be inferred from the frames.
     base_meta["target_order_seed"] = target_order_seed
     base_meta["repeat_first"] = repeat_first
-    base_meta["pose_blocks"] = pose_blocks if "B" in protocols else None
-    base_meta["pose_sequence"] = (
-        [label for label, _ in POSE_SEQUENCE[:pose_blocks]] if "B" in protocols else None
-    )
+    # What RAN, not what was asked for: --pose-blocks may be None ("all of
+    # them") and --pose-start may have dropped the opening blocks, so these
+    # come from the resolved sequence. The instruction TEXT is stored too --
+    # it is the experimental variable here, and a later reader cannot
+    # otherwise tell which wording the operator actually saw.
+    has_b = "B" in protocols
+    # Not gated on protocol B: the whole point is the protocols that have no
+    # per-block prompt of their own.
+    base_meta["hold_instruction"] = hold
+    base_meta["pose_set"] = pose_set if has_b else None
+    base_meta["pose_start"] = pose_start if has_b else None
+    base_meta["pose_blocks"] = len(poses) if has_b else None
+    base_meta["pose_sequence"] = poses.labels() if has_b else None
+    base_meta["pose_instructions"] = poses.instructions() if has_b else None
+    base_meta["pose_partial"] = poses.partial if has_b else None
     base_meta["overlay_model"] = None if overlay_model_dir is None else str(overlay_model_dir)
     base_meta["overlay_model_y"] = None if overlay_model_y_dir is None else str(overlay_model_y_dir)
 
@@ -1461,6 +1507,16 @@ def run_session(
                     activation = (
                         candidate.support_activation(np.vstack(preflight)) if preflight else None
                     )
+                except AttributeError as exc:
+                    # NOT swallowed. The preflight answers "ok" for anything it
+                    # cannot measure, so a model object that has lost the method
+                    # would turn the frozen-model abort off while printing a
+                    # reassuring line. A missing method is a programming error
+                    # in the model wrapper, not an unmeasurable condition.
+                    raise RuntimeError(
+                        f"overlay {label} model cannot report support activation: {exc}. "
+                        "Refusing to record with the frozen-model check disabled."
+                    ) from exc
                 except Exception as exc:  # noqa: BLE001 - a check must not abort a good session
                     activation = None
                     print(f"overlay {label} model check could not run ({exc!r}); continuing")
@@ -1553,6 +1609,10 @@ def run_session(
                         "",
                         spec.instruction,
                         "",
+                        # The held condition, if this run has one. Placed
+                        # between the protocol's own instruction and the
+                        # target count so it cannot be skipped over.
+                        *held_condition_lines(hold),
                         f"{len(spec.exported_targets())} targets, about {_estimate_seconds(spec):.0f} seconds",
                         f"still to come: {', '.join(remaining[1:]) or 'nothing, this is the last one'}",
                         "",
@@ -1595,7 +1655,26 @@ def run_session(
                     break
                 pending = runner.awaiting_block
                 if pending is not None:
-                    label, pose_instruction = POSE_SEQUENCE[pending]
+                    pose = poses[pending]
+                    label, pose_instruction = pose.label, pose.instruction
+                    # rtl() reverses a whole string instead of running a bidi
+                    # algorithm, so the closing line has to match the script of
+                    # the instruction or one of the two is drawn backwards. The
+                    # header is pure Latin and renders correctly either way.
+                    # NOT named ``hold``: that is the run_session parameter
+                    # carrying the operator's held condition, and reassigning
+                    # it here would destroy it for every later protocol's
+                    # start screen while the manifest -- written before this
+                    # loop -- still recorded the right text. The operator
+                    # would be shown boilerplate and the file would claim the
+                    # condition, which is exactly the mismatch --hold exists
+                    # to prevent.
+                    pose_hold_line = (
+                        "\u05d4\u05d7\u05d6\u05e7 \u05d0\u05ea \u05d4\u05ea\u05e0\u05d5\u05d7\u05d4 "
+                        "\u05d4\u05d6\u05d0\u05ea \u05e2\u05d3 \u05e1\u05d5\u05e3 \u05d4\u05d1\u05dc\u05d5\u05e7"
+                        if has_hebrew(pose_instruction)
+                        else "Hold that position for the whole block."
+                    )
                     if (
                         display.wait_for_key(
                             [
@@ -1603,7 +1682,7 @@ def run_session(
                                 "",
                                 pose_instruction,
                                 "",
-                                "Hold that position for the whole block.",
+                                pose_hold_line,
                             ]
                         )
                         == "abort"
@@ -1978,14 +2057,47 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--hold",
+        default=None,
+        help=(
+            "a condition to hold for the WHOLE run, shown on the start screen of every "
+            "protocol and recorded in the manifest. For check recordings that are "
+            "supposed to be made in a particular head position -- without it the "
+            "operator has to remember the condition, and a misremembered one is "
+            "indistinguishable from a correctly recorded one afterwards."
+        ),
+    )
+    parser.add_argument(
+        "--pose-set",
+        choices=sorted(POSE_SETS),
+        default=DEFAULT_POSE_SET,
+        help=(
+            "protocol B only: which pose sequence to run. 'standard' is the original "
+            f"{len(POSE_SEQUENCE)} blocks and stays the default so earlier runs reproduce "
+            f"exactly; 'extended' is {len(POSE_SEQUENCE_EXTENDED)} blocks covering all six "
+            "head components in both directions, with Hebrew instructions."
+        ),
+    )
+    parser.add_argument(
         "--pose-blocks",
         type=int,
-        default=len(POSE_SEQUENCE),
+        default=None,
         help=(
-            f"protocol B only: how many of the {len(POSE_SEQUENCE)} pose blocks to run "
-            "(each block shows the whole calibration grid once, in its own order). "
+            "protocol B only: how many pose blocks to run (default: all of the chosen "
+            "set). Each block shows the whole calibration grid once, in its own order. "
             "Fewer blocks is a shorter session and a narrower pose range; whether the "
             "range was wide enough is decided afterwards from the recording, not here."
+        ),
+    )
+    parser.add_argument(
+        "--pose-start",
+        type=int,
+        default=1,
+        help=(
+            "protocol B only: start at this block of the chosen set (1-based). A safety "
+            "valve for resuming after an aborted recording -- an aborted run is frozen as "
+            "aborted and cannot be continued. A run that uses this is PARTIAL: coverage "
+            "and pose weights are computed from the rows actually stored."
         ),
     )
     parser.add_argument(
@@ -2309,6 +2421,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         target_order_seed=args.target_order_seed,
         repeat_first=args.repeat_first,
         pose_blocks=args.pose_blocks,
+        pose_set=args.pose_set,
+        hold=args.hold,
+        pose_start=args.pose_start,
         advance_timeout_s=args.advance_timeout_s,
         no_save=args.no_save,
         capture=args.capture,

@@ -438,6 +438,135 @@ class ProtocolSpecTests(unittest.TestCase):
         self.assertNotIn("gazefollower", sys.modules)
 
 
+class HeldConditionTests(unittest.TestCase):
+    """--hold puts the run's condition in front of the operator, every protocol.
+
+    Recordings 6 and 7 of the multi-pose experiment are supposed to be made
+    while HOLDING a specific combination of head movements. Without the text
+    on screen the condition exists only in the operator's memory, and a
+    misremembered condition is indistinguishable afterwards from a correctly
+    recorded one: the head values would simply be whatever they did.
+    """
+
+    def test_no_hold_adds_no_lines(self) -> None:
+        self.assertEqual(R.held_condition_lines(None), ())
+        self.assertEqual(R.held_condition_lines(""), ())
+
+    def test_the_operators_text_reaches_the_screen(self) -> None:
+        lines = R.held_condition_lines("TURN left and chin DOWN")
+        self.assertIn("TURN left and chin DOWN", lines[0])
+        self.assertTrue(lines[0].startswith("HOLD THIS THROUGHOUT"))
+        self.assertEqual(lines[-1], "", "a blank line keeps it off the target count")
+
+    def test_run_session_never_rebinds_its_hold_parameter(self) -> None:
+        """Regression: the pose prompt used to reassign ``hold``.
+
+        ``hold`` is read on the start screen of EVERY protocol, and the
+        manifest is written before the protocol loop. A rebinding inside the
+        loop therefore showed the operator boilerplate from the first pose
+        prompt onwards while the manifest went on claiming the real
+        condition -- a stimulus/metadata mismatch invisible in the data.
+
+        Checked structurally rather than by running a session: reproducing it
+        live needs a protocol with pose blocks followed by another protocol,
+        which is minutes of real time, and the dry run that was supposed to
+        cover this feature used a check protocol that has no pose blocks at
+        all and never reached the broken line.
+        """
+
+        import ast  # noqa: PLC0415
+        import inspect  # noqa: PLC0415
+
+        tree = ast.parse(inspect.getsource(R))
+        run_session = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "run_session"
+        )
+        self.assertIn(
+            "hold",
+            [arg.arg for arg in run_session.args.args + run_session.args.kwonlyargs],
+            "this test is anchored to the parameter name",
+        )
+        rebound = [
+            node.lineno
+            for node in ast.walk(run_session)
+            if isinstance(node, ast.Name)
+            and node.id == "hold"
+            and isinstance(node.ctx, ast.Store)
+        ]
+        self.assertEqual(
+            rebound,
+            [],
+            f"run_session rebinds its own 'hold' parameter at line(s) {rebound}; "
+            "give the local its own name",
+        )
+
+
+class PoseSetTests(unittest.TestCase):
+    """The extended sequence, and the promise that the old one is untouched."""
+
+    def test_the_standard_set_is_the_default_and_is_unchanged(self) -> None:
+        resolved = R.resolve_poses()
+        self.assertEqual(resolved.name, "standard")
+        self.assertEqual(resolved.as_tuples(), R.POSE_SEQUENCE)
+        self.assertFalse(resolved.partial)
+
+    def test_the_extended_set_covers_all_six_components_both_ways(self) -> None:
+        labels = R.resolve_poses("extended").labels()
+        self.assertEqual(len(labels), 15)
+        for expected in (
+            "yaw_left", "yaw_right",
+            "pitch_down", "pitch_up",
+            "roll_left", "roll_right",
+            "shift_left", "shift_right",
+            "raise_head", "lower_head",
+            "closer", "further",
+        ):
+            self.assertIn(expected, labels)
+        self.assertEqual(
+            sum(1 for label in labels if label.startswith("centre")),
+            3,
+            "three centre blocks: rest, control, and a direct drift measurement",
+        )
+
+    def test_every_block_shows_the_same_nine_targets(self) -> None:
+        """Pose must carry no information about which target is on screen."""
+
+        spec = R.protocol_b((0.3, 0.5, 0.7), n_blocks=15, order_seed=301)
+        stored = [t for t in spec.targets if t.index >= 0]
+        by_block: dict[int, set] = {}
+        for target in stored:
+            by_block.setdefault(target.block, set()).add((round(target.x, 6), round(target.y, 6)))
+        self.assertEqual(len(by_block), 15)
+        self.assertEqual(len(set(map(frozenset, by_block.values()))), 1)
+
+    def test_resume_marks_the_set_partial(self) -> None:
+        resumed = R.resolve_poses("extended", None, 9)
+        self.assertTrue(resumed.partial)
+        self.assertEqual(resumed.start, 9)
+        self.assertEqual(len(resumed), 7)
+
+    def test_bad_selections_are_refused_rather_than_silently_clamped(self) -> None:
+        for args in (("nope", None, 1), ("extended", 0, 1), ("extended", None, 99), ("extended", 9, 10)):
+            with self.assertRaises(ValueError):
+                R.resolve_poses(*args)
+
+    def test_no_instruction_mixes_scripts(self) -> None:
+        """rtl() reverses whole strings, so a mixed line is drawn backwards."""
+
+        from gazelink_core.ui.pygame_display import has_hebrew  # noqa: PLC0415
+
+        for pose_set in R.POSE_SETS.values():
+            hebrew = [p for p in pose_set if has_hebrew(p.instruction)]
+            self.assertIn(
+                len(hebrew), (0, len(pose_set)), f"{pose_set.name} is half-translated"
+            )
+            for pose in hebrew:
+                strays = [c for c in pose.instruction if c.isascii() and (c.isalpha() or c.isdigit())]
+                self.assertEqual(strays, [], f"{pose.label} mixes scripts")
+
+
 if __name__ == "__main__":
     unittest.main()
 
