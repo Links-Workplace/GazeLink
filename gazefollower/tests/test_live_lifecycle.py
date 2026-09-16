@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Sibling test helpers: discovery adds this directory, a standalone run does not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_click as CK  # noqa: E402
 import gf_cursor as CUR  # noqa: E402

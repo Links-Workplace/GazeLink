@@ -3290,3 +3290,39 @@ M3-02 — מתאם הסמן
   - **Still pending manual/hardware QA:** ראה "דורש חומרה" בשלב H.
   - **Commit:** לא בוצע. השינויים מקומיים, לצד שינויים לא-מחויבים קודמים של המשתמש.
   - **מצב:** ARCHITECTURE IMPLEMENTED + AUTOMATED QA PASSED. **לא DONE** עד בדיקת חומרה: `gf_live` בסימולציה ואז קלט אמיתי, `gf_record`, `gf_click_practice`.
+
+### ARCH-01 — הרצת אימות חוזרת (16.9), אחרי הקומיט e413a77
+
+הקוד של ARCH-01 נמצא ב-HEAD (`e413a77 OOP CHANGED ARCH`, 142 קבצים). ההרצה הזאת אימתה
+אותו מחדש מאפס, והסגירה את הכשל היחיד שנשאר ואת פערי הניידות של הבדיקות.
+
+- **הסוויטה המלאה: 1247 הורצו, OK.** אין כשלים. (`python -m unittest discover -s tests`,
+  אחרי מחיקת `__pycache__` לפי TASKS §1604.)
+- **הכשל שנסגר, `test_the_live_session_reads_the_carried_wink_rule`:** ה-fixture החזיק
+  `hold_ms=35.0`, שהפך להיות בדיוק ברירת המחדל של `WinkConfig`. הבדיקה עצמה זיהתה את זה
+  והכשילה את עצמה עם ההודעה "change the fixture, not the assert": במצב הזה היא לא יכלה
+  להבחין בין כלל שנשמר לבין בלוק ריק. ה-fixture שונה ל-`48.0` (assert מותאם).
+  **אומת במוטציה:** החלפת `gesture=dict(profile.gesture or {})` ב-`gesture={}` מפילה 3
+  בדיקות, כך שהבדיקה באמת תופסת שבירה של ההעברה. הקובץ הוחזר למצבו ב-HEAD.
+- **ניידות בדיקות (תוקן):** 4 מודולים נכשלו בהרצה עצמאית (`-m unittest tests.<module>`)
+  כי `tests/` לא היה ב-`sys.path` — רק גילוי אוטומטי הוסיף אותו. נוסף insert מפורש ב-
+  `test_real_input_guard.py`, `test_live_lifecycle.py`, `test_live_menu.py`,
+  `test_live_scroll.py`. **סריקה חוזרת: כל מודול בנפרד עובר.** זו בעיית בדיקות בלבד.
+- **audit של קלט אמיתי:** 10 סירובים בסוויטה המלאה. הרצת `tests.test_real_input_guard`
+  לבדה מייצרת בדיוק את אותם 10 — כלומר **אף בדיקה אחרת לא ניסתה לשלוח קלט אמיתי.**
+- **golden ללא שינוי:** `live_trace.json` 3263891C, `pipeline_digests.json` D99D68BD.
+- **ruff, מול בסיס אמיתי:** הקבצים שהועברו verbatim מייצרים 48 ממצאים. אותו קוד ב-
+  `e413a77^` (הגרסה שלפני הריפקטור), עם אותו קובץ תצורה, מייצר **127**. אותן משפחות
+  כללים בדיוק (E501, UP035, UP037, B905), פחות ממצאים. אפס ממצאים ב-`gf_live.py`
+  ובמודולים החדשים.
+- **mypy, מול בסיס אמיתי:** 113 שגיאות, כולן ב-16 קבצים שהועברו verbatim. **אפס בכל
+  המודולים שנכתבו ב-ARCH-01** (observation, sample_gate, pipeline, safety, executor,
+  controller, actions, live_session, environment, options, clock, lifecycle, real_input,
+  presenter, gazefollower_source, replay_source). בסיס: `gf_schema.py`+`gf_fit.py` ב-
+  `e413a77^` עם אותה תצורה strict נותנים **75** שגיאות, מול 49 ביורשיהם היום.
+  הערה: `pygame` חסר ב-venv שממנו רץ mypy, ולכן `import-not-found` שם הוא ארטיפקט סביבה.
+- **CLI:** `--help` עובר ב-`gf_live`, `gf_record`, `gf_click_practice`,
+  `gf_resolution_view`, `gf_fit`, `gf_recalibrate`, `gf_setup`.
+- **קבצים ששונו בהרצה הזאת:** 5 קבצי בדיקות בלבד. לא בוצע קומיט.
+- **עדיין לא נבדק:** כל מה שדורש מצלמה או קלט אמיתי. ראה "דורש חומרה" בשלב H.
+- **מצב:** ללא שינוי — **לא DONE** עד בדיקת חומרה.

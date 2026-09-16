@@ -16,6 +16,9 @@ from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
+# ``fake_live_env`` is a sibling helper. Discovery puts this directory on the
+# path; running this module on its own does not, so say it here.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_click as CK  # noqa: E402
 import gf_cursor as CUR  # noqa: E402

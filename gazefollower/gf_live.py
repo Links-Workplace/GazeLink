@@ -9,9 +9,14 @@ and you cannot leave it running.
 This opens the profile's model, shows the filtered gaze point until you stop
 it, and writes nothing -- no recording, no embeddings, no round number spent.
 
-Safety and privacy: no OS input of any kind.  The point is drawn inside this
-window only; nothing here moves the cursor or emits a click.  No frame, face
-image or embedding is written to disk.
+Safety: OS input is OFF by default, and every path to it is opt-in on the
+command line.  With no such flag the point is drawn inside this window only and
+nothing moves the pointer or emits a click.  ``--move-cursor`` moves the real
+pointer and is REFUSED unless ``--i-mean-it`` is also given; ``--click-by wink``
+arms real clicks the same way.  Releasing a button or key is always allowed, so
+shutdown can never leave one held.
+
+Privacy: no frame, face image or embedding is written to disk.
 """
 
 from __future__ import annotations

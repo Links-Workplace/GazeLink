@@ -272,7 +272,9 @@ class CarriedForwardTests(unittest.TestCase):
     # removed -- ``wink_config()`` returns those same numbers from an empty
     # block. A test that cannot tell the two apart is testing nothing.
     GESTURE = {
-        "wink": {"shut_ratio": 0.40, "asymmetry": 3.0, "hold_ms": 35.0, "bridge_ms": 25.0},
+        # hold_ms is deliberately NOT the built-in default (which is now 35.0),
+        # or a carried rule and an empty block would look the same here.
+        "wink": {"shut_ratio": 0.40, "asymmetry": 3.0, "hold_ms": 48.0, "bridge_ms": 25.0},
         "gate": {"shut_fraction": 0.50, "steady_fraction": 0.70},
         "evidence": {"frames": 12818, "selections": 25},
     }
@@ -382,7 +384,7 @@ class CarriedForwardTests(unittest.TestCase):
         )
         got = self._adopt(self._old_profile())
         wink = got.wink_config()
-        self.assertAlmostEqual(wink.hold_ms, 35.0)
+        self.assertAlmostEqual(wink.hold_ms, 48.0)
         self.assertAlmostEqual(wink.bridge_ms, 25.0)
         self.assertAlmostEqual(wink.shut_ratio, 0.40)
         self.assertAlmostEqual(got.gate_config().steady_fraction, 0.70)
