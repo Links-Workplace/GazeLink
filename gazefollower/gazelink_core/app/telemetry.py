@@ -27,6 +27,11 @@ def _new_tally() -> dict[str, int]:
         # told apart from "the wink was seen and then dropped", and the two
         # need opposite fixes.
         "winks": 0,
+        # Which eye. The eye picks the button (right = right click, left = left
+        # click), so a session that "clicked wrong" can be told apart from one
+        # whose left eye was never detected at all.
+        "winks_left": 0,
+        "winks_right": 0,
         "winks_with_no_aim": 0,
         # Scrolling. Counted separately from clicks throughout: "the wheel
         # turned" and "a click happened" are different outcomes and the report
@@ -47,7 +52,24 @@ def _new_tally() -> dict[str, int]:
         # all, they are the operator looking UP at a tile (section 57), and
         # the number says how often that signal is being produced.
         "menu_close_ignored": 0,
+        # The desk bar (--desk). Picks it carried out, and picks it refused
+        # because the mode behind the target has no machinery yet: a target
+        # that leads nowhere has to be visible in the report rather than felt
+        # by the person as an interface that ignores them.
+        "bar_picks": 0,
+        "bar_modes_not_ready": 0,
         "winks_in_menu": 0,
+        # The same question for the two new modes, each with its own number:
+        # "the magnifier ignored my wink" and "the drag ignored my wink" are
+        # different reports and need different answers.
+        "winks_in_zoom": 0,
+        # Drag, counted at each of the three places it can end: the person
+        # dropped it, safety took it away, or the release did not land. The
+        # third is the only one that is a defect, and it needs its own number.
+        "drags_started": 0,
+        "drags_released": 0,
+        "drags_stuck": 0,
+        "winks_in_drag": 0,
         "keys_chosen": 0,
         "chars_typed": 0,
         "commands": 0,
@@ -157,11 +179,13 @@ def ratio_watcher(config: GEST.WinkConfig | None = None) -> Any:
     that could say whether the signal ever came near the rule.
     """
 
-    detector = GEST.RightWinkDetector(config)
+    detectors = [GEST.WinkDetector(config, eye=eye) for eye in GEST.Eye]
 
     def matches(state: Any) -> bool:
+        # Either eye: the on-screen "<<< WINK" must light for a left wink too,
+        # or a left wink that never registers looks the same as one not made.
         ratio = getattr(state, "openness_ratio", None)
-        return bool(ratio is not None and detector.looks_like_a_wink(*ratio))
+        return bool(ratio is not None and any(d.looks_like_a_wink(*ratio) for d in detectors))
 
     return matches
 

@@ -20,6 +20,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_common as C  # noqa: E402
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 import gf_fit as FIT  # noqa: E402
 import gf_gaze_filter as GF  # noqa: E402
 import gf_head_features as H  # noqa: E402
@@ -615,7 +616,7 @@ def choose(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
 
 
 def run(tune_dir: Path, test_dir: Path, model_dir: Path) -> dict[str, Any]:
-    model = FIT.FittedModel.load(model_dir)
+    model = CORR.load_with_correction(model_dir, FIT.FittedModel.load)
     tune = S.Recording.load(tune_dir, "TUNE")
     test = S.Recording.load(test_dir, "T1")
     tune_rig = C.RigGeometry.from_dict(tune.meta["rig"])

@@ -60,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_common as C  # noqa: E402
 import gf_filter_benchmark as B  # noqa: E402
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 import gf_fit as FIT  # noqa: E402
 import gf_pool as POOL  # noqa: E402
 import gf_presets as PRE  # noqa: E402
@@ -315,7 +316,7 @@ class ArmResult:
 
 def fit_or_load(path: Path, X: np.ndarray, Y: np.ndarray, rig: C.RigGeometry, meta: dict) -> Any:
     if (path / "schema.json").exists():
-        return FIT.FittedModel.load(path)
+        return CORR.load_with_correction(path, FIT.FittedModel.load)
     cfg = next(c for c in PRE.sweep_with_presets(()) if c.name == CONFIG_NAME)
     model = FIT.FittedModel.fit(cfg, X, Y, rig=rig, train_meta=meta)
     model.save(path)

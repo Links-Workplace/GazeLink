@@ -1421,7 +1421,7 @@ def run_session(
             if overlay_model.correction.note:
                 print(f"  {overlay_model.correction.note}")
         if overlay_model_y_dir is not None:
-            overlay_model_y = FIT.FittedModel.load(overlay_model_y_dir)
+            overlay_model_y = CORR.load_with_correction(overlay_model_y_dir, FIT.FittedModel.load)
             print(f"vertical overlay model loaded from {overlay_model_y_dir}")
     # Which model produced the point is not recoverable from the recording
     # otherwise -- only the filter settings were stored, so a later reader

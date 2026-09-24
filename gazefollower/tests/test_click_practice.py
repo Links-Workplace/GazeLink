@@ -403,11 +403,34 @@ class WinkModeTests(unittest.TestCase):
     """
 
     def test_a_wink_on_a_button_clicks_it_when_armed(self) -> None:
+        # A LEFT wink is the ordinary left click.
         report, sends = _run(
-            self, point=ON_LEFT, events=ARM, winks=[(0.0, ON_LEFT)], click_by="wink"
+            self,
+            point=ON_LEFT,
+            events=ARM,
+            winks=[(0.0, ON_LEFT, P.GEST.Eye.LEFT)],
+            click_by="wink",
         )
         self.assertEqual(report["tally"]["per_button"].get("LEFT"), 1)
         self.assertEqual(sends.count(P.CK.MOUSEEVENTF_LEFTDOWN), 1)
+        self.assertEqual(report["tally"]["winks_by_eye"], {"left": 1})
+
+    def test_a_right_wink_sends_a_right_click_not_a_left_one(self) -> None:
+        # The eye picks the button. The left wink was never measured on this
+        # person, so this practice is where the two are first told apart.
+        report, sends = _run(
+            self,
+            point=ON_LEFT,
+            events=ARM,
+            winks=[(0.0, ON_LEFT, P.GEST.Eye.RIGHT)],
+            click_by="wink",
+        )
+        self.assertEqual(sends.count(P.CK.MOUSEEVENTF_LEFTDOWN), 0)
+        self.assertEqual(sends.count(P.CK.MOUSEEVENTF_RIGHTDOWN), 1)
+        self.assertEqual(
+            sends.count(P.CK.MOUSEEVENTF_RIGHTDOWN), sends.count(P.CK.MOUSEEVENTF_RIGHTUP)
+        )
+        self.assertEqual(report["tally"]["click_points"][0]["eye"], "right")
 
     def test_a_wink_while_paused_never_reaches_windows(self) -> None:
         report, sends = _run(

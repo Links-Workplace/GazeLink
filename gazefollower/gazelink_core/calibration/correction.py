@@ -202,8 +202,18 @@ class CorrectedModel:
 
         Only reached for names this class does not define, so ``predict_norm``
         stays corrected and cannot be bypassed.
+
+        ``base`` itself is refused rather than delegated. ``copy.deepcopy`` and
+        ``pickle`` build an instance WITHOUT calling ``__init__`` and then look
+        up ``__deepcopy__`` / ``__reduce_ex__``; with a plain delegation the
+        lookup of ``self.base`` re-enters this method and recurses until the
+        stack ends. Nothing in the project copies a model today, so this is a
+        trap rather than a live bug -- but a RecursionError from a copy is a
+        miserable thing to diagnose later.
         """
 
+        if name == "base" or name.startswith("__"):
+            raise AttributeError(name)
         return getattr(self.base, name)
 
     def __repr__(self) -> str:

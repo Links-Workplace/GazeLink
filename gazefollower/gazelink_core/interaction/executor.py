@@ -148,12 +148,27 @@ class ActionExecutor:
                 A.SWITCH_WINDOW: self.keys.switch_window,
                 A.ESCAPE: self.keys.escape,
             }[action](armed=armed))
+        if action is A.DRAG_START:
+            if at is None:
+                # A pick with nowhere to mean would grab whatever the pointer
+                # was last left on. Counted the same way a wink with no aim is.
+                tally["winks_with_no_aim"] += 1
+                return False
+            self.cursor.release_hold()
+            self.cursor.jump_to(self.to_pixels(at))
+            if self.clicker.press(armed=armed):
+                tally["drags_started"] += 1
+                return True
+            return False
         if action in (A.PAUSE, A.RESUME):
             # Through the machine that already owns this, with the event SPACE
             # produces. A second mode here would be a second answer to "how
             # much control does the person have".
             transition = self.safety.toggle()
             if transition.changed:
+                # Nothing may stay held across a pause. Done BEFORE the label
+                # is printed, so a failure to say so cannot skip the release.
+                self.end_drag()
                 self.telemetry.say(self.safety.label)
             if transition.cancel_selection:
                 tally["cancelled"] += 1
@@ -163,6 +178,35 @@ class ActionExecutor:
 
     def reset_router(self) -> None:
         self.router.reset()
+
+    # -- letting go, which is never an action ----------------------------------
+
+    def end_drag(self) -> bool:
+        """Release a held button. Deliberately NOT through the router.
+
+        ``route`` refuses everything while stopping and everything but RESUME
+        while paused -- and a pause, a lost face and a shutdown are exactly the
+        moments a held button most needs to come up. A release undoes an
+        action rather than being one, which is the same rule
+        ``platform.real_input.require`` already applies to button-up.
+
+        Idempotent: several safety paths can fire for one event.
+        """
+
+        if not self.clicker.dragging:
+            return False
+        released = bool(self.clicker.drag_release())
+        if released:
+            self.telemetry.tally["drags_released"] += 1
+        else:
+            # The up did not land. The adapter keeps naming the button in
+            # ``stuck_button`` and shutdown reports it rather than losing it.
+            self.telemetry.tally["drags_stuck"] += 1
+        return released
+
+    @property
+    def dragging(self) -> bool:
+        return bool(self.clicker.dragging)
 
     # -- the pointer ---------------------------------------------------------
 

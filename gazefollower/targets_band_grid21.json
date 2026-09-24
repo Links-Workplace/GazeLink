@@ -1,0 +1,180 @@
+{
+  "region": "band-grid21: seven x columns across 0.30-0.70 for TRAINING. The experiment is that every training row so far came from exactly three x values (0.3/0.5/0.7); these add four columns between them. Pooled into the fit, never used as a test set -- the held-out set stays targets_band_dense.",
+  "screen_geometry": {
+    "dpi_scale": 1.25,
+    "height_px": 1152,
+    "orientation": "LANDSCAPE",
+    "screen_id": "LS49C95xU",
+    "width_px": 4096
+  },
+  "targets": [
+    {
+      "index": 0,
+      "name": "G_0_0",
+      "screen_position": {
+        "x": 0.3,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 1,
+      "name": "G_0_1",
+      "screen_position": {
+        "x": 0.3,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 2,
+      "name": "G_0_2",
+      "screen_position": {
+        "x": 0.3,
+        "y": 0.9
+      }
+    },
+    {
+      "index": 3,
+      "name": "G_1_0",
+      "screen_position": {
+        "x": 0.365,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 4,
+      "name": "G_1_1",
+      "screen_position": {
+        "x": 0.365,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 5,
+      "name": "G_1_2",
+      "screen_position": {
+        "x": 0.365,
+        "y": 0.9
+      }
+    },
+    {
+      "index": 6,
+      "name": "G_2_0",
+      "screen_position": {
+        "x": 0.43,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 7,
+      "name": "G_2_1",
+      "screen_position": {
+        "x": 0.43,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 8,
+      "name": "G_2_2",
+      "screen_position": {
+        "x": 0.43,
+        "y": 0.9
+      }
+    },
+    {
+      "index": 9,
+      "name": "G_3_0",
+      "screen_position": {
+        "x": 0.5,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 10,
+      "name": "G_3_1",
+      "screen_position": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 11,
+      "name": "G_3_2",
+      "screen_position": {
+        "x": 0.5,
+        "y": 0.9
+      }
+    },
+    {
+      "index": 12,
+      "name": "G_4_0",
+      "screen_position": {
+        "x": 0.57,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 13,
+      "name": "G_4_1",
+      "screen_position": {
+        "x": 0.57,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 14,
+      "name": "G_4_2",
+      "screen_position": {
+        "x": 0.57,
+        "y": 0.9
+      }
+    },
+    {
+      "index": 15,
+      "name": "G_5_0",
+      "screen_position": {
+        "x": 0.635,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 16,
+      "name": "G_5_1",
+      "screen_position": {
+        "x": 0.635,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 17,
+      "name": "G_5_2",
+      "screen_position": {
+        "x": 0.635,
+        "y": 0.9
+      }
+    },
+    {
+      "index": 18,
+      "name": "G_6_0",
+      "screen_position": {
+        "x": 0.7,
+        "y": 0.1
+      }
+    },
+    {
+      "index": 19,
+      "name": "G_6_1",
+      "screen_position": {
+        "x": 0.7,
+        "y": 0.5
+      }
+    },
+    {
+      "index": 20,
+      "name": "G_6_2",
+      "screen_position": {
+        "x": 0.7,
+        "y": 0.9
+      }
+    }
+  ]
+}

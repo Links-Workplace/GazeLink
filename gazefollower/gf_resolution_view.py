@@ -31,6 +31,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_capture as CAP  # noqa: E402
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 from gazelink_core.domain.observation import FrameObservation, HeadPolicy  # noqa: E402
 from gazelink_core.gaze import sample_gate as GATE  # noqa: E402
 from gazelink_core.tracking import gazefollower_library as LIB  # noqa: E402
@@ -80,7 +81,7 @@ def fit_pair(round_dir: Path, config: str) -> tuple[FIT.FittedModel, FIT.FittedM
     for arm, rec in (("lo", cal_lo), ("hi", cal_hi)):
         target = MODEL_ROOT / f"{round_dir.name}_{arm}_{config}"
         if target.exists():
-            models.append(FIT.FittedModel.load(target))
+            models.append(CORR.load_with_correction(target, FIT.FittedModel.load))
             continue
         model = RCMP.fit_arm(rec, rows, config, rig)
         model.save(target)

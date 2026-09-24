@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from gazelink_core.interaction import actions as ACT
+from gazelink_core.interaction import desk_layout as L
 from gazelink_core.interaction import gesture as GEST
 from gazelink_core.interaction import keyboard as KB
 from gazelink_core.interaction import menu as MENU
@@ -64,7 +65,8 @@ class LivePresenter:
                     if controller.ui_mode is ACT.UiMode.SCROLL
                     else (
                         f"{'SPACE' if options.toggle_by == 'key' else 'A long close'} switches "
-                        f"PAUSED/ACTIVE.  Wink RIGHT to {controller.board.click_type}-click."
+                        f"PAUSED/ACTIVE.  Wink LEFT to {controller.board.click_type}-click, "
+                        "RIGHT to right-click."
                         + ("  Close BOTH eyes for the menu." if options.menu_enabled else "")
                     )
                 )
@@ -132,6 +134,30 @@ class LivePresenter:
                 parked=keyboard.parked,
                 point=fresh,
                 tracking=fresh is not None,
+            )
+        elif controller.bar is not None and controller.ui_mode is ACT.UiMode.CURSOR:
+            # The desk bar, through the same draw call the menu uses: opaque
+            # only where a target is drawn, so the window underneath is still
+            # readable while the bar sits over it. No new drawing primitive --
+            # the difference from the menu is that this one never closes.
+            bar = controller.bar
+            labels = {item.key: bar.label_for(item) for item in bar.items}
+            # The engine's pause button keeps one key; the LABEL on it is the
+            # one that tells the truth about the mode right now.
+            labels[L.PAUSE_KEY] = bar.pause_item.label
+            display.draw_board(
+                bar.buttons,
+                labels,
+                hovered=bar.hovered,
+                progress=bar.progress,
+                centre=hud,
+                point=fresh,
+                tracking=fresh is not None,
+                # Shown, not merely enforced: while the bar is unarmed the
+                # targets are visible and cannot be chosen, and a person who
+                # is not told that sees an interface that is simply broken.
+                ready=bar.armed,
+                not_ready_line="הבט על התוכן ואז חזור לסרגל",
             )
         else:
             display.draw_live(

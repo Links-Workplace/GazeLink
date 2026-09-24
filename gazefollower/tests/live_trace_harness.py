@@ -113,12 +113,16 @@ class ScriptedPipeline:
             return [(T0 + when, event)]
         return []
 
-    def drain_wink_events(self) -> list[tuple[float, Point | None]]:
+    def drain_wink_events(self) -> list[tuple[float, Point | None, GEST.Eye]]:
         t = self._t()
         out = []
         while self._winks and self._winks[0][0] <= t:
-            when, aim, age = self._winks.pop(0)
-            out.append((T0 + when - age, aim))
+            # (when, aim, age) or (when, aim, age, eye). LEFT by default: the
+            # ordinary click, which is what every scenario captured before
+            # 24.9 meant by "a wink" (it pins ``wink_click`` to reproduce it).
+            when, aim, age, *rest = self._winks.pop(0)
+            eye = rest[0] if rest else GEST.Eye.LEFT
+            out.append((T0 + when - age, aim, eye))
         return out
 
     def cancel_wink(self) -> int:

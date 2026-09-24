@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gf_common as C  # noqa: E402
 import gf_filter_benchmark as B  # noqa: E402
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 import gf_fit as FIT  # noqa: E402
 import gf_gaze_filter as GF  # noqa: E402
 import gf_report as R  # noqa: E402
@@ -52,7 +53,7 @@ def score_one(
 ) -> dict[str, Any]:
     """Unfiltered and filtered metrics for one model on one recording."""
 
-    model = FIT.FittedModel.load(model_dir)
+    model = CORR.load_with_correction(model_dir, FIT.FittedModel.load)
     raw = B.predict(model, rec, rig)
     eligible = FIT.eligible_rows(rec)
     width = int(rec.meta["target_geometry"]["width_px"])

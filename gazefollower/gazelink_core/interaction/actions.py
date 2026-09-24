@@ -65,6 +65,16 @@ class Action(StrEnum):
     SWITCH_WINDOW = "SWITCH_WINDOW"
     ESCAPE = "ESCAPE"
     TYPE_TEXT = "TYPE_TEXT"
+    # The magnifier's one click. Deliberately NOT a member of CLICKS: widening
+    # that set to reach UiMode.ZOOM would also let a WINK click inside the
+    # magnifier, which is the single thing the zoom design forbids.
+    ZOOM_CLICK = "ZOOM_CLICK"
+    # Drag, as three separate askings. One action that meant "press, move and
+    # release" could not be refused halfway, and halfway is where a held
+    # button becomes a stuck button.
+    DRAG_START = "DRAG_START"
+    DRAG_DROP = "DRAG_DROP"
+    DRAG_CANCEL = "DRAG_CANCEL"
     BACKSPACE = "BACKSPACE"
     ENTER = "ENTER"
     PAUSE = "PAUSE"
@@ -93,6 +103,13 @@ class UiMode(StrEnum):
     SCROLL = "SCROLL"
     MENU = "MENU"
     KEYBOARD = "KEYBOARD"
+    # Choosing a point inside a frozen magnification. A wink here is not a
+    # selection: the only click that may leave this mode comes from the
+    # explicit confirm target.
+    ZOOM = "ZOOM"
+    # An item is being carried. The pointer follows, but a wink means nothing
+    # -- the drop is an explicit target, and so is the cancel.
+    DRAG = "DRAG"
 
 
 class Refusal(StrEnum):
@@ -114,6 +131,10 @@ SCROLLS = frozenset({Action.SCROLL_UP, Action.SCROLL_DOWN, Action.SCROLL_STOP})
 COMMANDS = frozenset(
     {Action.BACK, Action.FORWARD, Action.SWITCH_WINDOW, Action.ESCAPE}
 )
+# The drag sequence. Grouped so that _belongs cannot be extended for one of
+# them and quietly forget the others: the final ``return False`` fails closed,
+# which is safe but silent, and silence is how a missing clause survives.
+DRAGS = frozenset({Action.DRAG_START, Action.DRAG_DROP, Action.DRAG_CANCEL})
 
 
 @dataclass(frozen=True)
@@ -256,10 +277,12 @@ class ActionRouter:
 
         if (now_s - issued_at_s) * 1000.0 > self.limits.max_age_ms:
             return Refusal.STALE
-        if ui_mode in (UiMode.MENU, UiMode.SCROLL):
+        if ui_mode in (UiMode.MENU, UiMode.SCROLL, UiMode.ZOOM, UiMode.DRAG):
             # The tiles are chosen by dwell and the eyes drive the wheel: a
             # wink there is not a selection, and letting it click would fire two
-            # mechanisms from one gesture.
+            # mechanisms from one gesture. ZOOM and DRAG join for the same
+            # reason: in both, the click that may happen is an explicit target,
+            # and a wink would land it somewhere nobody chose.
             return Refusal.WRONG_MODE
         if paused:
             return Refusal.PAUSED
@@ -284,6 +307,13 @@ class ActionRouter:
             # else, and letting it also click is how one gesture fires two
             # mechanisms -- which this project has already done once.
             return ui_mode is UiMode.CURSOR
+        if action is Action.ZOOM_CLICK:
+            # Only from inside the magnifier, and only from there. In CURSOR
+            # mode there is no frozen picture to have aimed at, so a request
+            # for this outside ZOOM describes nothing.
+            return ui_mode is UiMode.ZOOM
+        if action in DRAGS:
+            return ui_mode is UiMode.DRAG
         if action in SCROLLS:
             return ui_mode is UiMode.SCROLL
         if action in TYPING:

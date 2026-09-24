@@ -31,6 +31,8 @@ from gazelink_core.calibration import profile as PROF
 from gazelink_core.domain.observation import FrameObservation
 from gazelink_core.gaze import preflight as PRE
 from gazelink_core.interaction import actions as ACT
+from gazelink_core.interaction import bar as BAR
+from gazelink_core.interaction import keyboard_spatial as SKB
 from gazelink_core.interaction import control as CTL
 from gazelink_core.interaction import gesture as GEST
 from gazelink_core.interaction import keyboard as KB
@@ -230,7 +232,7 @@ class LiveSession:
         )
         board = MENU.MenuModel(
             dwell_ms=options.menu_dwell_ms,
-            click_type=options.wink_click if options.wink_click in MENU.CLICK_TYPES else "double",
+            click_type=options.wink_click if options.wink_click in MENU.CLICK_TYPES else "single",
         )
         # The scan lag defaults to the detector's OWN hold: a wink is stamped
         # on the frame where the closure crossed ``hold_ms``.
@@ -256,7 +258,9 @@ class LiveSession:
         # Then the keys: a held Alt makes every later keystroke a command.
         self.cleanup.push("key release", keys.release)
         # The button first of all (registered last, so it runs first): a held
-        # button turns every later pointer move into a drag.
+        # button turns every later pointer move into a drag. ``release``
+        # covers a stuck button AND a deliberate carry -- it clears the drag
+        # flag with it, so shutdown cannot leave one believed held.
         self.cleanup.push("button release", clicker.release)
         self.input_adapters.extend((clicker, keys))
         # Starting ACTIVE is the operator's decision. The two OS gates still
@@ -288,6 +292,15 @@ class LiveSession:
             clock=clock.now,
             hold_after_click_s=options.hold_after_click_s,
         )
+        # The desk components. Built only with --desk, and given the dwell time
+        # this PERSON needs rather than the one the code was written with.
+        access = profile.accessibility_settings()
+        desk_bar = BAR.ControlBar(dwell_ms=access.dwell_ms) if options.desk else None
+        desk_keyboard = SKB.SpatialKeyboard(dwell_ms=access.dwell_ms) if options.desk else None
+        if desk_bar is not None:
+            for line in BAR.layout_warnings():
+                # Said BEFORE the session, not inferred from a bad run after it.
+                print(f"desk layout: {line}")
         self.controller = InteractionController(
             options=options,
             pipeline=self.pipeline,
@@ -301,6 +314,8 @@ class LiveSession:
             keyboard=keyboard,
             scroll_cfg=scroll_cfg,
             recovery_menu=recovery_menu,
+            bar=desk_bar,
+            spatial_keyboard=desk_keyboard,
         )
         self.presenter = LivePresenter(session=self)
 

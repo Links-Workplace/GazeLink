@@ -89,15 +89,24 @@ class Effect(StrEnum):
     CLOSE = "close"  # just close
 
 
-# What one wink does. The default stays DOUBLE: that is what was measured and
-# used live, and CLAUDE.md 8 forbids replacing a working implementation.
-CLICK_TYPES = ("single", "double", "right")
+# What one LEFT wink does. The RIGHT wink is always a right click and is not
+# chosen here: the eye picks the button, so the menu only has to say whether a
+# left wink is one click or two. Single by default -- the operator's decision on
+# 24.9.2026, replacing the earlier double default when winks were split by eye.
+CLICK_TYPES = ("single", "double")
 CLICK_ACTION = {
     "single": A.Action.LEFT_CLICK,
     "double": A.Action.DOUBLE_CLICK,
     "right": A.Action.RIGHT_CLICK,
 }
 CLICK_LABEL = {"single": "לחיצה יחידה", "double": "לחיצה כפולה", "right": "לחיצה ימנית"}
+# The one tile that replaced the click-type page: it names what it will switch
+# TO when chosen, and what is on now, so neither has to be remembered.
+DOUBLE_TOGGLE_LABEL = {"single": "לחיצה כפולה: כבוי", "double": "לחיצה כפולה: פעיל"}
+
+
+def toggled(click_type: str) -> str:
+    return "single" if click_type == "double" else "double"
 
 
 @dataclass(frozen=True)
@@ -136,7 +145,7 @@ class Choice:
 # The last tile of every page is always MORE, and it always leads one page on.
 # Consistent so it can be learned: wherever the person is, the bottom outside
 # tile takes them somewhere new and never commits to anything.
-def _pages(*, paused: bool) -> dict[str, list[Item]]:
+def _pages(*, paused: bool, click_type: str = "single") -> dict[str, list[Item]]:
     """The pages, built fresh because two tiles depend on the current state.
 
     The pause tile is the resume tile. One place, one gesture, both directions
@@ -146,7 +155,12 @@ def _pages(*, paused: bool) -> dict[str, list[Item]]:
 
     return {
         "main": [
-            Item("click-type", "סוג לחיצה", Effect.PAGE, page="click"),
+            Item(
+                "double-toggle",
+                DOUBLE_TOGGLE_LABEL[click_type],
+                Effect.CLICK_TYPE,
+                click_type=toggled(click_type),
+            ),
             Item("scroll", "גלילה", Effect.MODE, mode=A.UiMode.SCROLL),
             Item("keyboard", "מקלדת", Effect.MODE, mode=A.UiMode.KEYBOARD),
             Item("more-1", "עוד", Effect.PAGE, page="nav"),
@@ -167,12 +181,6 @@ def _pages(*, paused: bool) -> dict[str, list[Item]]:
             ),
             Item("close", "סגור תפריט", Effect.CLOSE),
             Item("more-3", "עוד", Effect.PAGE, page="main"),
-        ],
-        "click": [
-            Item("single", CLICK_LABEL["single"], Effect.CLICK_TYPE, click_type="single"),
-            Item("double", CLICK_LABEL["double"], Effect.CLICK_TYPE, click_type="double"),
-            Item("right", CLICK_LABEL["right"], Effect.CLICK_TYPE, click_type="right"),
-            Item("click-back", "חזרה", Effect.PAGE, page="main"),
         ],
     }
 
@@ -231,7 +239,7 @@ class MenuModel:
     """
 
     dwell_ms: float = 900.0
-    click_type: str = "double"
+    click_type: str = "single"
 
     def __post_init__(self) -> None:
         if self.click_type not in CLICK_TYPES:
@@ -316,7 +324,7 @@ class MenuModel:
             self._go(self.page)
 
     def _go(self, page: str) -> None:
-        pages = _pages(paused=self.paused)
+        pages = _pages(paused=self.paused, click_type=self.click_type)
         if page not in pages:
             raise KeyError(f"no menu page called {page!r}")
         self.page = page

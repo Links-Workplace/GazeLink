@@ -59,6 +59,53 @@ RIG_FIELDS = (
 
 
 @dataclass(frozen=True)
+class AccessibilitySettings:
+    """Dwell time, control size and cursor size, for one person.
+
+    Every bound below is a REFUSAL, not a preference. A dwell of 50 ms would
+    make a glance an action; a control scale of 0.2 would put every target
+    under the measured bias, which ``desk_layout`` would then refuse to build
+    anyway. Clamping here means a bad settings file produces a usable session
+    with a reported correction instead of an unusable one.
+    """
+
+    dwell_ms: float = 900.0
+    control_scale: float = 1.0
+    cursor_radius_px: int = 13
+
+    # The dwell floor is above the longest natural blink measured on this rig
+    # (297 ms, gf_gesture), so no involuntary pause can reach it.
+    DWELL_MS_RANGE = (350.0, 4000.0)
+    CONTROL_SCALE_RANGE = (0.8, 1.6)
+    CURSOR_RADIUS_RANGE = (6, 48)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> AccessibilitySettings:
+        defaults = cls()
+
+        def clamped(name: str, lo: float, hi: float, cast: Any) -> Any:
+            raw = value.get(name, getattr(defaults, name))
+            try:
+                number = cast(raw)
+            except (TypeError, ValueError):
+                return getattr(defaults, name)
+            return max(lo, min(hi, number))
+
+        return cls(
+            dwell_ms=clamped("dwell_ms", *cls.DWELL_MS_RANGE, float),
+            control_scale=clamped("control_scale", *cls.CONTROL_SCALE_RANGE, float),
+            cursor_radius_px=int(clamped("cursor_radius_px", *cls.CURSOR_RADIUS_RANGE, int)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dwell_ms": self.dwell_ms,
+            "control_scale": self.control_scale,
+            "cursor_radius_px": self.cursor_radius_px,
+        }
+
+
+@dataclass(frozen=True)
 class Profile:
     """One saved way of running: model + filter + geometry + its evidence."""
 
@@ -82,6 +129,13 @@ class Profile:
     # the selection task, and must not be retuned to make a cursor
     # comfortable. These are presentation only and safe to change.
     cursor: dict[str, Any] = field(default_factory=dict)
+    # What this PERSON needs the controls to be. Deliberately separate from
+    # ``cursor``, which is documented above as presentation only and safe to
+    # change: ``dwell_ms`` changes how long a deliberate look must be held
+    # before it becomes an action, which is a safety-relevant timing and not a
+    # comfort setting. CLAUDE.md 4.5 requires it to be adjustable; nothing
+    # here copies a fixed number out of a study as though it fitted everyone.
+    accessibility: dict[str, Any] = field(default_factory=dict)
     calibration: dict[str, Any] = field(default_factory=dict)
     pose: dict[str, float] = field(default_factory=dict)
     scores: dict[str, Any] = field(default_factory=dict)
@@ -105,6 +159,15 @@ class Profile:
         if unknown:
             raise ValueError(f"unknown profile fields: {sorted(unknown)}")
         return cls(**{k: v for k, v in value.items() if k in known})
+
+    def accessibility_settings(self) -> AccessibilitySettings:
+        """This person's control sizes and timings, clamped to a usable range.
+
+        A missing field stays at the default and an unknown one is ignored, so
+        a profile written by an older build still loads.
+        """
+
+        return AccessibilitySettings.from_dict(self.accessibility)
 
     def rig_geometry(self) -> C.RigGeometry:
         return C.RigGeometry.from_dict(self.rig)

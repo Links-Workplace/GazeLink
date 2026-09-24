@@ -203,6 +203,13 @@ class ClickAdapter:
         # which, and the two are undone by different flags.
         self.stuck_button: str | None = None
         self._held: str | None = None
+        # Held ON PURPOSE, which is a different thing from ``_held``. Without
+        # this distinction ``_press_and_release`` reads an intentional drag as
+        # a stuck button and releases it mid-gesture, because "a button is
+        # down" was the whole vocabulary.
+        self._dragging: bool = False
+        self.drags = 0
+        self.refused_while_dragging = 0
         self._last_s: float | None = None
         self._last_at: tuple[int, int] | None = None
 
@@ -239,6 +246,7 @@ class ClickAdapter:
                     self._send(BUTTONS[self._held][1])
                 self._held = None
                 self.stuck_button = None
+                self._dragging = False
 
     def click(self, *, armed: bool, at: tuple[int, int] | None = None) -> bool:
         """Emit one left click. Returns whether it happened.
@@ -338,9 +346,78 @@ class ClickAdapter:
         self._last_at = at
         return True
 
+    def press(self, button: str = "left", *, armed: bool) -> bool:
+        """Hold a button DOWN and leave it down. The start of a drag.
+
+        Separate from ``click`` because the release is not part of it, and
+        because everything that follows must know the button is down on
+        purpose. Refused while anything is already held: two drags at once
+        cannot both be released by a record that names one button.
+        """
+
+        if self._held is not None:
+            self.refused_while_dragging += 1
+            return False
+        if not armed:
+            self.refused_not_armed += 1
+            return False
+        down, _up = BUTTONS[button]
+        try:
+            if self.enabled:
+                self._send(down)
+        except Exception:  # noqa: BLE001 - a failed press is not a press
+            self.failed += 1
+            return False
+        self._held = button
+        self._dragging = True
+        self.drags += 1
+        # The gap guard must see the drag, or a click straight after the drop
+        # slips under ``min_gap_s`` as though nothing had happened.
+        self._last_s = self._now()
+        return True
+
+    @property
+    def dragging(self) -> bool:
+        return self._dragging
+
+    def drag_release(self) -> bool:
+        """Let go, deliberately. Never gated on a permission.
+
+        A release is not a new action: it undoes one. ``SendInput``'s own
+        interlock already lets button-up through while everything else is
+        refused, and this path must behave the same -- a pause, a lost face or
+        a shutdown arriving mid-drag has to be able to let go.
+
+        Kept apart from ``release``, which belongs to shutdown: sharing one
+        method would make a failed drop and a failed cleanup the same number.
+        """
+
+        if self._held is None:
+            self._dragging = False
+            return False
+        button = self._held
+        try:
+            if self.enabled:
+                self._send(BUTTONS[button][1])
+        except Exception:  # noqa: BLE001
+            self.stuck_button = button
+            self.failed += 1
+            return False
+        self._held = None
+        self._dragging = False
+        self.stuck_button = None
+        self._last_s = self._now()
+        return True
+
     def _press_and_release(self, button: str = "left") -> bool:
         """One down/up pair, with the up guaranteed. False if either failed."""
 
+        if self._dragging:
+            # An intentional drag is in progress. Releasing it here to make
+            # room for a click would drop whatever is being carried somewhere
+            # nobody chose. Refused and counted instead.
+            self.refused_while_dragging += 1
+            return False
         if self._held is not None:
             # A button is still down from a previous request, and pressing
             # anything now would overwrite the record of WHICH one -- after
@@ -407,6 +484,19 @@ class ClickAdapter:
             "refused_not_armed": self.refused_not_armed,
             "refused_too_soon": self.refused_too_soon,
             "refused_button_held": self.refused_button_held,
+            # Drag is reported only once there has been one, the way
+            # ``ActionRouter.summary`` reports only refusals that happened. A
+            # session that never dragged says nothing about dragging, and the
+            # line stays what every earlier report printed.
+            **(
+                {
+                    "drags": self.drags,
+                    "refused_while_dragging": self.refused_while_dragging,
+                    "dragging": self._dragging,
+                }
+                if (self.drags or self.refused_while_dragging or self._dragging)
+                else {}
+            ),
             "failed": self.failed,
             "button_stuck": self.button_stuck,
             "stuck_button": self.stuck_button,

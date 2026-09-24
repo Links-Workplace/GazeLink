@@ -22,14 +22,26 @@ from typing import Any
 
 from gazelink_core.gaze.visibility import OVERLAY_STALE_S, visible_point
 from gazelink_core.interaction import actions as ACT
+from gazelink_core.interaction import bar as BAR
+from gazelink_core.interaction import drag as DRAG
 from gazelink_core.interaction import gesture as GEST
 from gazelink_core.interaction import keyboard as KB
 from gazelink_core.interaction import menu as MENU
 from gazelink_core.interaction import scroll as SCR
+from gazelink_core.interaction import steadiness as STEADY
 from gazelink_core.interaction.executor import ActionExecutor
 from gazelink_core.interaction.safety import SafetyController
 
 VK_SPACE = 0x20
+
+# Which counter a wink refused by mode belongs to. A dict rather than a chain
+# of ifs so a new UiMode cannot be added without a place to count it.
+WINK_REFUSED_IN = {
+    ACT.UiMode.MENU: "winks_in_menu",
+    ACT.UiMode.SCROLL: "winks_while_scrolling",
+    ACT.UiMode.ZOOM: "winks_in_zoom",
+    ACT.UiMode.DRAG: "winks_in_drag",
+}
 
 
 @dataclass(frozen=True)
@@ -57,6 +69,9 @@ class InteractionController:
         keyboard: KB.ScanningKeyboard,
         scroll_cfg: SCR.ScrollConfig,
         recovery_menu: GEST.RecoveryMenu,
+        bar: Any = None,
+        spatial_keyboard: Any = None,
+        zoom: Any = None,
     ) -> None:
         self.options = options
         self.pipeline = pipeline
@@ -72,6 +87,27 @@ class InteractionController:
         self.scroll_bands = SCR.scroll_zones(scroll_cfg)
         self.repeater = SCR.ScrollRepeater(scroll_cfg)
         self.recovery_menu = recovery_menu
+        # The desk components, or None when --desk is off. Optional rather
+        # than always built so the existing path constructs exactly what it
+        # always constructed and the golden trace cannot move.
+        self.bar = bar
+        self.spatial_keyboard = spatial_keyboard
+        self.zoom = zoom
+        # Which bar modes this controller can actually carry out. Derived from
+        # what was HANDED to it rather than hard-coded, so wiring the magnifier
+        # in makes its target work without a second place to remember.
+        self.bar_modes_wired = {ACT.UiMode.SCROLL, ACT.UiMode.KEYBOARD}
+        if zoom is not None:
+            self.bar_modes_wired.add(ACT.UiMode.ZOOM)
+        # Dwell only. The pointer and every wink keep the strict steadiness
+        # gate; a fill is the one thing a 32 ms blink must not send back to
+        # zero. See ``steadiness`` for the measurement that made this needed.
+        self.steady_hold = STEADY.SteadyHold(
+            hold_ms=getattr(options, "steady_hold_ms", STEADY.DEFAULT_HOLD_MS)
+        )
+        # Owned here, like the menu and the keyboard: one place knows whether
+        # something is being carried, and every exit path goes through it.
+        self.drag = DRAG.DragSequence()
         # Chosen in the no-click view's recovery menu (e.g. "recalibrate").
         self.chosen: list[str] = []
         # Edge, not level: a key held for half a second is one instruction,
@@ -117,7 +153,14 @@ class InteractionController:
 
         if new_mode is self.ui_mode:
             return
+        # Before anything else. Every other in-flight mechanism is stopped
+        # below; a held mouse button was the one that was not, and leaving
+        # DRAG with the button down turns every later look into a selection.
+        self._release_drag(DRAG.Ended.CANCELLED)
         self.ui_mode = new_mode
+        # Nothing carried behind an eyelid may survive into the next mode, for
+        # the same reason every wink in flight is dropped below.
+        self.steady_hold.reset()
         self.scroll_seeded = new_mode is not ACT.UiMode.SCROLL
         self.repeater.stop()
         self.executor.reset_router()
@@ -151,7 +194,11 @@ class InteractionController:
             # The only outcome that leaves the menu open.
             return
         if item.effect is MENU.Effect.CLICK_TYPE:
-            self.telemetry.say(f"click type: {self.board.click_type}")
+            if self.bar is not None:
+                # One setting, shown in two places: the bar's tile must say
+                # what the menu just switched.
+                self.bar.click_kind = self.board.click_type
+            self.telemetry.say(f"left wink: {self.board.click_type} click")
             self.enter_mode(ACT.UiMode.CURSOR, why="click type chosen")
             return
         if item.effect is MENU.Effect.MODE and item.mode is not None:
@@ -162,6 +209,50 @@ class InteractionController:
         ):
             self.telemetry.tally["commands"] += 1
         self.enter_mode(ACT.UiMode.CURSOR, why="menu closed")
+
+    def take_bar_pick(
+        self, pick: BAR.Pick, at: tuple[float, float] | None, now: float
+    ) -> None:
+        """What a bar target does, once the dwell has chosen it.
+
+        The bar has already changed ITSELF by the time this is called
+        (``ControlBar._apply`` moves the view and records the click kind). What
+        is left is the two things only the controller owns: the mode, and
+        putting an Action through the router.
+
+        Unlike ``take_choice`` this never returns to CURSOR at the end. The bar
+        is not a trip: it is on screen the whole time, and a choice that did
+        not ask for a mode leaves the person exactly where they were.
+        """
+
+        item = pick.item
+        if item.effect is BAR.Effect.VIEW:
+            # Compact/expanded is the bar's own business.
+            return
+        if item.effect is BAR.Effect.CLICK_KIND:
+            # ONE source of truth for what a confirm does: ``_take_wink`` reads
+            # ``board.click_type``, so the bar writes there rather than keeping
+            # a second kind that nothing would read.
+            self.board.click_type = self.bar.click_kind
+            self.telemetry.say(f"click type: {self.board.click_type}")
+            return
+        if item.effect is BAR.Effect.MODE and item.mode is not None:
+            if item.mode not in self.bar_modes_wired:
+                # A target that leads nowhere is worse than a target that is
+                # not offered: ZOOM has no renderer and nothing drives it, and
+                # DRAG has no way to START a carry (a wink is refused in that
+                # mode by design), so entering either would strand the person
+                # in a mode with no way out but Esc. Refused OUT LOUD.
+                self.telemetry.tally["bar_modes_not_ready"] += 1
+                self.notice = f"{item.label} עדיין לא מחובר - לא נכנסנו למצב הזה"
+                self.telemetry.say(f"bar: {item.mode} is not wired yet")
+                return
+            self.enter_mode(item.mode, why="chosen on the bar")
+            return
+        if item.action is not None and self.executor.route(
+            item.action, ACT.Source.DWELL, at, now, ui_mode=self.ui_mode
+        ):
+            self.telemetry.tally["commands"] += 1
 
     # -- one frame ---------------------------------------------------------------
 
@@ -226,7 +317,18 @@ class InteractionController:
                 # drained in the frame SPACE resumed passed the now-armed check
                 # and clicked -- an event from before the recovery acting after.
                 tally["winks_dropped_at_mode_edge"] += self.pipeline.cancel_wink()
+                # A pause, a resume or a tracking loss invalidates a held point
+                # exactly as it invalidates a wink: after a loss the eyes may be
+                # anywhere, and the last place they were open is not evidence.
+                self.steady_hold.reset()
                 self.executor.reset_router()
+                # A pause, a resume or a tracking loss invalidates a carry as
+                # surely as it invalidates a wink. The button comes up here
+                # and not at shutdown, because shutdown may be minutes away.
+                self._release_drag(
+                    DRAG.Ended.PAUSED if not self.safety.cursor_enabled
+                    else DRAG.Ended.TRACKING_LOST
+                )
             self.executor.set_pointer_paused(not self.safety.cursor_enabled)
         else:
             for when, event in self.pipeline.drain_gesture_events():
@@ -263,6 +365,12 @@ class InteractionController:
         steady = not self.safety.controlled or state.eyes_steady
         aim = fresh if steady else None
         now = self.clock()
+        # What a DWELL may use: ``aim``, or the last open-eyed point for as long
+        # as the budget allows. ``aim`` itself is untouched, so everything that
+        # moves the pointer or acts on a wink still sees only a steady point.
+        dwell_aim = self.steady_hold.update(
+            now, steady_point=aim, have_prediction=fresh is not None
+        )
         if self.safety.controlled:
             zone = next(
                 (z.key for z in self.scroll_bands if aim is not None and z.contains(aim)),
@@ -272,6 +380,10 @@ class InteractionController:
             # The pause tile is the resume tile, so it has to keep telling the
             # truth about a mode that can change under an open menu.
             self.board.set_paused(paused_now)
+            if self.bar is not None:
+                # Same reason, same frame: the bar's pause target is the way
+                # back, and it may not describe a mode that already changed.
+                self.bar.set_paused(paused_now)
             if not self.safety.face_ok or paused_now:
                 # The wheel stops either way. The MODE is not cancelled with
                 # it: the face is "not ok" for the first frames of EVERY
@@ -282,7 +394,7 @@ class InteractionController:
                 # Frozen while choosing: the pointer must not travel to the
                 # tile the gaze is inspecting.
                 self.executor.set_pointer_paused(True)
-                choice = self.board.update(now, aim, fresh=aim is not None)
+                choice = self.board.update(now, dwell_aim, fresh=dwell_aim is not None)
                 if choice is not None:
                     tally["menu_choices"] += 1
                     self.take_choice(choice, aim, now)
@@ -320,22 +432,61 @@ class InteractionController:
                 )
                 if notches and self.executor.scroll(notches):
                     tally["notches"] += abs(notches)
+            elif self.bar is not None and self.ui_mode is ACT.UiMode.CURSOR:
+                # The bar is on screen for the whole of cursor mode, so it is
+                # driven every frame -- including while PAUSED, because the
+                # resume target lives on it and the router already refuses
+                # everything but RESUME while paused. Its own arming rule (see
+                # ``bar`` module docstring) is what stops a glance downwards
+                # from choosing something.
+                pick = self.bar.update(now, dwell_aim, fresh=dwell_aim is not None)
+                if pick is not None:
+                    tally["bar_picks"] += 1
+                    self.take_bar_pick(pick, aim, now)
+                elif aim is not None and self.bar.hovered is None:
+                    # On CONTENT rather than on a target: worth remembering as
+                    # the place the wheel should go back to.
+                    self.content_px = self.to_pixels(aim)
             elif aim is not None and zone is None:
                 # The pointer's position while the gaze is on CONTENT.
                 self.content_px = self.to_pixels(aim)
-        if self.ui_mode is ACT.UiMode.CURSOR:
+        if self.ui_mode in (ACT.UiMode.CURSOR, ACT.UiMode.DRAG):
+            # DRAG follows too. Without it the pointer is frozen for the whole
+            # carry and the item never goes anywhere -- a drag that cannot
+            # move is a button held for nothing.
             self.executor.follow(
                 self.to_pixels(fresh) if fresh is not None and steady else None
             )
-        for when, aimed_at in self.pipeline.drain_wink_events():
+        for event in self.pipeline.drain_wink_events():
             if not self.safety.controlled:
                 continue
-            self._take_wink(when, aimed_at, now)
+            # (when, aimed_at, eye). An event without an eye comes from a source
+            # that only ever detected the right eye, and is read as that.
+            when, aimed_at, *rest = event
+            eye = GEST.Eye(rest[0]) if rest else GEST.Eye.RIGHT
+            self._take_wink(when, aimed_at, now, eye=eye)
         return view
 
-    def _take_wink(self, when: float, aimed_at: tuple[float, float] | None, now: float) -> None:
+    def _release_drag(self, why: DRAG.Ended) -> None:
+        """Let go, and record why. Safe to call when nothing is held."""
+
+        held = self.drag.force_release(why)
+        released = self.executor.end_drag()
+        if held or released:
+            self.notice = f"הגרירה שוחררה: {why}"
+            self.telemetry.say(f"drag released - {why}")
+
+    def _take_wink(
+        self,
+        when: float,
+        aimed_at: tuple[float, float] | None,
+        now: float,
+        *,
+        eye: GEST.Eye = GEST.Eye.RIGHT,
+    ) -> None:
         tally = self.telemetry.tally
         tally["winks"] += 1
+        tally["winks_left" if eye is GEST.Eye.LEFT else "winks_right"] += 1
         # The time the WINK happened, not the time it was looked at, and
         # screened before the keyboard's ``select`` changes state as it is
         # called: a stale wink refused afterwards would already have moved the
@@ -350,10 +501,10 @@ class InteractionController:
             tally["winks_stale"] += 1
             return
         if refusal is ACT.Refusal.WRONG_MODE:
-            if self.ui_mode is ACT.UiMode.MENU:
-                tally["winks_in_menu"] += 1
-            else:
-                tally["winks_while_scrolling"] += 1
+            # One counter per mode. Before, everything that was not the menu
+            # was counted as a wink while scrolling, so a report from a zoom
+            # session blamed the wheel for winks the wheel never saw.
+            tally[WINK_REFUSED_IN.get(self.ui_mode, "winks_while_scrolling")] += 1
             return
         if refusal is ACT.Refusal.PAUSED:
             tally["suppressed_while_paused"] += 1
@@ -380,9 +531,25 @@ class InteractionController:
                 self.keyboard.on_sent(key)
             return
         self.executor.route(
-            MENU.CLICK_ACTION[self.board.click_type],
+            self.click_for(eye),
             ACT.Source.WINK,
             aimed_at,
             when,
             ui_mode=self.ui_mode,
+        )
+
+    def click_for(self, eye: GEST.Eye) -> ACT.Action:
+        """The eye picks the button. RIGHT is always a right click; LEFT is a left
+        click, single or double as the menu's toggle says (single by default).
+
+        One mapping, in one place, so the menu label, the bar label and what a
+        wink actually sends cannot drift apart.
+        """
+
+        if eye is GEST.Eye.RIGHT:
+            return ACT.Action.RIGHT_CLICK
+        return (
+            ACT.Action.DOUBLE_CLICK
+            if self.board.click_type == "double"
+            else ACT.Action.LEFT_CLICK
         )

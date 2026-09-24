@@ -1,0 +1,129 @@
+{
+  "name": "res_hi_trial",
+  "model_dir": "results/resolution/models/round4_hi_405",
+  "rig": {
+    "camera_x_cm": 60.0,
+    "camera_y_cm": -2.0,
+    "screen_w_cm": 120.0,
+    "screen_h_cm": 33.75,
+    "device_w_px": 5120,
+    "device_h_px": 1440
+  },
+  "filter": {
+    "kind": "one-euro",
+    "reset_gap_ms": 250.0,
+    "ema_cutoff_hz": 2.0,
+    "one_euro_min_cutoff_hz": 0.4,
+    "one_euro_beta_hz_per_px_s": 0.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "kalman_acceleration_noise_px2_s4": 400.0,
+    "kalman_measurement_noise_px2": 900.0
+  },
+  "screen": {
+    "screen_id": "LS49C95xU",
+    "connector": "\\\\.\\DISPLAY1",
+    "width_px": 5120,
+    "height_px": 1440,
+    "width_mm": 1192.0,
+    "height_mm": 336.0
+  },
+  "gesture": {
+    "wink": {
+      "shut_ratio": 0.45,
+      "asymmetry": 2.5,
+      "hold_ms": 35.0,
+      "bridge_ms": 40.0,
+      "cooldown_ms": 120.0
+    },
+    "gate": {
+      "shut_fraction": 0.55,
+      "steady_fraction": 0.8,
+      "adapt": 0.02
+    },
+    "eye_frame": "the person's own left and right, not the camera's",
+    "measured_utc": "2026-09-09T10:16:50.891241+00:00",
+    "evidence": {
+      "source": "results/click/a_20260909_101650.json",
+      "frames": 12818,
+      "selections": 25,
+      "per_button": {
+        "LEFT": 10,
+        "RIGHT": 15
+      },
+      "winks_on_no_button": 0,
+      "fired_twice": 0,
+      "deepest_right": 0.008109400687977815,
+      "deepest_left": 0.14173689684909702,
+      "frames_right_under_gate": 2721,
+      "frames_left_under_gate": 609,
+      "note": "Held unchanged from the built-in values because they were validated as they stand: 25 selections, none on the wrong target, none fired twice, with the right eye reaching 0.008 of its baseline while the left stayed above 0.14. Changing numbers that a measurement endorsed would be guessing again. Simulation only -- no OS click had been emitted when this was recorded.",
+      "real_os_clicks": {
+        "runs": [
+          {
+            "report": "results/click/a_20260909_102007.json",
+            "seconds": 77.1,
+            "clicks": 12,
+            "per_button": {
+              "LEFT": 3,
+              "RIGHT": 9
+            },
+            "winks_on_no_button": 0,
+            "failed": 0,
+            "button_stuck": false,
+            "refused_too_soon": 0,
+            "every_click_inside_its_button": true
+          },
+          {
+            "report": "results/click/a_20260909_102634.json",
+            "seconds": 41.3,
+            "clicks": 4,
+            "per_button": {
+              "LEFT": 2,
+              "RIGHT": 2
+            },
+            "winks_on_no_button": 0,
+            "failed": 0,
+            "button_stuck": false,
+            "refused_too_soon": 0,
+            "every_click_inside_its_button": true
+          }
+        ],
+        "total_clicks": 16,
+        "note": "Real Windows left clicks, emitted by wink, on a verified ruler. Across both runs: no click landed outside the button it selected, no wink landed on no button, no click fired twice, and the left button was never left held. The earlier line in this record describing simulation stands as the step before these."
+      }
+    },
+    "updated_utc": "2026-09-10",
+    "changes": [
+      "cooldown_ms 700 -> 120: at 700 the soonest a second wink could fire was about 900 ms after the first, against Windows' 500 ms double-click window, so two winks could never open anything. The eye having to reopen is what stops one closure firing twice; the cooldown was only ever a guard against jitter around that.",
+      "gate.steady_fraction 0.80 added: between shut and steady the blink gate still passes and a gaze point is produced from an eye already half behind its lid. Following it is what made the pointer lurch as a wink began.",
+      "bridge_ms 100 added: over a two-minute session 103 frames matched the wink rule and only two winks fired, because a single frame popping out of the rule restarted the hold from zero. The eye-close detector has had this since it was written; the wink detector did not.",
+      "hold_ms 140 -> 50 and bridge_ms 100 -> 40: three measured sessions matched 3, 4 and 9 frames of the wink rule and fired ZERO winks. The winks were deep enough (right to 0.14-0.17) and asymmetric enough (left 4-6x that) and simply too short. The detector runs at the camera's ~30 fps and the first matching frame only starts the clock, so 140 ms asked for four unbroken frames; 50 ms asks for three, which is what was measured.",
+      "hold_ms 50 -> 35: the operator ran every live session with --wink-hold-ms 35 and nothing else, from the first one onwards. At 50 two consecutive sessions produced ZERO winks over 1553 and 335 samples; at 35 the same person and the same camera produced 3, 4, 2 and 19 winks, and the 19-wink session sent 15 double clicks with no failed press and no stuck button. The value is written down because it was measured and used, not because it was reasoned about: leaving the default at a number every session had to override was a default that described nobody."
+    ]
+  },
+  "cursor": {
+    "smoothing": 0.6,
+    "dead_zone_px": 6,
+    "max_step_px": 400,
+    "chosen_by": "operator, live, 8.9.2026: 0.35/12 felt jumpy, 0.6/6 felt right"
+  },
+  "calibration": {
+    "recording": "",
+    "protocol": "A",
+    "round_id": 4,
+    "session": "20260922_124416"
+  },
+  "pose": {},
+  "scores": {
+    "status": "TRIAL. Built for one live dwell comparison. Never adopted, never activated.",
+    "note": "1440x1080 centre crop of 1920x1080. Same calibration rows as res_lib_trial by construction -- the dual pipeline decoded one frame twice.",
+    "NOT_comparable_to": "group1_corrected_20260916, which has 6480 training rows and an axis correction. This arm has 405 rows and no correction. Compare it only with the other 405-row arm."
+  },
+  "x_range": [
+    0.3,
+    0.7
+  ],
+  "capture_pipeline": "hi-1440x1080-crop-of-1920x1080",
+  "created_utc": "2026-09-22T10:06:25+00:00",
+  "version": "profile-1"
+}

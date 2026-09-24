@@ -343,33 +343,62 @@ class KeyboardModeTests(unittest.TestCase):
         )
 
 
-class RightClickTests(unittest.TestCase):
-    def test_choosing_the_right_click_makes_a_wink_a_right_click(self) -> None:
-        sub = _centres("click")
+class WhichEyeTests(unittest.TestCase):
+    """The eye picks the button (operator, 24.9.2026).
+
+    RIGHT wink: always a right click, nothing to choose. LEFT wink: a left click,
+    single by default; the menu's first tile toggles it to double. The menu no
+    longer has a click-type page at all.
+    """
+
+    def test_a_right_wink_is_a_right_click_with_nothing_chosen(self) -> None:
+        _display, sends, _runner = _run(
+            self, winks=[(0.0, DEAD, GEST.Eye.RIGHT)], max_seconds=0.4
+        )
+        self.assertEqual(
+            sends.count(CK.MOUSEEVENTF_RIGHTDOWN), 1, "the right wink did not right click"
+        )
+        self.assertEqual(sends.count(CK.MOUSEEVENTF_RIGHTUP), 1, "the right button was left down")
+        self.assertNotIn(CK.MOUSEEVENTF_LEFTDOWN, sends, "a right wink left clicked")
+
+    def test_a_left_wink_is_a_single_left_click_by_default(self) -> None:
+        _display, sends, _runner = _run(
+            self, winks=[(0.0, DEAD, GEST.Eye.LEFT)], max_seconds=0.4
+        )
+        self.assertEqual(
+            sends.count(CK.MOUSEEVENTF_LEFTDOWN), 1, "the default stopped being single"
+        )
+        self.assertEqual(sends.count(CK.MOUSEEVENTF_LEFTUP), 1)
+        self.assertNotIn(CK.MOUSEEVENTF_RIGHTDOWN, sends)
+
+    def _toggle_then_wink(self, eye: GEST.Eye) -> list[int]:
         _display, sends, _runner = _run(
             self,
-            points=_gaze(
-                (DEAD, 30),
-                (MAIN["click-type"], 40),
-                (DEAD, 16),
-                (sub["right"], 60),
-                (DEAD, 300),
-            ),
+            points=_gaze((DEAD, 30), (MAIN["double-toggle"], 40), (DEAD, 300)),
             gestures=list(LONG_CLOSE),
             gesture_after=20,
             menu_dwell_ms=40.0,
-            winks=[(0.0, DEAD)],
+            winks=[(0.0, DEAD, eye)],
             wink_after=200,
             max_seconds=1.8,
         )
-        self.assertIn(CK.MOUSEEVENTF_RIGHTDOWN, sends, "the wink did not right click")
-        self.assertNotIn(CK.MOUSEEVENTF_LEFTDOWN, sends, "it left clicked as well")
+        return sends
 
-    def test_the_default_is_still_the_double_that_was_measured_live(self) -> None:
-        _display, sends, _runner = _run(self, winks=[(0.0, DEAD)], max_seconds=0.4)
+    def test_the_menu_toggle_makes_a_left_wink_a_double_click(self) -> None:
+        sends = self._toggle_then_wink(GEST.Eye.LEFT)
         self.assertEqual(
-            sends.count(CK.MOUSEEVENTF_LEFTDOWN), 2, "one wink stopped being a double click"
+            sends.count(CK.MOUSEEVENTF_LEFTDOWN), 2, "the toggle did not make it double"
         )
+        self.assertEqual(sends.count(CK.MOUSEEVENTF_LEFTDOWN), sends.count(CK.MOUSEEVENTF_LEFTUP))
+
+    def test_the_toggle_leaves_the_right_wink_alone(self) -> None:
+        sends = self._toggle_then_wink(GEST.Eye.RIGHT)
+        self.assertEqual(sends.count(CK.MOUSEEVENTF_RIGHTDOWN), 1)
+        self.assertNotIn(CK.MOUSEEVENTF_LEFTDOWN, sends)
+
+    def test_there_is_no_click_type_page_any_more(self) -> None:
+        self.assertNotIn("click", MENU._pages(paused=False))
+        self.assertIn("double-toggle", MAIN)
 
 
 class WinkCancelReachesTheDetectorTests(unittest.TestCase):

@@ -1,0 +1,8 @@
+Rollback record
+The active profile before adopting group1_corrected_trial on 2026-09-22 was: pooled_trial
+To go back:  python -c "import gf_profile as P; P.activate('pooled_trial')"
+
+
+Rollback record
+The active profile before adopting group1_ycal_20260924 on 2026-09-24 was: group1_corrected_trial
+To go back:  python -c "import gf_profile as P; P.activate('group1_corrected_trial')"

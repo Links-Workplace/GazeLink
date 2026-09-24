@@ -33,7 +33,9 @@ class LiveOptions:
     cursor_dead_zone_px: int = _CURSOR.dead_zone_px
     cursor_max_step_px: int = _CURSOR.max_step_px
     click_by: str = "off"  # "off" | "wink"
-    wink_click: str = "double"  # "single" | "double"
+    # What a LEFT wink does at the start; the menu toggles it. A right wink is
+    # always a right click. Single by default (operator, 24.9.2026).
+    wink_click: str = "single"  # "single" | "double"
     wink_hold_ms: float | None = None
     scroll_arm_ms: float | None = None
     scroll_repeat_ms: float | None = None
@@ -41,6 +43,10 @@ class LiveOptions:
     toggle_by: str = "key"  # "key" (SPACE) | "eyes" (long close)
     start_active: bool = True
     hold_after_click_s: float = 1.5
+    # The desk interface: one bar, a secondary menu, the magnifier, the gaze
+    # keyboard and drag. OFF by default, so every existing command and every
+    # golden scenario runs the path they always ran.
+    desk: bool = False
     menu_enabled: bool = True
     menu_dwell_ms: float = _MENU_DWELL_MS
     scan_ms: float | None = None

@@ -335,10 +335,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--wink-click",
         choices=("single", "double"),
-        default="double",
-        help="what ONE wink does. 'double' is the default because it is what opens things, "
-        "and because asking for two winks inside Windows' 500 ms window is a timing test a "
-        "person can fail through no fault of their own.",
+        default="single",
+        help="what a LEFT wink does at the start: 'single' (default) or 'double'. The menu "
+        "tile 'לחיצה כפולה' switches it during the session. A RIGHT wink is always a right "
+        "click. Double exists because asking for two winks inside Windows' 500 ms window is "
+        "a timing test a person can fail through no fault of their own.",
     )
     parser.add_argument(
         "--toggle-by",
@@ -363,6 +364,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="how long the pointer stays where it clicked before following the gaze again. "
         "This is also the window in which a second wink becomes a double click, because both "
         "halves have to land on the same pixel.",
+    )
+    parser.add_argument(
+        "--desk",
+        action="store_true",
+        help="the desk interface: one bar (click, scroll, keyboard, more), a pause target "
+        "that never moves, the magnifier, the gaze keyboard and drag. Off by default; "
+        "without it this runs exactly the path it has always run.",
     )
     parser.add_argument("--skip-model-check", action="store_true")
     parser.add_argument("--allow-rig-mismatch", action="store_true")
@@ -445,6 +453,7 @@ def _run_live_from_args(profile: PROF.Profile, monitor: Any, args: argparse.Name
         scroll_arm_ms=args.scroll_arm_ms,
         scroll_repeat_ms=args.scroll_repeat_ms,
         start_scrolling=args.start_scrolling,
+        desk=args.desk,
         menu_enabled=args.menu,
         menu_dwell_ms=args.menu_dwell_ms,
         scan_ms=args.scan_ms,

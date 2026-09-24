@@ -49,14 +49,16 @@ def _model() -> FittedModel:
     return FittedModel.fit(config, X, y, rig=RIG, train_meta={"fitted_by": "e2e test"})
 
 
-def _recording(*, wink: bool) -> S.Recording:
+def _recording(*, wink: bool, eye: str = "right") -> S.Recording:
     rng = np.random.default_rng(5)
     builder = S.RecordingBuilder("T1", 0, {"rig": RIG.to_dict(), "targets": []})
     base = rng.normal(size=8).astype(np.float32)
     for i in range(240):
         # The person's RIGHT eye is the image-left column: a right wink is a
-        # small first value with the other eye open.
-        left_img = 12.0 if (wink and 150 <= i < 158) else 150.0
+        # small first value with the other eye open, a LEFT wink a small second.
+        shut = wink and 150 <= i < 158
+        left_img = 12.0 if (shut and eye == "right") else 150.0
+        right_img = 11.0 if (shut and eye == "left") else 130.0
         builder.append(
             frame_seq=i,
             timestamp_ns=1_000_000_000 + int(i * 1e9 / FPS),
@@ -70,7 +72,7 @@ def _recording(*, wink: bool) -> S.Recording:
             head=None,
             pnp_deg=None,
             raw_cm=(1.0, 2.0),
-            openness=(left_img, 130.0),
+            openness=(left_img, right_img),
             tracking_state="SUCCESS",
             gaze_status=True,
             accepted=False,
@@ -99,14 +101,16 @@ class ClockedReplay(ReplaySource):
             self.published += 1
 
 
-def _run(*, wink: bool, **option_overrides) -> tuple[int, FakeWorld, list, str, ClockedReplay]:  # noqa: ANN003
+def _run(  # noqa: ANN003
+    *, wink: bool, eye: str = "right", wink_click: str = "double", **option_overrides
+) -> tuple[int, FakeWorld, list, str, ClockedReplay]:
     clock = FakeClock(500.0)
     draws: list = []
     world = FakeWorld(
         runner=None, display=RecordingDisplay(draws), clock=clock, title=lambda hwnd: "window"
     )
     model = _model()
-    source = ClockedReplay(_recording(wink=wink), clock)
+    source = ClockedReplay(_recording(wink=wink, eye=eye), clock)
     env = dataclasses.replace(
         world.environment(),
         open_source=lambda prof: (world._count("open_library"), source)[1],
@@ -119,7 +123,7 @@ def _run(*, wink: bool, **option_overrides) -> tuple[int, FakeWorld, list, str, 
         click_by="wink",
         skip_model_check=True,
         max_seconds=8.5,
-        wink_click="double",
+        wink_click=wink_click,
         **option_overrides,
     )
     out = io.StringIO()
@@ -129,17 +133,36 @@ def _run(*, wink: bool, **option_overrides) -> tuple[int, FakeWorld, list, str, 
 
 
 class EndToEndTests(unittest.TestCase):
-    def test_a_replayed_wink_moves_the_pointer_and_double_clicks_with_fake_input(self) -> None:
-        code, world, draws, text, source = _run(wink=True)
+    def test_a_replayed_right_wink_right_clicks_through_the_real_pipeline(self) -> None:
+        # The eye picks the button: a RIGHT wink is a right click whatever the
+        # left-wink setting is (double here, deliberately, to show it is ignored).
+        code, world, draws, text, source = _run(wink=True, eye="right", wink_click="double")
         self.assertEqual(code, 0)
         self.assertGreater(source.published, 200, "the replay never reached the pipeline")
         self.assertTrue(world.moves, "the pointer never followed the replayed gaze")
-        downs = [f for f in world.sends if f == CK.MOUSEEVENTF_LEFTDOWN]
-        self.assertEqual(len(downs), 2, f"expected one double click, sent {world.sends}")
+        self.assertEqual(world.sends.count(CK.MOUSEEVENTF_RIGHTDOWN), 1, f"sent {world.sends}")
+        self.assertEqual(
+            world.sends.count(CK.MOUSEEVENTF_RIGHTUP), 1, "the right button stayed down"
+        )
+        self.assertNotIn(CK.MOUSEEVENTF_LEFTDOWN, world.sends, "a right wink left clicked")
         self.assertIn("winks detected         : 1", text)
         self.assertTrue(source.closed, "the source was not closed")
         self.assertIn(("close",), draws, "the display was not closed")
         self.assertTrue(any(d[0] == "live" for d in draws))
+
+    def test_a_replayed_left_wink_double_clicks_when_the_toggle_is_on(self) -> None:
+        code, world, _draws, text, _source = _run(wink=True, eye="left", wink_click="double")
+        self.assertEqual(code, 0)
+        downs = world.sends.count(CK.MOUSEEVENTF_LEFTDOWN)
+        self.assertEqual(downs, 2, f"expected one double click, sent {world.sends}")
+        self.assertEqual(downs, world.sends.count(CK.MOUSEEVENTF_LEFTUP))
+        self.assertNotIn(CK.MOUSEEVENTF_RIGHTDOWN, world.sends, "a left wink right clicked")
+        self.assertIn("winks detected         : 1", text)
+
+    def test_a_replayed_left_wink_single_clicks_by_default(self) -> None:
+        code, world, _draws, _text, _source = _run(wink=True, eye="left", wink_click="single")
+        self.assertEqual(code, 0)
+        self.assertEqual(world.sends, [CK.MOUSEEVENTF_LEFTDOWN, CK.MOUSEEVENTF_LEFTUP])
 
     def test_the_same_session_without_a_wink_never_clicks(self) -> None:
         code, world, _draws, text, _source = _run(wink=False)

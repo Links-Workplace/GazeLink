@@ -125,7 +125,9 @@ class CoreDependsOnNoToolTests(unittest.TestCase):
 
 class LayeringTests(unittest.TestCase):
     def test_domain_and_interaction_touch_no_device_window_or_library(self) -> None:
-        forbidden_roots = {"pygame", "ctypes", "cv2", "gazefollower"}
+        # PIL joins them: screen capture for the magnifier is a PLATFORM
+        # concern, and interaction/ must hold only the port, never the library.
+        forbidden_roots = {"pygame", "ctypes", "cv2", "gazefollower", "PIL", "Pillow"}
         forbidden_layers = (
             "gazelink_core.tracking",
             "gazelink_core.ui",
@@ -201,6 +203,11 @@ class OwnershipTests(unittest.TestCase):
             "escape",
             "jump_to",
             "update",
+            # The drag surface. Without these two names here the ownership rule
+            # would silently stop covering the one path that can leave a
+            # mouse button physically held down.
+            "press",
+            "drag_release",
         }
         receivers = {"clicker", "scroller", "keys", "cursor"}
         bad = []

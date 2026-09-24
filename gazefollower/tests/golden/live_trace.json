@@ -654,7 +654,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -689,7 +689,7 @@
     1
    ]
   ],
-  "draw_sha256": "df3bc150dd36fa5a12cc0e27840f16a24998840a1c807e624ea3dd979ff50d2c"
+  "draw_sha256": "05cd7dafbce68f9eb22c1b3ffaae3b087da0850c6d04cd8c6a4b3a6d037e715b"
  },
  "blink_then_wink_double_click": {
   "returncode": 0,
@@ -758,7 +758,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -793,7 +793,7 @@
     1
    ]
   ],
-  "draw_sha256": "fbae09470e1bb7bd5f91bd1c00731cf7e6643b616999314994c72fa48d17da53"
+  "draw_sha256": "d7866eedf019bce4e73cd25c942d477f579703a5d03b94b6b018c0d40b229fa4"
  },
  "pause_and_resume_with_space": {
   "returncode": 0,
@@ -864,7 +864,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -899,7 +899,7 @@
     1
    ]
   ],
-  "draw_sha256": "fa42994fbea591f797f877d7cccf58d3e7bd1a109015063e208de07f99a92ee5"
+  "draw_sha256": "db479537e12170a4ce0f589b04aac8cefb3326004b88f885f8dabccb4e3614f2"
  },
  "stale_and_duplicate_winks": {
   "returncode": 0,
@@ -958,7 +958,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'single', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -993,7 +993,7 @@
     1
    ]
   ],
-  "draw_sha256": "d660f33e58519ca9e41aa94651555e4b8b1513d804d94a46590a4283702eb4ee"
+  "draw_sha256": "065dbaadf017551bc31fa95c3a558858750247005ec2b2bccd761861628bef68"
  },
  "wink_with_no_aim": {
   "returncode": 0,
@@ -1036,7 +1036,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -1071,9 +1071,9 @@
     1
    ]
   ],
-  "draw_sha256": "30c84d27ccd9f19c1b81202fdccb122442e125c1e0e4c4c738a50afc24389706"
+  "draw_sha256": "6da799c96025bf5923755204679a9ad57f0b2b09d2b4bd23a45034947e6e5c7f"
  },
- "menu_click_type_then_right_click": {
+ "menu_double_toggle_then_left_and_right_winks": {
   "returncode": 0,
   "inputs": [
    [
@@ -1084,69 +1084,95 @@
    ],
    [
     "move",
-    905.0,
+    405.0,
     2960,
-    1120
+    320
    ],
    [
     "move",
-    910.0,
+    410.0,
     3148,
-    1238
+    201
+   ],
+   [
+    "move",
+    705.0,
+    2942,
+    383
+   ],
+   [
+    "move",
+    710.0,
+    2808,
+    501
+   ],
+   [
+    "move",
+    715.0,
+    2721,
+    577
+   ],
+   [
+    "move",
+    720.0,
+    2665,
+    627
+   ],
+   [
+    "move",
+    725.0,
+    2628,
+    660
+   ],
+   [
+    "move",
+    730.0,
+    2604,
+    681
+   ],
+   [
+    "move",
+    735.0,
+    2589,
+    695
+   ],
+   [
+    "move",
+    745.0,
+    2572,
+    709
+   ],
+   [
+    "move",
+    785.0,
+    2560,
+    720
    ],
    [
     "move",
     1205.0,
-    2942,
-    1057
-   ],
-   [
-    "move",
-    1210.0,
-    2808,
-    939
-   ],
-   [
-    "move",
-    1215.0,
-    2721,
-    862
-   ],
-   [
-    "move",
-    1220.0,
-    2665,
-    812
-   ],
-   [
-    "move",
-    1225.0,
-    2628,
-    780
-   ],
-   [
-    "move",
-    1230.0,
-    2604,
-    759
-   ],
-   [
-    "move",
-    1235.0,
-    2589,
-    745
-   ],
-   [
-    "move",
-    1245.0,
-    2572,
-    731
-   ],
-   [
-    "move",
-    1285.0,
     2560,
     720
+   ],
+   [
+    "button",
+    1205.0,
+    2
+   ],
+   [
+    "button",
+    1205.0,
+    4
+   ],
+   [
+    "button",
+    1265.0,
+    2
+   ],
+   [
+    "button",
+    1265.0,
+    4
    ],
    [
     "move",
@@ -1176,30 +1202,30 @@
    "profile trace: model <tests> (4 columns)",
    "starting ACTIVE - wink to click",
    "mode MENU - long close",
-   "click type: right",
+   "left wink: double click",
    "mode CURSOR - click type chosen",
    "library shut",
    "",
    "session:",
    "  mode at the end        : ACTIVE - wink to click",
    "  toggled by             : key",
-   "  clicks                 : 1 (double 0, right 1)",
-   "  click type at the end  : right",
-   "  winks detected         : 1",
+   "  clicks                 : 2 (double 1, right 1)",
+   "  click type at the end  : double",
+   "  winks detected         : 2",
    "  winks with nowhere to go: 0",
    "  winks while paused     : 0",
-   "  wink action            : double",
+   "  wink action            : single",
    "  wink rule              : WinkConfig(shut_ratio=0.45, asymmetry=2.5, hold_ms=35.0, bridge_ms=40.0, cooldown_ms=120.0)",
    "  scrolling              : 0 notches over 0 entries",
    "  scroll rule            : ScrollConfig(arm_ms=500.0, repeat_ms=150.0, band_height=0.2, band_margin=0.04)",
    "  winks while scrolling  : 0 (none clicked)",
    "  winks while the menu was open: 0 (none clicked)",
    "  winks dropped at a change of mode: 0",
-   "  menu                   : opened 1, chose 2, commands sent 0",
+   "  menu                   : opened 1, chose 1, commands sent 0",
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
-   "  menu tiles             : {'click type': 'right', 'tiles the gaze reached': {'click-type': 10, 'dead zone': 60, 'single': 60, 'right': 10}, 'frames with the menu open': 140, 'frames refused before the gaze was seen in the dead zone': 60}",
+   "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'double-toggle': 10, 'dead zone': 30}, 'frames with the menu open': 40, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -1208,18 +1234,18 @@
    "  scanning               : {'layout': 'hebrew', 'scan_ms': 1200.0, 'settle_ms': 350.0, 'wink_lag_ms': 35.0, 'selections': 0, 'winks taken as the previous cell': 0, 'winks refused as too soon': 0, 'times it parked itself': 0, 'characters echoed': 0}",
    "  key adapter            : {'enabled': True, 'chars_typed': 0, 'commands_sent': 0, 'target': '(none locked)', 'target_lost': False, 'refused_target_changed': 0, 'refused_no_target': 0, 'refused_keys_held': 0, 'failed': 0, 'keys_stuck': False, 'note': 'this adapter cannot press a pointer button; there is no button in it'}",
    "  hebrew font            : fake",
-   "  action router          : {'accepted': {'RIGHT_CLICK': 1}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
+   "  action router          : {'accepted': {'DOUBLE_CLICK': 1, 'RIGHT_CLICK': 1}, 'refused': {}, 'note': 'this router decides; it cannot emit anything'}",
    "  scroll adapter         : {'enabled': True, 'notches_up': 0, 'notches_down': 0, 'refused_not_armed': 0, 'refused_too_soon': 0, 'failed': 0, 'wheel_goes_to': 'the window under the POINTER', 'note': 'this adapter cannot press a button; there is no down or up in it'}",
    "  while scrolling, the gaze was in: scroll mode was never entered",
-   "  eye ratios             : 421 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
+   "  eye ratios             : 409 frames; right reached 1.000 (rule needs under 0.45), left was 1.000 there (needs 2.5x the right, so over 2.500); left reached 1.000; 0 frames matched the rule",
    "  head pitch             : no head pose on any frame",
    "  overlay                : None",
-   "  cursor                 : {'enabled': True, 'moves': 13, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 190, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
-   "  click adapter          : {'enabled': True, 'clicks': 0, 'doubles': 0, 'last_double_gap_ms': None, 'system_double_click_ms': 500, 'last_double_within_system_window': None, 'right_clicks': 1, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
-   "cursor: {'enabled': True, 'moves': 13, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 190, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  cursor                 : {'enabled': True, 'moves': 14, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 190, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
+   "  click adapter          : {'enabled': True, 'clicks': 1, 'doubles': 1, 'last_double_gap_ms': 60.0, 'system_double_click_ms': 500, 'last_double_within_system_window': True, 'right_clicks': 1, 'refused_not_armed': 0, 'refused_too_soon': 0, 'refused_button_held': 0, 'failed': 0, 'button_stuck': False, 'stuck_button': None}",
+   "cursor: {'enabled': True, 'moves': 14, 'frozen_frames': 1, 'clamped_steps': 1, 'held_by_dead_zone': 190, 'smoothing': 0.35, 'dead_zone_px': 12, 'max_step_px': 400, 'clicks': 0, 'note': 'this adapter cannot click; there is no code path that presses a button'}",
    "live view ended: 63 frames, last frame tracking"
   ],
-  "draw_count": 423,
+  "draw_count": 411,
   "draw_kinds": [
    [
     "message",
@@ -1231,18 +1257,18 @@
    ],
    [
     "board",
-    139
+    39
    ],
    [
     "live",
-    241
+    329
    ],
    [
     "close",
     1
    ]
   ],
-  "draw_sha256": "dab7ef01d03f84fcfc63be6dc57093be942fd1028fdf43dc4ead330cdab428e2"
+  "draw_sha256": "a35cc24758477f6cfbdcd117605854af7a068729bfd5dc9821a9f99b19bcd7a0"
  },
  "menu_second_long_close_ignored_and_wink_in_menu": {
   "returncode": 0,
@@ -1286,7 +1312,7 @@
    "  long closes while it was already open: 1 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'dead zone': 160}, 'frames with the menu open': 160, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -1325,7 +1351,7 @@
     1
    ]
   ],
-  "draw_sha256": "99f25fbd1a5a244e3ccd510466561370b4cf2651bf5d39f031e1097680a3f393"
+  "draw_sha256": "3f8bd2f05f0b7a583725f59dc4d539f0a8ad8296c51cdccf93649741857a048f"
  },
  "scroll_seed_notches_and_face_loss": {
   "returncode": 0,
@@ -1388,7 +1414,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'scroll': 10, 'dead zone': 30}, 'frames with the menu open': 40, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -1431,7 +1457,7 @@
     1
    ]
   ],
-  "draw_sha256": "1db7df7beb85b2a3ca842f29085b11402cc9374007ba438b425d9dd41149013a"
+  "draw_sha256": "ecac3bef291c757d737d9a05ae18f638a637f4193665d58c714a132848de30a0"
  },
  "start_scrolling_down": {
   "returncode": 0,
@@ -1498,7 +1524,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -1607,7 +1633,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'keyboard': 10, 'dead zone': 30}, 'frames with the menu open': 40, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 2 keys chosen, 1 characters typed, 1 times the target window changed",
@@ -1654,7 +1680,7 @@
     1
    ]
   ],
-  "draw_sha256": "3a4cb395e8938f5d5d62d949cc83becce3a5084d3c3c1999d81651932fb70450"
+  "draw_sha256": "2492f9c27027ab364ac15da23d417fc91139d1123de817bb77fd422c09e46580"
  },
  "paused_menu_command_refused_then_resume": {
   "returncode": 0,
@@ -1693,7 +1719,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {'more-1': 10, 'dead zone': 60, 'back': 10, 'more-2': 60}, 'frames with the menu open': 140, 'frames refused before the gaze was seen in the dead zone': 60}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -1736,7 +1762,7 @@
     1
    ]
   ],
-  "draw_sha256": "7d7e55ce9ac9d6801bef830676d969aebf03387f3ceaab7b2b568a8e6f5db899"
+  "draw_sha256": "46dd5fc01447d0293b30dd6fabdeb537713aee72ac8db846e58e411acc430b62"
  },
  "escape_stops_everything": {
   "returncode": 0,
@@ -2253,7 +2279,7 @@
    "  long closes while it was already open: 0 (ignored; see section 57 on chin-up)",
    "  menu tiles             : {'click type': 'double', 'tiles the gaze reached': {}, 'frames with the menu open': 0, 'frames refused before the gaze was seen in the dead zone': 0}",
    "    MISS RISK: scroll half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
-   "    MISS RISK: click-type half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
+   "    MISS RISK: double-toggle half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: more-1 half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "    MISS RISK: keyboard half-height 0.100 is at or under the worst vertical bias 0.387; expect non-activations",
    "  keyboard               : 0 keys chosen, 0 characters typed, 0 times the target window changed",
@@ -2288,7 +2314,7 @@
     1
    ]
   ],
-  "draw_sha256": "b72a83924ff5736917d4ff26dbcf14f2c1b27f073f3cfa868fc0a327e1b56c4b"
+  "draw_sha256": "59c891785ec244461caa15abe97fe676f1d99abdc43055d026384a27767ac058"
  },
  "cursor_only_no_clicks": {
   "returncode": 0,

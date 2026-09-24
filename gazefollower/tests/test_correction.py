@@ -174,6 +174,25 @@ class CorrectedModelTests(unittest.TestCase):
         ]
         self.assertEqual(missing, [], f"the wrapper hides {missing}")
 
+    def test_it_can_be_copied_without_recursing(self) -> None:
+        """copy/pickle build the object WITHOUT __init__ and then look up
+        __deepcopy__ / __reduce_ex__. A plain delegation re-enters __getattr__
+        looking for self.base and recurses until the stack ends."""
+
+        import copy  # noqa: PLC0415
+        import pickle  # noqa: PLC0415
+
+        copied = copy.deepcopy(self.wrapped)
+        self.assertEqual(copied.correction, self.correction)
+        self.assertIsNot(copied.base, self.base)
+
+        restored = pickle.loads(pickle.dumps(self.wrapped))
+        self.assertEqual(restored.correction, self.correction)
+        # and it is still a working, still-corrected model afterwards
+        X = np.array([[0.4, 0.6] + [0.0] * 256])
+        np.testing.assert_allclose(restored.predict_norm(X, rig=None), [[0.4, 0.6]])
+        self.assertTrue(hasattr(restored, "support_activation"))
+
     def test_the_schema_is_the_models_own(self) -> None:
         self.assertIs(self.wrapped.schema, self.base.schema)
         self.assertEqual(self.wrapped.schema.base_dim, 258)
@@ -219,14 +238,44 @@ class RecorderWiringTests(unittest.TestCase):
     model's name -- which no smoke test would catch.
     """
 
-    def test_both_entry_points_load_with_correction(self) -> None:
-        for name in ("gf_record.py", "gf_live.py"):
+    # Every entry point that loads a model. gf_click_practice and
+    # gf_dwell_practice matter most: they load the ACTIVE PROFILE's model and
+    # gf_click_practice can emit a REAL click, so an uncorrected point there is
+    # a click in the wrong place while the profile claims otherwise.
+    ENTRY_POINTS = (
+        "gf_record.py",
+        "gf_live.py",
+        "gf_click_practice.py",
+        "gf_dwell_practice.py",
+        "gf_filter_benchmark.py",
+        "gf_recal_compare.py",
+        "gf_pool_experiment.py",
+        "gf_resolution_view.py",
+    )
+
+    def test_every_entry_point_loads_with_correction(self) -> None:
+        for name in self.ENTRY_POINTS:
             source = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn(
                 "load_with_correction",
                 source,
                 f"{name} loads a model without honouring correction.json",
             )
+
+    def test_no_entry_point_still_calls_the_bare_loader(self) -> None:
+        """A file may import FittedModel.load and pass it INTO
+        load_with_correction; what it may not do is call it directly on a
+        model directory, which is how the correction gets skipped."""
+
+        offenders = []
+        for name in self.ENTRY_POINTS:
+            for number, line in enumerate((ROOT / name).read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if "FittedModel.load(" in line and "load_with_correction" not in line:
+                    offenders.append(f"{name}:{number}")
+        self.assertEqual(offenders, [], f"bare FittedModel.load at {offenders}")
 
 
 if __name__ == "__main__":

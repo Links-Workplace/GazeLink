@@ -123,27 +123,44 @@ class ChoosingTests(unittest.TestCase):
 
 
 class ClickTypeTests(unittest.TestCase):
-    def test_the_default_is_the_one_that_was_measured_live(self) -> None:
-        """CLAUDE.md 8 forbids replacing a working implementation, and DOUBLE
-        is what the operator used and approved."""
+    """What a LEFT wink does. The right wink is always a right click and is not
+    chosen in the menu (operator, 24.9.2026)."""
 
-        self.assertEqual(M.MenuModel().click_type, "double")
+    def test_the_default_is_single(self) -> None:
+        """The operator's decision: an ordinary click is one click."""
 
-    def test_choosing_a_click_type_keeps_it(self) -> None:
+        self.assertEqual(M.MenuModel().click_type, "single")
+
+    def test_right_is_no_longer_a_type_to_choose(self) -> None:
+        self.assertEqual(M.CLICK_TYPES, ("single", "double"))
+        with self.assertRaises(ValueError):
+            M.MenuModel(click_type="right")
+
+    def test_the_toggle_switches_to_double_and_closes_the_menu(self) -> None:
         board = _open()
-        _choose(board, MAIN["click-type"])
-        self.assertEqual(board.page, "click")
-        sub = _centres("click")
-        _choose(board, sub["right"], start=10.0)
-        self.assertEqual(board.click_type, "right")
-        self.assertFalse(board.open, "choosing a click type left the menu open")
+        _choose(board, MAIN["double-toggle"])
+        self.assertEqual(board.click_type, "double")
+        self.assertFalse(board.open, "choosing the toggle left the menu open")
+
+    def test_the_toggle_names_the_state_it_is_in(self) -> None:
+        # The label says what is ON now, so nothing has to be remembered.
+        off = {i.key: i for i in M._pages(paused=False, click_type="single")["main"]}
+        on = {i.key: i for i in M._pages(paused=False, click_type="double")["main"]}
+        self.assertEqual(off["double-toggle"].label, "לחיצה כפולה: כבוי")
+        self.assertEqual(on["double-toggle"].label, "לחיצה כפולה: פעיל")
+
+    def test_choosing_it_twice_comes_back_to_single(self) -> None:
+        board = _open()
+        _choose(board, MAIN["double-toggle"])
+        board.show()
+        _choose(board, MAIN["double-toggle"], start=10.0)
+        self.assertEqual(board.click_type, "single")
 
     def test_it_survives_the_menu_being_opened_again(self) -> None:
         board = _open()
-        _choose(board, MAIN["click-type"])
-        _choose(board, _centres("click")["single"], start=10.0)
+        _choose(board, MAIN["double-toggle"])
         board.show()
-        self.assertEqual(board.click_type, "single")
+        self.assertEqual(board.click_type, "double")
 
     def test_every_click_type_maps_to_an_action(self) -> None:
         for name in M.CLICK_TYPES:

@@ -41,7 +41,6 @@ def _centres(page: str, *, paused: bool = False) -> dict[str, tuple[float, float
 
 MAIN = _centres("main")
 NAV = _centres("nav")
-CLICK = _centres("click")
 SYSTEM_PAUSED = _centres("system", paused=True)
 UP = SCR.scroll_zones()[0].centre
 
@@ -68,7 +67,7 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             gaze=lambda t: _moving(t) if t < 0.5 else (0.5, 0.4),
             face=lambda t: not (0.5 <= t < 0.8),
         ),
-        {"max_seconds": 1.2},
+        {"max_seconds": 1.2, "wink_click": "double"},
     ),
     "blink_then_wink_double_click": (
         Script(
@@ -76,7 +75,7 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             steady=lambda t: not (0.3 <= t < 0.4),
             winks=[(0.7, (0.6, 0.5), 0.0)],
         ),
-        {"max_seconds": 1.1},
+        {"max_seconds": 1.1, "wink_click": "double"},
     ),
     "pause_and_resume_with_space": (
         Script(
@@ -84,7 +83,7 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             space_down=[(0.2, 0.25), (0.6, 0.65)],
             winks=[(0.4, (0.4, 0.6), 0.0), (0.9, (0.4, 0.6), 0.0)],
         ),
-        {"max_seconds": 1.2},
+        {"max_seconds": 1.2, "wink_click": "double"},
     ),
     "stale_and_duplicate_winks": (
         Script(
@@ -95,21 +94,19 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
     ),
     "wink_with_no_aim": (
         Script(gaze=lambda t: CENTRE, winks=[(0.3, None, 0.0)]),
-        {"max_seconds": 0.6},
+        {"max_seconds": 0.6, "wink_click": "double"},
     ),
-    "menu_click_type_then_right_click": (
+    # Replaced 24.9.2026 (the eye picks the button): was
+    # "menu_click_type_then_right_click", through a click-type page that no
+    # longer exists. Starts SINGLE, toggles to double in the menu, then a LEFT
+    # wink must double-click and a RIGHT wink must right-click.
+    "menu_double_toggle_then_left_and_right_winks": (
         Script(
-            gaze=legs(
-                (0.35, CENTRE),
-                (0.7, MAIN["click-type"]),
-                (0.85, CENTRE),
-                (1.2, CLICK["right"]),
-                (5.0, CENTRE),
-            ),
+            gaze=legs((0.35, CENTRE), (0.7, MAIN["double-toggle"]), (5.0, CENTRE)),
             gestures=[(0.2, CONFIRM)],
-            winks=[(1.7, CENTRE, 0.0)],
+            winks=[(1.2, CENTRE, 0.0, GEST.Eye.LEFT), (1.7, CENTRE, 0.0, GEST.Eye.RIGHT)],
         ),
-        {"max_seconds": 2.1, "menu_dwell_ms": 40.0},
+        {"max_seconds": 2.1, "menu_dwell_ms": 40.0, "wink_click": "single"},
     ),
     "menu_second_long_close_ignored_and_wink_in_menu": (
         Script(
@@ -117,7 +114,7 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             gestures=[(0.2, CONFIRM), (0.5, CONFIRM)],
             winks=[(0.7, CENTRE, 0.0)],
         ),
-        {"max_seconds": 1.0},
+        {"max_seconds": 1.0, "wink_click": "double"},
     ),
     "scroll_seed_notches_and_face_loss": (
         Script(
@@ -126,11 +123,11 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             gestures=[(0.2, CONFIRM)],
             winks=[(2.4, UP, 0.0)],
         ),
-        {"max_seconds": 2.8, "menu_dwell_ms": 40.0},
+        {"max_seconds": 2.8, "menu_dwell_ms": 40.0, "wink_click": "double"},
     ),
     "start_scrolling_down": (
         Script(gaze=legs((0.2, CENTRE), (1.5, SCR.scroll_zones()[1].centre))),
-        {"max_seconds": 1.5, "start_scrolling": True},
+        {"max_seconds": 1.5, "start_scrolling": True, "wink_click": "double"},
     ),
     "keyboard_type_then_target_lost": (
         Script(
@@ -139,7 +136,7 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             winks=[(1.6, CENTRE, 0.0), (3.2, CENTRE, 0.0), (4.8, CENTRE, 0.0), (6.4, CENTRE, 0.0)],
             foreground=lambda t: 4242 if t < 4.0 else 9999,
         ),
-        {"max_seconds": 7.5, "menu_dwell_ms": 40.0},
+        {"max_seconds": 7.5, "menu_dwell_ms": 40.0, "wink_click": "double"},
     ),
     "paused_menu_command_refused_then_resume": (
         Script(
@@ -156,19 +153,19 @@ SCENARIOS: dict[str, tuple[Script, dict]] = {
             ),
             gestures=[(0.2, CONFIRM)],
         ),
-        {"max_seconds": 2.8, "menu_dwell_ms": 40.0, "start_active": False},
+        {"max_seconds": 2.8, "menu_dwell_ms": 40.0, "start_active": False, "wink_click": "double"},
     ),
     "escape_stops_everything": (
         Script(gaze=lambda t: _moving(t), escape_at=0.4),
-        {"max_seconds": 2.0},
+        {"max_seconds": 2.0, "wink_click": "double"},
     ),
     "cursor_only_no_clicks": (
         Script(gaze=lambda t: _moving(t), winks=[(0.3, CENTRE, 0.0)]),
-        {"max_seconds": 0.6, "click_by": "off"},
+        {"max_seconds": 0.6, "click_by": "off", "wink_click": "double"},
     ),
     "refused_eyes_toggle_with_menu": (
         Script(),
-        {"max_seconds": 0.2, "toggle_by": "eyes"},
+        {"max_seconds": 0.2, "toggle_by": "eyes", "wink_click": "double"},
     ),
 }
 
@@ -220,10 +217,17 @@ class GoldenTraceTests(unittest.TestCase):
         g = self.golden
         kinds = lambda name: {e[0] for e in g[name]["inputs"]}  # noqa: E731
         self.assertIn("button", kinds("blink_then_wink_double_click"))
-        self.assertIn(
-            8,
-            [e[2] for e in g["menu_click_type_then_right_click"]["inputs"] if e[0] == "button"],
-            "the chosen right click never happened",
+        # The eye picks the button: after the menu toggled double, the LEFT
+        # wink sends two whole left pairs and the RIGHT wink one right pair --
+        # in that order, and nothing else.
+        self.assertEqual(
+            [
+                e[2]
+                for e in g["menu_double_toggle_then_left_and_right_winks"]["inputs"]
+                if e[0] == "button"
+            ],
+            [2, 4, 2, 4, 8, 16],
+            "left wink must double-click after the toggle, right wink must right-click",
         )
         self.assertEqual(
             len([e for e in g["stale_and_duplicate_winks"]["inputs"] if e[0] == "button"]),
@@ -236,7 +240,10 @@ class GoldenTraceTests(unittest.TestCase):
         self.assertNotIn("key", kinds("paused_menu_command_refused_then_resume"))
         self.assertNotIn("button", kinds("cursor_only_no_clicks"))
         self.assertTrue(
-            any(k == "board" for k, _n in g["menu_click_type_then_right_click"]["draw_kinds"])
+            any(
+                k == "board"
+                for k, _n in g["menu_double_toggle_then_left_and_right_winks"]["draw_kinds"]
+            )
         )
         self.assertTrue(
             any("mode KEYBOARD" in line for line in g["keyboard_type_then_target_lost"]["stdout"])

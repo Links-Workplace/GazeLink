@@ -274,7 +274,7 @@ class StoppingTests(unittest.TestCase):
 class StaleEventTests(unittest.TestCase):
     def test_a_stale_wink_sends_nothing(self) -> None:
         rig = _Rig()
-        rig.pipeline.winks.append((rig.clock.now() - 1.0, (0.5, 0.5)))
+        rig.pipeline.winks.append((rig.clock.now() - 1.0, (0.5, 0.5), GEST.Eye.LEFT))
         rig.frame()
         self.assertEqual(rig.sends, [])
         self.assertEqual(rig.telemetry.tally["winks_stale"], 1)
@@ -288,7 +288,7 @@ class StaleEventTests(unittest.TestCase):
 
         rig = _Rig(start_active=False)
         rig.frame()
-        rig.pipeline.winks.append((rig.clock.now(), (0.5, 0.5)))
+        rig.pipeline.winks.append((rig.clock.now(), (0.5, 0.5), GEST.Eye.LEFT))
         rig.space = True
         rig.frame()
         self.assertTrue(rig.safety.selection_armed, "the fixture never resumed")
@@ -302,7 +302,7 @@ class StaleEventTests(unittest.TestCase):
 
         rig = _Rig(start_active=False)
         rig.controller.enter_mode(ACT.UiMode.MENU, why="test")
-        rig.pipeline.winks.append((rig.clock.now(), (0.5, 0.5)))
+        rig.pipeline.winks.append((rig.clock.now(), (0.5, 0.5), GEST.Eye.LEFT))
         choice = SimpleNamespace(
             item=SimpleNamespace(effect=None, mode=None, action=ACT.Action.RESUME)
         )
@@ -318,7 +318,7 @@ class StaleEventTests(unittest.TestCase):
         rig.frame()
         rig.space = False
         rig.frame()
-        rig.pipeline.winks.append((rig.clock.now(), (0.5, 0.5)))
+        rig.pipeline.winks.append((rig.clock.now(), (0.5, 0.5), GEST.Eye.LEFT))
         rig.frame()
         self.assertEqual(rig.sends, [CK.MOUSEEVENTF_LEFTDOWN, CK.MOUSEEVENTF_LEFTUP])
 

@@ -39,6 +39,14 @@ class Event(StrEnum):
     CONFIRM = "confirm"  # a deliberate close held long enough to mean it
 
 
+class Eye(StrEnum):
+    """Which of the PERSON's eyes winked -- never the image's (see
+    :func:`eyes_as_the_person_has_them`)."""
+
+    LEFT = "left"
+    RIGHT = "right"
+
+
 @dataclass(frozen=True)
 class GestureConfig:
     """Durations in milliseconds. Defaults are measured, not assumed.
@@ -297,20 +305,27 @@ class WinkConfig:
             raise ValueError("bridge_ms must be between 0 and 200")
 
 
-class RightWinkDetector:
-    """Right eye closing much further than the left, held on purpose.
+class WinkDetector:
+    """One eye closing much further than the other, held on purpose.
 
     Judged on each eye's ratio to its own baseline rather than on a shut/open
     decision, because the operator's left eye narrows whenever the right one
     closes. A rule that needed the left OPEN rejected every real wink; a rule
     that compares the two depths does not.
 
+    ``eye`` is the eye that must CLOSE. The rule is the same for both, mirrored:
+    that eye under ``shut_ratio`` and the other at least ``asymmetry`` times as
+    open. Only the RIGHT eye's numbers were measured (``WinkConfig``); the left
+    reuses them until a left-eye measurement says otherwise, which is why the
+    left wink is checked in simulation before it is trusted with real input.
+
     Fires while the eye is still shut, like the confirm, so the person learns
     it took effect before they open it.
     """
 
-    def __init__(self, config: WinkConfig | None = None) -> None:
+    def __init__(self, config: WinkConfig | None = None, *, eye: Eye = Eye.RIGHT) -> None:
         self.config = config or WinkConfig()
+        self.eye = Eye(eye)
         self._start_s: float | None = None
         self._await_reopen = False
         self._cooldown_until_s: float | None = None
@@ -350,6 +365,21 @@ class RightWinkDetector:
     def holding_ms(self) -> float:
         return self._hold_ms
 
+    def quiet(self, now_s: float) -> bool:
+        """Is this eye's last wink still in progress -- shut, or inside its cooldown?
+
+        Asked by the OTHER eye's side. One closure must be one click: as the eyes
+        reopen after a right wink, the right can open faster than the left, and
+        for a frame or two that reads as a LEFT wink. Cancelling the other
+        detector is not enough on its own -- its eye is open when the wink
+        fires, so its reopen latch clears on the very next frame and only a
+        120 ms cooldown is left. This covers the whole closure instead.
+        """
+
+        return self._await_reopen or (
+            self._cooldown_until_s is not None and now_s < self._cooldown_until_s
+        )
+
     def looks_like_a_wink(self, left_ratio: float, right_ratio: float) -> bool:
         """The whole test, exposed so it can be measured without the timing.
 
@@ -360,13 +390,17 @@ class RightWinkDetector:
         cfg = self.config
         if not (math.isfinite(left_ratio) and math.isfinite(right_ratio)):
             return False
-        if right_ratio >= cfg.shut_ratio:
+        # The eye that must close, and the one that must stay (relatively) open.
+        closing, other = (
+            (right_ratio, left_ratio) if self.eye is Eye.RIGHT else (left_ratio, right_ratio)
+        )
+        if closing >= cfg.shut_ratio:
             return False
-        # Guard the division: a right eye at exactly zero is as asymmetric as
-        # it gets, provided the left is not there with it.
-        if right_ratio <= 0.0:
-            return left_ratio > cfg.shut_ratio
-        return left_ratio >= right_ratio * cfg.asymmetry
+        # Guard the division: a closing eye at exactly zero is as asymmetric as
+        # it gets, provided the other is not there with it.
+        if closing <= 0.0:
+            return other > cfg.shut_ratio
+        return other >= closing * cfg.asymmetry
 
     def update(
         self,
@@ -417,6 +451,36 @@ class RightWinkDetector:
             self.reset()
             return True
         return False
+
+
+class WinkOwnsTheClosure:
+    """A closure that produced a wink cannot also become a long close.
+
+    The long close (the menu) needs BOTH eyes under the gate; a wink needs one
+    eye far deeper than the other. They were meant to be exclusive, and for
+    this person they are not: the other eye narrows with the winking one.
+    Measured on 24.9 while winking almost only the LEFT eye (28 left, 6 right):
+    left under the gate on 1016 frames, the RIGHT on 1025. A left wink held a
+    little long therefore read as both eyes shut and opened the menu.
+
+    No new threshold: once either wink detector fires, the long close is fed
+    "open" until both eyes have actually been seen open again.
+    """
+
+    def __init__(self) -> None:
+        self._claimed = False
+
+    def eyes_shut(self, *, left_open: bool, right_open: bool, winked: bool) -> bool:
+        if winked:
+            self._claimed = True
+        elif left_open and right_open:
+            self._claimed = False
+        return not left_open and not right_open and not self._claimed
+
+
+# The name every existing caller uses. A right-eye detector is still exactly
+# what ``RightWinkDetector(config)`` builds, because RIGHT is the default eye.
+RightWinkDetector = WinkDetector
 
 
 def eyes_as_the_person_has_them(library_left: float, library_right: float) -> tuple[float, float]:

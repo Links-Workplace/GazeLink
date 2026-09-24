@@ -36,6 +36,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 import gf_common as C  # noqa: E402
 import gf_dwell as D  # noqa: E402
 import gf_gesture as GEST  # noqa: E402
@@ -513,7 +514,7 @@ def run_practice(
         if not warnings:
             print("  layout clears the measured bias on both axes")
 
-    model = FIT.FittedModel.load(profile.model_path())
+    model = CORR.load_with_correction(profile.model_path(), FIT.FittedModel.load)
     gf = L.build_gaze_follower(profile)
     runner = L.LiveRunner(model, None, rig, profile.filter_settings())
     engine = D.DwellEngine(buttons, D.DwellConfig(dwell_ms=dwell_ms))
@@ -971,6 +972,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="top",
         help="'sides' draws the instructions outside the X band, clear of every button",
     )
+    parser.add_argument(
+        "--dpi-aware",
+        action="store_true",
+        help="DIAGNOSTIC: declare per-monitor DPI awareness before any window opens, as "
+        "gf_live --move-cursor does. Without it, on a 125%% display the window is 4096x1152 "
+        "while everything is drawn for 5120x1440, so targets AND the gaze dot are drawn 1.25x "
+        "from the top-left together and always agree with each other. Run once with and once "
+        "without to see whether that shared stretch is what makes this practice look right.",
+    )
     return parser
 
 
@@ -990,12 +1000,22 @@ def main(argv: list[str] | None = None) -> int:
         point_schedule=schedule,
         targets=targets,
     )
+    if args.dpi_aware:
+        # Before anything opens a window: DPI awareness is per process and
+        # cannot be changed once a window exists.
+        from gazelink_core.platform import screen_check as SC  # noqa: PLC0415
+
+        _declared, how = SC.ensure_per_monitor_dpi_aware()
+        print(f"dpi awareness: {how}")
     profile = L.resolve_profile(args.profile)
     L.check_rig(profile, profile.rig_geometry(), allow_mismatch=False)
     bar = args.bar if args.bar is not None else (18 if args.layout == "a" else None)
     stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     out = args.out or (
-        Path(__file__).resolve().parent / "results" / "dwell" / f"{args.layout}_{stamp}.json"
+        Path(__file__).resolve().parent
+        / "results"
+        / "dwell"
+        / f"{args.layout}{'_dpi' if args.dpi_aware else ''}_{stamp}.json"
     )
     report = run_practice(
         profile,

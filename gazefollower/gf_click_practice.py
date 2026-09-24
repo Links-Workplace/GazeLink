@@ -51,6 +51,7 @@ import gf_live as L  # noqa: E402
 import gf_profile as PROF  # noqa: E402
 import gf_record as R  # noqa: E402
 import gf_screen_check as SC  # noqa: E402
+from gazelink_core.calibration import correction as CORR  # noqa: E402
 from gazelink_core.platform import real_input as RI  # noqa: E402
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results" / "click"
@@ -157,6 +158,7 @@ def _ratio_summary(
     right = [v[1] for v in values]
     cut = GEST.OpennessGateConfig().shut_fraction
     detector = GEST.RightWinkDetector(wink)
+    left_detector = GEST.WinkDetector(wink, eye=GEST.Eye.LEFT)
     return {
         "frames": len(values),
         "gate_shut_under": cut,
@@ -167,6 +169,9 @@ def _ratio_summary(
         # Counted with the SAME test the detector uses. Counting it separately
         # is how the previous report could say 112 wink-like frames while the
         # detector fired zero times, and neither number was wrong.
+        "frames_looking_like_a_left_wink": sum(
+            1 for lv, rv in values if left_detector.looks_like_a_wink(lv, rv)
+        ),
         "frames_looking_like_a_right_wink": sum(
             1 for lv, rv in values if detector.looks_like_a_wink(lv, rv)
         ),
@@ -190,21 +195,29 @@ class Tally:
     winks_on_no_button: int = 0
     cancelled_selections: int = 0
     pointer_moved_to_centre: int = 0
+    # Which eye fired each wink. The eye picks the button (left = left click,
+    # right = right click), and the LEFT wink was never measured on this person,
+    # so this practice is where it is first seen working -- in simulation.
+    winks_by_eye: dict[str, int] = field(default_factory=dict)
     click_points: list[dict[str, int | str]] = field(default_factory=list)
     mode_changes: list[dict[str, Any]] = field(default_factory=list)
 
-    def record_click(self, key: str, landing: tuple[int, int]) -> None:
+    def record_click(self, key: str, landing: tuple[int, int], eye: str | None = None) -> None:
         self.clicks += 1
         self.per_button[key] = self.per_button.get(key, 0) + 1
         # The desktop pixel each click actually went to. Recorded because
         # "it selected LEFT" and "it clicked inside LEFT" are two claims, and
         # a near miss satisfies the first while failing the second.
-        self.click_points.append({"key": key, "x": int(landing[0]), "y": int(landing[1])})
+        point: dict[str, int | str] = {"key": key, "x": int(landing[0]), "y": int(landing[1])}
+        if eye is not None:
+            point["eye"] = eye
+        self.click_points.append(point)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "clicks": self.clicks,
             "per_button": dict(self.per_button),
+            "winks_by_eye": dict(self.winks_by_eye),
             # Activations the dwell engine produced while selection was NOT
             # armed. Reported because it is the number that says what would
             # have happened had the mode been wrong: a paused run showing zero
@@ -262,7 +275,7 @@ def run_click_practice(
     rig = profile.rig_geometry()
     buttons = D.LAYOUTS[layout]()
     by_key = {b.key: b for b in buttons}
-    model = FIT.FittedModel.load(profile.model_path())
+    model = CORR.load_with_correction(profile.model_path(), FIT.FittedModel.load)
     gf = L.build_gaze_follower(profile)
     # The eyelid rules come from the PROFILE, so they belong to this person
     # and this camera rather than to whoever last edited the defaults.
@@ -289,7 +302,11 @@ def run_click_practice(
     control = CTL.ToggleMachine()
     # Only ever asked whether the CURRENT frame looks like a wink, for the
     # readout. The detector that decides lives on the camera thread.
-    wink_rule = GEST.RightWinkDetector(wink_cfg)
+    # One per eye: the readout has to light for a LEFT wink too. With only the
+    # right-eye rule here, left winks were detected and counted (11 in the run
+    # of 24.9) while the screen showed nothing -- which reads as "the left eye
+    # is not detected" when it was.
+    wink_rules = {eye: GEST.WinkDetector(wink_cfg, eye=eye) for eye in GEST.Eye}
     tally = Tally()
     seen = {"frames": 0, "with_point": 0, "with_face": 0}
     # The gesture signal, kept for the whole run. Section 35 measured that it
@@ -443,11 +460,15 @@ def run_click_practice(
                 # resting will do something, and it will not; and an engine
                 # that is not running cannot fire a second click.
                 selected: str | None = None
+                selected_eye: GEST.Eye | None = None
                 if click_by == "dwell":
                     fired = engine.update(now, point, fresh=have_point)
                     if fired is not None:
                         selected = fired.button
-                for _when, aimed_at in runner.drain_wink_events():
+                for event in runner.drain_wink_events():
+                    _when, aimed_at, *rest = event
+                    eye = GEST.Eye(rest[0]) if rest else GEST.Eye.RIGHT
+                    tally.winks_by_eye[eye.value] = tally.winks_by_eye.get(eye.value, 0) + 1
                     if click_by != "wink":
                         continue
                     # The gaze point is invalid while an eye is shut, so this
@@ -457,6 +478,7 @@ def run_click_practice(
                         tally.winks_on_no_button += 1
                         continue
                     selected = button.key
+                    selected_eye = eye
 
                 if selected is not None:
                     if mode.selection_armed:
@@ -464,8 +486,18 @@ def run_click_practice(
                         if landing != held:
                             pointer.update(landing)
                             tally.pointer_moved_to_centre += 1
-                        if clicker.click(armed=True):
-                            tally.record_click(selected, landing)
+                        # The eye picks the button, as in gf_live: right = right.
+                        send = (
+                            clicker.right_click
+                            if selected_eye is GEST.Eye.RIGHT
+                            else clicker.click
+                        )
+                        if send(armed=True):
+                            tally.record_click(
+                                selected,
+                                landing,
+                                None if selected_eye is None else selected_eye.value,
+                            )
                             flash, flash_until = selected, now + 0.35
                     else:
                         tally.suppressed_while_unarmed += 1
@@ -504,13 +536,17 @@ def run_click_practice(
                         (
                             f"your eyes  L{state.openness_ratio[0] * 100:.0f}%"
                             f"  R{state.openness_ratio[1] * 100:.0f}%"
-                            + (
-                                "   <<< WINK"
-                                if wink_rule.looks_like_a_wink(*state.openness_ratio)
-                                else ""
+                            + "".join(
+                                f"   <<< {eye.value.upper()} WINK"
+                                for eye, rule in wink_rules.items()
+                                if rule.looks_like_a_wink(*state.openness_ratio)
                             )
                             if state.openness_ratio is not None
                             else "eyes --"
+                        ),
+                        (
+                            f"winks seen  left {tally.winks_by_eye.get('left', 0)}"
+                            f"   right {tally.winks_by_eye.get('right', 0)}"
                         ),
                         "Esc stops everything",
                     ],

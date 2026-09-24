@@ -109,14 +109,21 @@ class FramePipeline:
         # the camera delivers -- and a hold would appear to last longer than
         # it did.
         self.detector = GEST.EyeCloseDetector(gesture)
-        self.wink_detector = GEST.RightWinkDetector(wink)
+        # One detector per eye. RIGHT keeps its old attribute name, because the
+        # telemetry and the tests read it; LEFT is the mirror of the same rule.
+        self.wink_detector = GEST.WinkDetector(wink, eye=GEST.Eye.RIGHT)
+        self.left_wink_detector = GEST.WinkDetector(wink, eye=GEST.Eye.LEFT)
+        # A closure that fired one eye and then, as it opened unevenly, looked
+        # like the other. Counted rather than silently dropped.
+        self.winks_suppressed_other_eye = 0
+        self.closure = GEST.WinkOwnsTheClosure()
         # One gate per eye, for the GESTURE path only. `valid` below keeps the
         # absolute threshold, because it decides what counts as a gaze sample
         # and every measurement in this project was made against it.
         self.left_gate = GEST.OpennessGate(gate)
         self.right_gate = GEST.OpennessGate(gate)
         self.gesture_events: list[tuple[float, GEST.Event]] = []
-        self.wink_events: list[tuple[float, tuple[float, float] | None]] = []
+        self.wink_events: list[tuple[float, tuple[float, float] | None, GEST.Eye]] = []
         # Set by the display thread, applied by the CAMERA thread. The
         # detector's state belongs to the camera thread -- it is read and
         # written there every frame -- so cancelling it from here directly is
@@ -187,6 +194,7 @@ class FramePipeline:
             # afterwards would let this frame finish a hold that began in the
             # mode the person has just left.
             self.wink_detector.cancel()
+            self.left_wink_detector.cancel()
         features = GATE.features_for(obs, self.policy)
         # Named for the PERSON from here down. The camera faces them, so the
         # library's "left" is the eye on the left of the IMAGE, which is their
@@ -212,19 +220,53 @@ class FramePipeline:
         # 0.14 and 0.40 of their own baselines, which is readable.
         left_open = self.left_gate.is_open(left)
         right_open = self.right_gate.is_open(right)
-        eyes_shut = not left_open and not right_open
-        event = self.detector.update(now_s, face_present=face_present, eyes_shut=eyes_shut)
         # Ratios, not the open/shut booleans: the operator's left eye narrows
         # whenever the right one closes, so a rule that needed it OPEN rejected
         # every real wink. Comparing the two depths does not.
         left_ratio = self.left_gate.ratio if self.left_gate.ratio is not None else 1.0
         right_ratio = self.right_gate.ratio if self.right_gate.ratio is not None else 1.0
-        winked = self.wink_detector.update(
+        winked_right = self.wink_detector.update(
             now_s,
             face_present=face_present,
             left_ratio=left_ratio,
             right_ratio=right_ratio,
         )
+        winked_left = self.left_wink_detector.update(
+            now_s,
+            face_present=face_present,
+            left_ratio=left_ratio,
+            right_ratio=right_ratio,
+        )
+        # The asymmetry rule cannot hold for both eyes in one frame, so both
+        # firing together means something is wrong with the frame: neither is
+        # trusted. When one fires, the OTHER is made to wait for its own eye to
+        # reopen, so one closure can never become two clicks as the eyes open
+        # at different speeds.
+        winked_eye: GEST.Eye | None = None
+        if winked_right and winked_left:
+            self.winks_suppressed_other_eye += 2
+        elif winked_right:
+            if self.left_wink_detector.quiet(now_s):
+                # The LEFT eye's own wink is still in progress: this is the
+                # uneven reopening of that closure, not a second gesture.
+                self.winks_suppressed_other_eye += 1
+            else:
+                winked_eye = GEST.Eye.RIGHT
+                self.left_wink_detector.cancel()
+        elif winked_left:
+            if self.wink_detector.quiet(now_s):
+                self.winks_suppressed_other_eye += 1
+            else:
+                winked_eye = GEST.Eye.LEFT
+                self.wink_detector.cancel()
+        winked = winked_eye is not None
+        # After the winks, not before: the long close has to know whether this
+        # closure is already a wink. Any fire counts, suppressed ones too --
+        # all of them mean one eye went far deeper than the other.
+        eyes_shut = self.closure.eyes_shut(
+            left_open=left_open, right_open=right_open, winked=winked_right or winked_left
+        )
+        event = self.detector.update(now_s, face_present=face_present, eyes_shut=eyes_shut)
         # An eye on its way down still passes the blink gate, so a prediction
         # is still produced -- from an eye already half behind its lid. That
         # is what makes the pointer wander at the start of a wink, well before
@@ -264,12 +306,12 @@ class FramePipeline:
                 # already left, so it is dropped here rather than published
                 # into a queue that was cleared a moment ago.
                 self.winks_dropped_mid_frame += 1
-            elif winked:
+            elif winked_eye is not None:
                 # The point from before the eye began to close, not merely the
                 # last one that passed the blink gate: the half-closed frames
                 # pass it too, and they are the ones that put the pointer
                 # somewhere the person was never looking.
-                self.wink_events.append((now_s, self._last_steady_point))
+                self.wink_events.append((now_s, self._last_steady_point, winked_eye))
             if eyes_steady and point is not None:
                 self._last_steady_point = point
             self.frames += 1
@@ -298,8 +340,10 @@ class FramePipeline:
             self.gesture_events = []
         return events
 
-    def drain_wink_events(self) -> list[tuple[float, tuple[float, float] | None]]:
-        """Deliberate right winks, each with the gaze point it was aimed at."""
+    def drain_wink_events(
+        self,
+    ) -> list[tuple[float, tuple[float, float] | None, GEST.Eye]]:
+        """Deliberate winks: when, the gaze point it was aimed at, and which eye."""
 
         with self.lock:
             events = self.wink_events

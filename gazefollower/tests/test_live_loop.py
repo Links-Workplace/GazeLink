@@ -66,6 +66,7 @@ class _Display:
         self.board_hovered: list[str | None] = []
         self.board_ready: list[bool] = []
         self.board_centres: list[list[str]] = []
+        self.board_not_ready_lines: list[str] = []
         self.scans: list[list[str]] = []
         self.scan_index: list[int] = []
         self.scan_typed: list[str] = []
@@ -93,8 +94,13 @@ class _Display:
 
     def draw_board(  # noqa: ANN001
         self, buttons, labels, *, hovered, progress, centre=(), point=None,
-        tracking=True, ready=True,
+        tracking=True, ready=True, not_ready_line="",
     ) -> None:
+        # ``not_ready_line`` is here because the REAL display takes it: the menu
+        # arms on the dead centre and the desk bar arms on content, so the two
+        # callers need different wording. A fake that lagged the real signature
+        # would let the bar branch pass every test and raise TypeError on the
+        # first frame of a real session.
         self.frames += 1
         self.order.append("board")
         self.boards.append([b.key for b in buttons])
@@ -102,6 +108,7 @@ class _Display:
         self.board_hovered.append(hovered)
         self.board_ready.append(bool(ready))
         self.board_centres.append(list(centre))
+        self.board_not_ready_lines.append(not_ready_line)
 
     def draw_scan(  # noqa: ANN001
         self, items, index, *, centre=(), typed="", parked=False, point=None, tracking=True
@@ -183,8 +190,13 @@ class _Runner:
                 self._wink_armed_s = now_s
             since = self._last_wink_s if self._last_wink_s is not None else self._wink_armed_s
             while self._winks and now_s - since >= self._wink_gap_s:
-                _when, aim = self._winks.pop(0)
-                self._queue.append((now_s - self._wink_age_s, aim))
+                # (when, aim) or (when, aim, eye). The eye picks the button:
+                # LEFT is the ordinary click and the default here, because that
+                # is what nearly every test in this file means by "a wink".
+                entry = self._winks.pop(0)
+                aim = entry[1]
+                eye = entry[2] if len(entry) > 2 else GEST.Eye.LEFT
+                self._queue.append((now_s - self._wink_age_s, aim, eye))
                 self._last_wink_s = since = now_s
                 if self._wink_gap_s > 0.0:
                     # One a frame at most once a gap is asked for; without this
@@ -274,6 +286,8 @@ def _run(
     display_error: BaseException | None = None,
     escape_during_warmup: bool = False,
     loop_error: BaseException | None = None,
+    desk: bool = False,
+    wink_click: str = "single",
 ) -> tuple[_Display, list[int], _Runner]:
     runner = _Runner(
         blind_reads=blind_reads,
@@ -328,6 +342,8 @@ def _run(
             scroll_repeat_ms=scroll_repeat_ms,
             menu_enabled=menu_enabled,
             menu_dwell_ms=menu_dwell_ms,
+            desk=desk,
+            wink_click=wink_click,
             scan_ms=scan_ms,
             scan_settle_ms=scan_settle_ms,
             env=world.environment(),
@@ -484,12 +500,15 @@ class OneWinkOneDoubleTests(unittest.TestCase):
     Reported live: the pointer froze correctly, the pair still opened nothing,
     because two separately made winks cannot clear a hold, a reopening and a
     cooldown and still land inside Windows' 500 ms window.
+
+    Since 24.9 the double is the LEFT wink with the menu's double toggle on (it
+    starts off); the property -- one wink, two whole pairs -- is unchanged.
     """
 
     def test_a_wink_sends_two_complete_click_pairs(self) -> None:
         import gf_click as CK  # noqa: PLC0415
 
-        _, sends, _ = _run(self, winks=[(0.0, ON_SCREEN)])
+        _, sends, _ = _run(self, winks=[(0.0, ON_SCREEN)], wink_click="double")
         self.assertEqual(
             sends.count(CK.MOUSEEVENTF_LEFTDOWN),
             2,

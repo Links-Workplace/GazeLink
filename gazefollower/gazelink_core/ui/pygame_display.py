@@ -487,6 +487,7 @@ class Display:
         point: tuple[float, float] | None = None,
         tracking: bool = True,
         ready: bool = True,
+        not_ready_line: str = "הבט למרכז כדי להפעיל את האריחים",
     ) -> None:
         """Four tiles over the desktop, and a ring on whichever is filling.
 
@@ -496,10 +497,13 @@ class Display:
         like ``draw_practice`` would hide the thing the person opened the menu
         to do something about.
 
-        ``ready`` is false until the gaze has been seen in the dead zone, and
-        it is SHOWN rather than merely enforced: tiles the person can see but
+        ``ready`` is false until the caller's arming rule is satisfied, and it
+        is SHOWN rather than merely enforced: tiles the person can see but
         cannot yet choose, with nothing saying why, is the same experience as
-        tiles that are broken.
+        tiles that are broken. ``not_ready_line`` says WHICH rule, because the
+        menu arms on the dead centre and the persistent bar arms on content --
+        telling a bar user to look at the centre would be an instruction that
+        does not work.
         """
 
         if self.headless:
@@ -535,7 +539,7 @@ class Display:
         top = self.height // 2 - 60
         lines = list(centre)
         if not ready:
-            lines = [*lines, "הבט למרכז כדי להפעיל את האריחים"]
+            lines = [*lines, not_ready_line]
         self._centre_lines(lines, top)
         self._draw_live_point(point, (30, 110, 255), radius=10, cross=True)
         if not tracking:

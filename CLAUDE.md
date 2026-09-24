@@ -1,617 +1,548 @@
-GAZELINK — Project Instructions
+# GAZELINK — Project Instructions
 
-Mission
+## 0. Mission
 
-GAZELINK enables a person to operate a Windows computer using their eyes only.
+GAZELINK enables a person to operate a Windows computer **using their eyes only**.
 
-The product is not complete when it merely detects eyes or estimates gaze. The target outcome is independent, reliable, and safe computer use for people who cannot use their hands.
+The product is not complete when it detects eyes or estimates gaze. The target is
+**independent, reliable, safe computer use for people who cannot use their hands.**
 
-Optimize decisions for these priorities, in order:
+Optimize every decision in this order:
 
-User safety and the ability to pause or regain control.
+1. User safety and the ability to pause or regain control
+2. Reliable behavior; prevention of unintended actions
+3. Accessibility and ease of use
+4. Gaze accuracy and low latency
+5. Maintainability and extensibility
 
-Reliable behavior and prevention of unintended actions.
+---
 
-Accessibility and ease of use.
+## 1. Sources of truth
 
-Gaze accuracy and low latency.
+| Document | Authority |
+|---|---|
+| `spec.MD` | Product vision, milestone scope, demos, product-level DoD. **Takes precedence over technical interpretation.** |
+| `TECHNICAL_SPEC.md` | Approved architecture, contracts, safety rules, quality targets. Items marked *proposed* stay proposals until approved. |
+| `TASKS.md` | Execution status and completion evidence. **Must reflect repository reality.** |
+| `README.md` | Orientation: what actually works today, what is blocked, where the code is. |
+| `COMMANDS.MD` | Every command, verified against the code. |
 
-Maintainability and extensibility.
+**Before meaningful work:**
 
-Sources of truth
+1. Read the exact task and its dependencies in `TASKS.md`.
+2. Read the relevant milestone in `spec.MD` and the matching `TECHNICAL_SPEC.md` sections.
+3. **Inspect the actual repository.** Do not trust a document over the code.
+4. Identify: task ID, milestone, requested outcome, demo, acceptance criteria, DoD.
+5. State important assumptions where the spec or implementation is incomplete.
 
-The project uses three coordinated sources of truth:
+**Never invent** requirements, dependencies, architecture, hardware assumptions,
+commands, or files that are not in the repository or approved by the user.
 
-spec.MD — product vision, milestone scope, demos, and product-level Definition of Done.
+**On conflict between repository reality and a source-of-truth document:** report the
+conflict before making a product-level decision. Do not silently rewrite the roadmap.
+Update `spec.MD` only on explicit user approval.
 
-TECHNICAL_SPEC.md — approved architecture, contracts, safety rules, quality targets, and technical acceptance criteria. Items explicitly marked as proposed remain proposals until approved or validated.
+**After working a tracked task, update its `TASKS.md` entry in the same turn.** Preserve
+the original *What to do* and *Definition of Done*; add status, completion evidence,
+files changed, checks run, deviations, and remaining risks.
+**Never mark DONE because code was written.**
 
-TASKS.md — execution plan, task dependencies, current status, checks, and completion evidence.
+### Git scope
 
-Product requirements in spec.MD take precedence over technical interpretation. Technical work must conform to TECHNICAL_SPEC.md; execution status must reflect repository reality in TASKS.md.
+Resolve the Git root before running broad Git commands. Treat it as the project repo
+only if it is the project directory or an intentional project parent. The project may
+sit below a user-home Git root — **do not scan, stage, diff, or report unrelated
+user-home files as project changes.** If there is no dedicated repo, inspect workspace
+files directly and say that Git status is unavailable.
 
-Before meaningful work:
+---
 
-Read the exact task and its dependencies in TASKS.md.
+## 2. Where the code is
 
-Read the relevant milestone in spec.MD and the matching sections in TECHNICAL_SPEC.md.
+```
+focus/
+├── gazefollower/     ← all active work
+│   └── gazelink_core/
+└── src/gazelink/     ← suspended legacy path. Do not develop here.
+```
 
-Inspect the actual repository structure and current implementation.
+Active engine: GazeFollower library (`MGazeNet`) + our `gazelink_core/` layer.
+Suspended and not deleted: the standalone engine, the EyeGestures adapter, Tobii Nexus.
+**Do not develop in the suspended paths and do not quote numbers from them.**
 
-Resolve the Git root before running broad Git commands. Treat it as the project repository only if it is the project directory or an intentional project parent.
+---
 
-Identify the task ID, milestone, requested outcome, demo, technical acceptance criteria, and Definition of Done.
+## 3. Roadmap
 
-State important assumptions when the specification or implementation is incomplete.
+| Milestone | Outcome |
+|---|---|
+| **M1 — Vision** | Reliable detection of face, eyes, iris, eyelids, openness, head pose |
+| **M2 — Gaze** | Calibrated gaze mapped to a confident screen coordinate |
+| **M3 — Control** | Safe cursor control and mouse actions via gaze and intentional gestures |
+| **M4 — Usability** | Browse, scroll, type, use applications for sustained real tasks |
+| **M5 — Platform** | External apps consume gaze, selection, blink, confidence, calibration events |
+| **M6 — Product** | A new user can install, calibrate, and use GAZELINK safely, unaided |
 
-At present, the project directory may sit below a user-home Git root. Do not scan, stage, diff, commit, or report unrelated user-home files as project changes. If GAZELINK has no dedicated repository yet, use direct workspace file inspection and state that Git status is unavailable for this project.
+Camera access, MediaPipe, head pose, EAR, filtering, smoothing, state machines and APIs
+are **implementation tools inside a milestone — never milestones themselves.**
 
-Do not invent requirements, dependencies, architecture, hardware assumptions, commands, or files that are not present in the repository or approved by the user.
+Every substantial task must connect to a user-visible capability, a measurable quality
+improvement, or an explicit DoD.
 
-If repository reality conflicts with any source-of-truth document, report the conflict before making a product-level decision. Do not silently rewrite the roadmap or technical baseline. Update spec.MD only when the user has approved a product decision or explicitly asked for a roadmap change.
+---
 
-After working on a tracked task, update its entry in TASKS.md in the same turn. Preserve the original What to do and Definition of Done; update status and add completion evidence, files changed, checks run, deviations, and remaining risks. Never mark a task DONE based only on code being written.
+## 4. Product constraints
 
-Product roadmap
+### 4.1 Safety
 
-Keep work aligned with the six milestones:
-
-Milestone
-
-Outcome
-
-M1 — Vision
-
-The system reliably detects the face, eyes, iris, eyelids, eye openness, and head pose.
-
-M2 — Gaze
-
-The system maps calibrated gaze to a confident screen coordinate.
-
-M3 — Control
-
-The user can safely control the Windows cursor and perform mouse actions using gaze and intentional eye gestures.
-
-M4 — Usability
-
-The user can browse, scroll, type, and use applications for sustained real-world tasks.
-
-M5 — Platform
-
-External applications can consume gaze, selection, blink, confidence, and calibration events through stable interfaces.
-
-M6 — Product
-
-A new user can install, calibrate, and use GAZELINK safely without a developer present.
-
-Camera access, MediaPipe, head pose, EAR, filtering, smoothing, state machines, APIs, and similar technologies are implementation tools inside a milestone—not milestones by themselves.
-
-Every substantial task must connect to a user-visible capability, measurable quality improvement, or explicit Definition of Done.
-
-Core product constraints
-
-4.1 Safety
-
-Never allow low-confidence or missing tracking data to create clicks, drags, or uncontrolled cursor movement.
-
-Freeze or safely disengage control when the face or gaze signal is lost.
-
-Preserve a reliable pause/emergency mechanism.
-
-Treat click, double-click, right-click, drag, dwell, and scroll as stateful safety-sensitive actions.
-
-Prevent repeated or stuck actions after exceptions, camera loss, focus changes, or shutdown.
-
-Keep a manual recovery path during development and testing.
-
-Any code that moves the real cursor or emits OS input must be opt-in and clearly separated from simulation/test modes.
-
-4.2 Intentional input
-
-Do not treat every blink as a command.
-
-Distinguish natural blinks from intentional gestures using duration, confidence, cooldowns, and state where appropriate.
-
-Avoid false activation even if that slightly increases deliberate activation time.
-
-Make thresholds configurable or calibratable rather than scattering unexplained constants.
-
-4.3 Privacy
-
-Process camera video locally by default.
-
-Do not store or transmit raw video, face images, biometric samples, or calibration data unless the user explicitly approves a documented requirement.
-
-Avoid logging raw frames or sensitive biometric data.
-
-Store only the minimum profile/calibration data required, with clear ownership and lifecycle.
-
-4.4 Performance and accuracy
-
-Measure latency, FPS, confidence, jitter, calibration error, and loss/recovery behavior where relevant.
-
-Prefer measured improvements over visual impressions alone.
-
-Keep capture, inference, gaze estimation, smoothing, UI, and OS-input concerns separable so bottlenecks can be isolated.
-
-Do not hide low confidence with aggressive smoothing; expose and handle uncertainty explicitly.
-
-4.5 Accessibility
-
-Core flows must not require a mouse or keyboard once eye control is active.
-
-Provide clear visual feedback for focus, dwell progress, activation, pause state, calibration quality, and tracking loss.
-
-Keep targets, timing, contrast, RTL behavior, and fatigue in mind.
-
-Preserve Hebrew RTL and English support when editing user-facing interfaces or the on-screen keyboard.
-
-Architecture principles
-
-Until the repository defines a more specific architecture, preserve these logical boundaries:
-
-Camera capture
-
-Face, eye, iris, eyelid, and head-pose detection
-
-Feature extraction and confidence
-
-Calibration and gaze estimation
-
-Filtering and smoothing
-
-Gesture and interaction state machines
-
-Cursor/OS input adapter
-
-User interface and accessibility feedback
-
-Profiles and settings
-
-External API/SDK interfaces
-
-Keep hardware/model-specific code behind adapters where practical. Keep pure math and state transitions independent of the camera and OS so they can be tested deterministically.
-
-Avoid premature platform/API work before the current milestone's user outcome is working, unless the user explicitly requests it.
-
-5.1 Mandatory OOP and modularity policy
-
-Apply this policy to every new feature, fix, experiment, recorder, analysis tool, and refactor. Architecture is part of completion, not a later cleanup task. Deliver modular code in the current task; do not defer an avoidable monolith to a future refactor or wait for the user to request modularity again.
-
-Use the repository's approved architecture and existing packages as the starting point. These rules extend the architecture principles above; they do not authorize replacing the approved design or reorganizing unrelated subsystems.
-
-5.2 Responsibility and dependency map before implementation
-
-Before meaningful code changes, inspect the affected code and include a short responsibility map in the implementation plan:
-
-Existing components to reuse and their actual paths.
-
-Each new or changed module/class, its single primary responsibility, and why it belongs in that package.
-
-Input/output contracts, units, dependencies, and ownership of mutable state or resources.
-
-The entry point that wires the components together and the relevant behavior checks.
-
-For a small fix, a few sentences suffice. Do not invent a new framework or produce a large design document for routine work. Make routine implementation decisions autonomously within the approved scope.
-
-5.3 OOP where it owns behavior; functions where they suffice
-
-Give each class one cohesive responsibility and explicit state ownership. Encapsulate state transitions behind methods that preserve invariants; avoid unrelated public mutable flags.
-
-Use classes for stateful services, resource lifecycles, interchangeable adapters, and domain behavior. Use typed data structures for configuration and results, and pure functions for stateless calculations. A class containing only unrelated static methods is not modular OOP.
-
-Prefer composition over inheritance. Introduce a small Protocol or interface at an actual substitution boundary, such as a real/fake camera, model, clock, storage, or OS-input adapter. Do not build speculative class hierarchies or a dependency-injection framework.
-
-Pass dependencies explicitly through constructors or function parameters. Do not hide them in mutable globals, service locators, singleton registries, or long closures sharing nonlocal state.
-
-Keep domain calculations and state machines independent of CLI parsing, UI frameworks, camera libraries, file I/O, and OS input. Outer adapters depend on core contracts; core modules must not import entry-point scripts or concrete UI/OS adapters.
-
-Create and wire resources in a clear composition root. One component owns each resource's startup and cleanup; cleanup must still occur when reporting or other shutdown steps fail.
-
-Keep per-frame paths efficient. Modularity does not justify unnecessary copies, allocations, wrappers, or synchronization in the live pipeline.
-
-5.4 Package layout, entry points, and file-size guardrails
-
-Place code under the existing package for its responsibility. Reuse the post-refactor core packages where present and verified. Do not rebuild a parallel architecture inside a gf_*.py script, experiment, or scratchpad.
-
-Keep CLI and launcher files thin: parse arguments, build configuration, wire components, invoke a use case, and report its result. Move algorithms, state machines, persistence, protocol definitions, rendering, and scoring into cohesive modules.
-
-Use responsibility-based names. Do not split a large file into part1/part2, unrelated utils/helpers modules, or one equally large class. Folder organization must reflect real dependency and responsibility boundaries.
-
-Review size before a module exceeds 400 physical lines, a class exceeds 200 lines, or a function/method exceeds 60 lines. These are review triggers, not evidence of a defect on their own.
-
-Do not create or grow a hand-written source module beyond 600 physical lines by default. Split at a real responsibility boundary before delivery. A narrowly justified cohesive exception must be documented in the task evidence and examined by the existing section 7.5 reviewer; routine exceptions do not introduce a separate user-approval round.
-
-Exclude generated code, vendored files, and data-only fixtures from these size limits. Do not evade the limits by compressing code, deleting useful documentation, or scattering one responsibility across arbitrary files. Organize tests by behavior or subsystem as they grow.
-
-Existing oversized files are not permission to add unrelated behavior. For new responsibilities, extract or create the relevant component and leave only delegation/wiring in the old file. A small bug fix may remain local; do not launch a repository-wide refactor merely because a legacy file is large.
-
-Preserve public entry points and compatibility with thin wrappers where needed. Keep extraction scoped to the current task and verify affected behavior.
-
-5.5 Experiments and analysis tools follow the same rules
-
-Temporary location is not an architecture exemption. Reusable experiment logic belongs in cohesive modules, with a thin runner; it must reuse core functionality instead of copying the production pipeline.
-
-For a multi-pose experiment, for example, separate declarative pose definitions and instructions, recording orchestration, feature/coverage calculations, model comparison and decision rules, and report output. Choose concrete files and classes only after inspecting existing components; this is a responsibility map, not a requirement to create five new services.
-
-Keep experiment constants and selection criteria in typed, discoverable configuration. Do not mix fitting, metric computation, acceptance decisions, plots, UI events, and file writes in one main() function. A genuinely short one-off stateless calculation may remain a function or small script.
-
-5.6 Architecture acceptance gate
-
-Before calling an implementation complete, the lead and the existing section 7.5 reviewer must inspect the actual changes and confirm:
-
-New behavior is in the correct package, with a clear owner and focused interfaces.
-
-Entry points remain thin; no duplicate pipeline, circular dependency, hidden mutable state, or oversized catch-all class/module was introduced.
-
-Newly introduced responsibilities were not appended to an existing monolith for convenience.
-
-Size-triggered modules/classes/functions were examined; any exception has a concrete reason and review outcome.
-
-Relevant tests check public behavior, state transitions, contracts, and wiring. Test core logic without a live camera or real OS input; do not add brittle tests solely to assert a class exists or a file has a particular length.
-
-Extracted behavior and public commands remain compatible, except for explicitly intended changes. Report checks actually run and any unverified hardware behavior.
-
-Include a concise architecture summary in the final task report: responsibilities, affected paths, reuse decisions, size exceptions, and verification. Unresolved responsibility violations or unjustified monolith growth are acceptance blockers even when tests pass. Address them within the current task before marking it DONE. This gate is part of existing QA, not an additional review loop.
-
-Multi-agent orchestration
-
-Use the full multi-agent workflow when the user asks for agents, sub-agents, parallel work, delegation, or splitting the task. Also use it when a large task contains genuinely independent workstreams that can be completed without overlapping edits.
-
-For small, tightly coupled, or single-file tasks, prefer one agent. More agents are useful only when their scopes can be isolated and their outputs can be independently verified.
-
-6.1 Lead/orchestrator responsibilities
-
-Claude Code is the main agent and owns planning, implementation, delegation, integration, and the final report. Use Claude Opus for the lead when available. A separate Claude Opus session with Extra High Effort when supported is the read-only QA reviewer described in section 7.5; it does not take over orchestration or edit the implementation. The Claude orchestrator owns the final result. It must:
-
-Read spec.MD and inspect repository reality.
-
-Identify the milestone, dependencies, risks, and acceptance criteria.
-
-Divide work into narrow, independently verifiable scopes.
-
-Assign exclusive file ownership whenever agents will edit in parallel.
-
-Prevent two agents from editing the same file unless one is explicitly read-only.
-
-Review every returned diff and not rely on summaries alone.
-
-Integrate results in dependency order.
-
-Run independent technical and scenario-level QA.
-
-Send work back for correction when QA finds a problem.
-
-Produce the final report and clearly distinguish verified facts from remaining risks.
-
-Sub-agent output is a proposal until the lead has reviewed the actual code, tests, and behavior.
-
-6.2 Model roles
-
-When model selection is available, use these roles deliberately. In the active Claude-main/Opus-QA workflow, use Claude agents for implementation and a separate read-only Opus reviewer. The OpenAI implementation/support alternatives below apply only if the user explicitly changes this role allocation:
-
-Claude Opus — lead/orchestrator: architecture, milestone decomposition, cross-cutting state and safety decisions, calibration strategy, privacy decisions, integration review, and final scenario QA. One orchestrator owns integration and completion even when several agents participate.
-
-Claude Opus — separate read-only QA reviewer: review plans, actual changes, test quality, acceptance evidence, and unresolved risks. Use Extra High Effort when supported, following the availability and reporting rules in section 7.5. Findings return directly to the lead for evaluation and correction. Opus approval does not replace required user approval or hardware validation.
-
-Claude Sonnet or OpenAI GPT-5.6 Terra — implementation agent: focused services, adapters, UI components, tests, refactors, and other well-scoped implementation with clear acceptance criteria.
-
-Claude Haiku or OpenAI GPT-5.6 Luna — lightweight support: very simple, low-risk tasks such as read-only file discovery, exact reference searches, inventories, test-output summaries, and narrow consistency checks.
-
-Do not use Haiku or Luna for implementation that changes behavior, architecture, biometric/privacy decisions, OS-input safety, gesture state machines, calibration model selection, integration, or final QA. Escalate the task to Sonnet/Terra or Opus/Sol when investigation reveals non-trivial judgment or code changes. Model choice never replaces file isolation, precise prompts, diff review, or independent verification.
-
-6.3 Recommended decomposition
-
-Split by stable boundary, not by arbitrary file count. Examples:
-
-Vision pipeline and camera-loss recovery
-
-Calibration and gaze mapping
-
-Filtering, smoothing, and confidence policy
-
-Blink/gesture state machine
-
-Windows cursor/input adapter
-
-Accessible UI and calibration feedback
-
-Profiles/settings persistence
-
-API/SDK contract
-
-Automated tests and deterministic fixtures
-
-Performance/accuracy measurement
-
-Read-only security, privacy, or architecture review
-
-Do not split coupled state transitions across separate agents. One owner should control an end-to-end state machine and its tests.
-
-6.4 Required sub-agent prompt
-
-Every delegated task must include:
-
-Exact task ID from TASKS.md
-
-Milestone and task goal
-
-User-visible outcome or measurable result
-
-Exact allowed files or subsystem
-
-Files/subsystems to avoid
-
-Relevant spec.MD constraints
-
-Known dependencies and risks
-
-Tests or measurements to run
-
-Expected deliverable
-
-Whether edits are allowed or the task is read-only
-
-Required report format
-
-Each sub-agent must report:
-
-What it changed or found
-
-Files touched
-
-Tests/measurements run and their results
-
-Assumptions and deviations
-
-Remaining risks
-
-Impact on the roadmap or other workstreams
-
-6.5 Parallel work and conflict rules
-
-Before parallel edits, the lead must create a file-ownership map. Shared/high-conflict files—such as central configuration, dependency manifests, application entry points, shared state models, roadmap files, and public API contracts—should normally have one editing owner.
-
-Other agents may review a high-conflict file or propose a patch in prose, but the owner performs the integration.
-
-Agents must not:
-
-Undo or overwrite changes they did not create.
-
-Reformat unrelated files.
-
-broaden their scope without approval from the lead.
-
-Commit, merge, or declare the overall task complete unless explicitly assigned that responsibility.
-
-The lead must inspect project-scoped git status and the actual diff after every integration step, subject to the Git-root restrictions in section 2. If no valid project repository exists, inspect the changed project files directly.
-
-6.6 Dependency order
-
-Use this default order when applicable:
-
-Contracts, data shapes, and acceptance metrics
-
-Pure algorithms and state machines
-
-Hardware/model/OS adapters
-
-UI and end-to-end wiring
-
-Tests, performance measurements, and scenario QA
-
-Documentation and final integration review
-
-Parallelize only work that does not depend on an unfinished contract or shared implementation decision.
-
-Quality assurance
-
-Passing compilation or unit tests is necessary but not sufficient for eye-control behavior.
-
-7.1 Technical QA
-
-Run the repository's existing relevant commands. Do not invent commands before inspecting the project configuration.
-
-Verify, as applicable:
-
-Focused unit and integration tests pass.
-
-Type checking, linting, and formatting checks pass.
-
-Camera/model resources are released on shutdown and error.
-
-Threads, async tasks, timers, and event listeners terminate cleanly.
-
-Numerical code handles missing values, invalid calibration, low confidence, and edge coordinates.
-
-OS input can be replaced by a fake/simulation adapter in tests.
-
-New dependencies are justified and compatible with the target platform.
-
-No unrelated files or user changes were modified.
-
-7.2 Mandatory scenario QA
-
-For user-facing or safety-sensitive changes, verify relevant scenarios rather than only individual functions:
-
-Normal happy path
-
-No face detected
-
-Face temporarily lost and recovered
-
-One or both eyes occluded
-
-Low-confidence or noisy gaze
-
-Calibration incomplete, invalid, or stale
-
-Natural blink versus intentional gesture
-
-Gesture cooldown and repeated input
-
-Pause and emergency recovery
-
-Camera unavailable or disconnected
-
-Application shutdown during an active interaction
-
-Screen edges and multi-resolution behavior
-
-Real OS input disabled in automated tests
-
-For M2 and later, report measurable results when the repository provides the required harness or data: calibration error, validation error, jitter, latency, FPS, false activations, and recovery time.
-
-7.3 Test quality review
-
-Tests should assert behavior and safety properties, not merely that a function returned a value.
-
-For stateful interactions, test transitions, forbidden transitions, cooldowns, reset behavior, and recovery after loss/error. A test should fail if low-confidence input can trigger an action or if a stale gesture can be replayed.
-
-Prefer deterministic prerecorded landmarks/features or synthetic fixtures for algorithmic tests. Do not require a live camera for the normal automated test suite unless the project explicitly defines a hardware test tier.
-
-7.4 Review after sub-agents
-
-Before accepting delegated implementation, the lead must answer:
-
-Which files changed, and why?
-
-Did the agent stay within scope and file ownership?
-
-Does the implementation match the relevant milestone and Definition of Done?
-
-Are confidence, safety, and recovery paths correct?
-
-Are tests meaningful and capable of detecting wrong wiring or unsafe fallback behavior?
-
-Were privacy or accessibility assumptions introduced?
-
-Are there duplicate pipelines, hidden global state, unexplained thresholds, or platform-specific coupling?
-
-What was manually inspected, and what behavior was actually exercised?
-
-If any answer is uncertain, the work is not yet verified.
-
-7.5 Mandatory Claude Opus QA workflow
-
-This workflow replaces the former Codex QA workflow with the user's explicit authorization. Claude Code remains the lead and owns implementation and corrections. A separate Claude Opus reviewer session or sub-agent performs read-only QA. A reread by the implementation agent alone does not satisfy this requirement.
-
-Model and effort
-
-Use Claude Opus with Extra High Effort for every required review when that combination is supported by the installed runtime. Inspect the available model and effort controls; do not invent model IDs, effort values, flags, or commands. If Extra High Effort is unavailable, use the highest supported effort for Opus and explicitly report the actual model and effort and the limitation. Do not silently substitute another model. If Opus or a separate review context is unavailable, record the required review as blocked rather than passed.
-
-Authorized migration from Codex
-
-The user has already authorized replacing the Codex review gate with this Opus workflow. Do not request the same approval again. Inspect the installed plugin's supported configuration and disable the legacy Codex review gate that enforces review for this project. Remove or update only the corresponding legacy review triggers and project instructions; preserve unrelated hooks, settings, and user changes. If the only supported switch has wider scope, report that scope and use the narrowest supported change. Do not change Codex authentication, billing, or model settings to repair a workflow that is being retired. Cancel obsolete project review jobs through supported mechanisms and verify that the old trigger is inactive. Do not keep invoking failed Codex reviews or repeat waiting messages.
-
-Editing CLAUDE.md alone does not disable a runtime hook or configure a model. Report separately what instruction changes were made, what runtime configuration was verified, and what remains unavailable. If configuration cannot be changed with available access, report the precise blocker once and continue independent authorized work; do not mark missing Opus QA as passed.
-
-Required review checkpoints
-
-Before implementation: prepare the plan and send it to a separate Opus reviewer with the task requirements, relevant specification excerpts, affected components, assumptions, proposed tests, and acceptance criteria. Resolve material findings before implementing. Repeat plan review when architecture, scope, or safety assumptions materially change. A short plan is sufficient for a trivial change.
-
-After each coherent unit of work: run relevant checks, then request Opus review of the actual scoped changes and evidence before starting dependent work. A unit is a bounded task, bug fix, or integrated sub-agent result, not every file write. Independent workstreams may continue under section 6's ownership rules.
-
-After corrections: the lead evaluates findings and implements justified fixes. Send the corrected changes and updated checks to the reviewer. Earlier approval does not cover later edits.
-
-Before completion: obtain final Opus review of the current scoped changes, acceptance criteria, test evidence, and relevant safety scenarios. Record the result in TASKS.md. No Codex approval or Codex Stop gate is required.
-
-Review inputs and scope
-
-Give the reviewer the task ID, milestone, requested outcome, relevant source-of-truth sections, exact scope, plan or implementation, changed files, check results, known limitations, and unresolved findings. Have the reviewer inspect actual code, tests, and permitted evidence directly, not only the implementer's summary. Request actionable findings, locations, reasoning, missing evidence, and a distinction between acceptance blockers and optional improvements.
-
-Resolve the project Git root under section 2. Never review an unrelated user-home repository. If no valid project repository exists, use explicitly scoped file inspection. Share only the minimum necessary code, documentation, and non-sensitive evidence. Preserve section 4.3: do not send raw video, face images, biometric samples, calibration data, credentials, or unrelated user files without the required authorization.
-
-The reviewer is read-only: no implementation edits, dependency changes, roadmap rewrites, commits, or real OS input. The lead owns corrections. Use fake OS-input adapters for automated checks. Separate review context reduces reliance on the implementer's narrative; it is not a guarantee of independent judgment or correctness.
-
-Findings, retries, and completion
-
-Evaluate findings against actual code and approved requirements. Fix substantiated defects; explain disputed findings with evidence and request re-evaluation. Do not expand product scope merely to satisfy the reviewer.
-
-Allow at most three correction-and-review cycles per unit. If a blocker remains, findings repeat without progress, or a product decision is required, report the unresolved issue and stop dependent implementation. Do not loop failed reviews or repeatedly ask for an already granted approval. This is a workflow rule, not a claim about automatic hook enforcement.
-
-Record the review scope, reviewer session or agent identifier when exposed, actual model, actual effort (or explicitly unverified), outcome, findings, corrections, checks, and limitations in TASKS.md. Never claim Opus or Extra High Effort was used without runtime evidence. Never mark DONE while acceptance-blocking findings remain or required review is missing.
-
-Replacing the reviewer does not weaken regression gates, privacy rules, acceptance criteria, required live validation, or explicit-user-approval requirements for real OS input and commits. Opus review complements technical and scenario QA; it cannot certify hardware tests, usability, gaze accuracy, or safety that have not actually been measured.
-
-Working practices
-
-Prefer small, reviewable changes connected to one outcome.
-
-Read before editing and follow established conventions once code exists.
-
-Preserve user changes and avoid destructive Git operations.
-
-Never silently replace an existing implementation or dependency choice.
-
-Add dependencies only when they materially improve the requested outcome; explain the tradeoff.
-
-Put configurable thresholds and tunable parameters in one discoverable place.
-
-Document units for time, distance, angles, screen coordinates, and confidence values.
-
-Use monotonic time for gesture durations and cooldowns.
-
-Keep logs useful but free of raw biometric/video data.
-
-Do not claim behavior was tested with real hardware or users unless it actually was.
-
-Completion checklist
+- Low-confidence or missing tracking data must **never** produce clicks, drags, or
+  uncontrolled cursor movement.
+- Freeze or safely disengage control when face or gaze signal is lost.
+- Preserve a reliable pause/emergency mechanism.
+- Click, double-click, right-click, drag, dwell and scroll are **stateful,
+  safety-sensitive** actions.
+- Prevent repeated or stuck actions after exceptions, camera loss, focus changes, or
+  shutdown. **No mouse button may remain held.**
+- Keep a manual recovery path during development and testing.
+- **Any code that moves the real cursor or emits OS input is opt-in and clearly
+  separated from simulation/test modes.**
+
+### 4.2 Intentional input
+
+- Do not treat every blink as a command.
+- Separate natural blinks from intentional gestures using duration, confidence,
+  cooldowns and state.
+- **Avoid false activation even at the cost of slightly slower deliberate activation.**
+- Thresholds are configurable or calibratable — never unexplained constants scattered
+  through the code.
+
+### 4.3 Privacy
+
+- Camera video is processed **locally** by default.
+- **Never** store or transmit raw video, face images, biometric samples, landmarks or
+  calibration data without explicit, documented user approval.
+- Never log raw frames or biometric data.
+- Recordings hold derived embeddings only, under `recordings/` with `.gitignore`, purged
+  via `gf_purge.py`. **Never send them to any agent or external service.**
+- Store the minimum profile/calibration data needed, with clear ownership and lifecycle.
+
+### 4.4 Performance and accuracy
+
+- Measure latency, FPS, confidence, jitter, calibration error, and loss/recovery
+  behavior where relevant. **Prefer measured improvements over visual impressions.**
+- Keep capture, inference, gaze estimation, smoothing, UI and OS-input separable so
+  bottlenecks can be isolated.
+- **Do not hide low confidence behind aggressive smoothing.** Expose and handle
+  uncertainty explicitly.
+- Numbers from two runs are not comparable unless recording, training budget, camera
+  position and protocol match.
+
+### 4.5 Accessibility
+
+- Core flows must not require mouse or keyboard once eye control is active.
+- Provide clear visual feedback for focus, dwell progress, activation, pause state,
+  calibration quality and tracking loss.
+- Keep target size, timing, contrast, RTL behavior and fatigue in mind.
+- **Preserve Hebrew RTL and English support** in any user-facing interface or the
+  on-screen keyboard.
+
+---
+
+## 5. Architecture and OOP policy
+
+### 5.1 Logical boundaries
+
+Camera capture · detection (face/eye/iris/eyelid/head pose) · feature extraction and
+confidence · calibration and gaze estimation · filtering and smoothing · gesture and
+interaction state machines · cursor/OS input adapter · UI and accessibility feedback ·
+profiles and settings · external API/SDK.
+
+Keep hardware/model-specific code behind adapters. **Keep pure math and state
+transitions independent of the camera and OS so they can be tested deterministically.**
+Avoid platform/API work before the current milestone's user outcome works.
+
+These boundaries are enforced by `tests/test_architecture_boundaries.py`.
+
+### 5.2 The policy applies to everything
+
+Every feature, fix, experiment, recorder, analysis tool and refactor.
+**Architecture is part of completion, not later cleanup.** Deliver modular code in the
+current task; do not defer an avoidable monolith or wait to be asked again.
+
+Start from the approved architecture and existing packages. These rules extend §5.1;
+they do not authorize replacing the approved design or reorganizing unrelated subsystems.
+
+### 5.3 Responsibility map before implementation
+
+Before meaningful code changes, include a short responsibility map in the plan:
+
+- Existing components to reuse, with actual paths
+- Each new/changed module or class, its **single** primary responsibility, and why it
+  belongs in that package
+- I/O contracts, units, dependencies, ownership of mutable state and resources
+- The entry point that wires it together, and the behavior checks
+
+For a small fix, a few sentences suffice. **Do not invent a framework or write a large
+design document for routine work.** Make routine decisions autonomously in scope.
+
+### 5.4 OOP where it owns behavior; functions where they suffice
+
+- One cohesive responsibility and explicit state ownership per class. Encapsulate state
+  transitions behind methods that preserve invariants. No unrelated public mutable flags.
+- **Classes** for stateful services, resource lifecycles, interchangeable adapters,
+  domain behavior. **Typed data structures** for config and results. **Pure functions**
+  for stateless calculations. A class of unrelated static methods is not modular OOP.
+- **Composition over inheritance.** Introduce a Protocol/interface only at a real
+  substitution boundary — real vs. fake camera, model, clock, storage, OS input.
+  No speculative hierarchies, no DI framework.
+- **Pass dependencies explicitly** through constructors or parameters. Never through
+  mutable globals, service locators, singleton registries or long closures sharing
+  nonlocal state.
+- Domain calculations and state machines stay independent of CLI parsing, UI frameworks,
+  camera libraries, file I/O and OS input. Outer adapters depend on core contracts;
+  **core modules must never import entry-point scripts or concrete UI/OS adapters.**
+- Create and wire resources in a clear **composition root**. One component owns each
+  resource's startup and cleanup; **cleanup must still run when reporting or other
+  shutdown steps fail.**
+- Keep per-frame paths efficient. Modularity does not justify unnecessary copies,
+  allocations, wrappers or synchronization in the live pipeline.
+
+### 5.5 Layout, entry points, size guardrails
+
+- Place code under the existing package for its responsibility. **Do not rebuild a
+  parallel architecture inside a `gf_*.py` script, experiment or scratchpad.**
+- **Keep CLI and launcher files thin:** parse args, build config, wire components,
+  invoke a use case, report the result. Algorithms, state machines, persistence,
+  protocol definitions, rendering and scoring go into cohesive modules.
+- Responsibility-based names. Never `part1`/`part2`, never a generic `utils`/`helpers`
+  dump, never one equally large class. Folders reflect real dependency boundaries.
+- **Review triggers** (not defects on their own): module > 400 lines, class > 200 lines,
+  function > 60 lines.
+- **Hard default: do not create or grow a hand-written module beyond 600 lines.** Split
+  at a real responsibility boundary before delivery. A narrowly justified cohesive
+  exception must be documented in the task evidence and examined by the §7.5 reviewer —
+  it does not require a separate user-approval round.
+- Generated code, vendored files and data-only fixtures are excluded. **Do not evade the
+  limits** by compressing code, deleting useful documentation, or scattering one
+  responsibility across arbitrary files.
+- **An existing oversized file is not permission to add unrelated behavior.** For a new
+  responsibility, extract or create the component and leave only delegation in the old
+  file. A small bug fix may stay local; do not launch a repo-wide refactor because a
+  legacy file is large.
+- Preserve public entry points with thin wrappers where needed. Keep extraction scoped
+  to the current task and verify affected behavior.
+
+### 5.6 Experiments follow the same rules
+
+**Temporary location is not an architecture exemption.** Reusable experiment logic goes
+into cohesive modules with a thin runner, and **reuses core functionality instead of
+copying the production pipeline.**
+
+Separate declarative definitions and instructions, recording orchestration, feature and
+coverage calculations, model comparison and decision rules, and report output. Choose
+concrete files and classes only after inspecting existing components.
+
+Experiment constants and selection criteria go in typed, discoverable configuration.
+**Do not mix fitting, metrics, acceptance decisions, plots, UI events and file writes in
+one `main()`.** A genuinely short one-off stateless calculation may stay a function.
+
+### 5.7 Architecture acceptance gate
+
+Before calling an implementation complete, the lead **and** the §7.5 reviewer inspect the
+actual changes and confirm:
+
+- New behavior is in the correct package, with a clear owner and focused interfaces
+- Entry points remain thin; no duplicate pipeline, circular dependency, hidden mutable
+  state, or oversized catch-all class
+- New responsibilities were **not** appended to an existing monolith for convenience
+- Size-triggered modules/classes/functions were examined; exceptions have a concrete
+  reason and a review outcome
+- Tests check public behavior, state transitions, contracts and wiring — **without a live
+  camera or real OS input.** No brittle tests asserting a class exists or a file length
+- Extracted behavior and public commands stay compatible, except where change was intended
+- Checks actually run are reported, along with any unverified hardware behavior
+
+Include a concise architecture summary in the final report: responsibilities, affected
+paths, reuse decisions, size exceptions, verification.
+**Unresolved responsibility violations or unjustified monolith growth are acceptance
+blockers even when tests pass.** Fix them inside the current task before DONE.
+This gate is part of existing QA, not an extra review loop.
+
+---
+
+## 6. Multi-agent orchestration
+
+Use the full workflow when the user asks for agents, sub-agents, parallel work,
+delegation or splitting — **or** when a large task contains genuinely independent
+workstreams with no overlapping edits.
+
+For small, tightly coupled or single-file tasks, **prefer one agent.** More agents help
+only when scopes can be isolated and outputs independently verified.
+
+### 6.1 Lead responsibilities
+
+Claude Code is the main agent and owns planning, implementation, delegation, integration
+and the final report. Use Claude Opus for the lead when available. The lead must:
+
+- Read `spec.MD` and inspect repository reality
+- Identify milestone, dependencies, risks, acceptance criteria
+- Divide work into narrow, independently verifiable scopes
+- **Assign exclusive file ownership** whenever agents edit in parallel
+- Prevent two agents editing the same file unless one is explicitly read-only
+- **Review every returned diff — never rely on summaries**
+- Integrate in dependency order
+- Run independent technical and scenario QA
+- Send work back for correction when QA finds a problem
+- Produce the final report, separating **verified facts** from **remaining risks**
+
+**Sub-agent output is a proposal until the lead has reviewed the actual code, tests and
+behavior.**
+
+### 6.2 Model roles
+
+The active workflow is Claude-main implementation + a separate read-only Opus reviewer.
+The OpenAI alternatives below apply **only** if the user explicitly changes this.
+
+| Role | Model | Scope |
+|---|---|---|
+| Lead / orchestrator | **Claude Opus** | Architecture, decomposition, cross-cutting state and safety, calibration strategy, privacy, integration review, final scenario QA. **One orchestrator owns integration and completion.** |
+| Read-only QA reviewer | **Claude Opus**, separate session | Plans, actual changes, test quality, acceptance evidence, unresolved risks. Extra High Effort where supported (§7.5). Findings go to the lead. **Opus approval never replaces user approval or hardware validation.** |
+| Implementation agent | Claude Sonnet / GPT-5.6 Terra | Focused services, adapters, UI components, tests, refactors with clear acceptance criteria |
+| Lightweight support | Claude Haiku / GPT-5.6 Luna | Read-only discovery, exact reference searches, inventories, test-output summaries, narrow consistency checks |
+
+**Never use Haiku/Luna** for anything changing behavior, architecture, biometric/privacy
+decisions, OS-input safety, gesture state machines, calibration model selection,
+integration or final QA. Escalate to Sonnet/Terra or Opus when non-trivial judgment
+appears. **Model choice never replaces file isolation, precise prompts, diff review or
+independent verification.**
+
+### 6.3 Decomposition
+
+Split by stable boundary, not file count: vision pipeline and camera-loss recovery ·
+calibration and gaze mapping · filtering, smoothing, confidence policy · blink/gesture
+state machine · Windows input adapter · accessible UI and calibration feedback ·
+profiles/settings persistence · API/SDK contract · tests and deterministic fixtures ·
+performance/accuracy measurement · read-only security, privacy or architecture review.
+
+**Never split coupled state transitions across agents.** One owner controls an
+end-to-end state machine and its tests.
+
+### 6.4 Required sub-agent prompt
+
+Every delegated task must state: task ID from `TASKS.md` · milestone and goal ·
+user-visible outcome or measurable result · **exact allowed files or subsystem** ·
+files/subsystems to avoid · relevant `spec.MD` constraints · known dependencies and
+risks · tests or measurements to run · expected deliverable · **whether edits are
+allowed or the task is read-only** · required report format.
+
+Every sub-agent must report: what it changed or found · files touched · tests and
+measurements run with results · assumptions and deviations · remaining risks · impact on
+the roadmap or other workstreams.
+
+### 6.5 Parallel work and conflict rules
+
+Before parallel edits, the lead creates a **file-ownership map**. High-conflict files —
+central configuration, dependency manifests, entry points, shared state models, roadmap
+files, public API contracts — normally have **one** editing owner. Others may review or
+propose a patch in prose; the owner integrates.
+
+Agents must not: undo or overwrite changes they did not create · reformat unrelated
+files · broaden scope without lead approval · commit, merge, or declare the task
+complete unless explicitly assigned that responsibility.
+
+After every integration step the lead inspects project-scoped git status and the actual
+diff (subject to §1 Git scope). With no valid project repo, inspect changed files directly.
+
+### 6.6 Dependency order
+
+Contracts, data shapes, acceptance metrics → pure algorithms and state machines →
+hardware/model/OS adapters → UI and end-to-end wiring → tests, performance measurement,
+scenario QA → documentation and final integration review.
+
+**Parallelize only work that does not depend on an unfinished contract or shared
+implementation decision.**
+
+---
+
+## 7. Quality assurance
+
+**Passing compilation or unit tests is necessary but not sufficient for eye-control
+behavior.**
+
+### 7.1 Technical QA
+
+Run the repository's existing commands. **Do not invent commands before inspecting the
+project configuration.** Verify, as applicable:
+
+- Focused unit and integration tests pass
+- Type checking, linting and formatting pass
+- **Camera/model resources are released on shutdown and on error**
+- Threads, async tasks, timers and event listeners terminate cleanly
+- Numerical code handles missing values, invalid calibration, low confidence, edge coords
+- **OS input can be replaced by a fake/simulation adapter in tests**
+- New dependencies are justified and compatible with the target platform
+- No unrelated files or user changes were modified
+
+### 7.2 Scenario QA — mandatory for user-facing or safety-sensitive changes
+
+Verify scenarios, not only functions:
+
+normal happy path · no face detected · face lost then recovered · one or both eyes
+occluded · low-confidence or noisy gaze · calibration incomplete, invalid or stale ·
+natural blink vs. intentional gesture · gesture cooldown and repeated input · pause and
+emergency recovery · **camera unavailable or disconnected** · shutdown during an active
+interaction · screen edges and multi-resolution · **real OS input disabled in automated
+tests**.
+
+For M2 and later, report measurable results where the repo provides the harness or data:
+calibration error, validation error, jitter, latency, FPS, false activations, recovery time.
+
+### 7.3 Test quality
+
+Tests assert behavior and safety properties, not that a function returned a value.
+
+For stateful interactions, test transitions, **forbidden** transitions, cooldowns, reset
+behavior and recovery after loss or error. **A test must fail if low-confidence input can
+trigger an action, or if a stale gesture can be replayed.**
+
+Prefer deterministic prerecorded landmarks/features or synthetic fixtures. **Do not
+require a live camera for the normal automated suite** unless the project defines a
+hardware test tier.
+
+### 7.4 Review after sub-agents
+
+Before accepting delegated work, the lead answers:
+
+Which files changed, and why? · Did the agent stay within scope and ownership? · Does it
+match the milestone and DoD? · Are confidence, safety and recovery paths correct? · Are
+tests capable of detecting wrong wiring or unsafe fallback? · Were privacy or
+accessibility assumptions introduced? · Are there duplicate pipelines, hidden global
+state, unexplained thresholds or platform coupling? · What was manually inspected, and
+what behavior was actually exercised?
+
+**If any answer is uncertain, the work is not verified.**
+
+### 7.5 Mandatory Opus QA workflow
+
+Claude Code is the lead and owns implementation and corrections. A **separate** Claude
+Opus session or sub-agent performs read-only QA. **A reread by the implementation agent
+does not satisfy this requirement.**
+
+**Model and effort.** Use Claude Opus with Extra High Effort for every required review
+where the installed runtime supports it. Inspect the available model and effort controls;
+**do not invent model IDs, effort values, flags or commands.** If Extra High Effort is
+unavailable, use the highest supported Opus effort and report the actual model, actual
+effort and the limitation. **Do not silently substitute another model.** If Opus or a
+separate review context is unavailable, **record the review as blocked, never as passed.**
+
+**Codex migration (already authorized — do not ask again).** Disable the legacy Codex
+review gate in the installed plugin's supported configuration. Remove or update only the
+corresponding legacy triggers and instructions; preserve unrelated hooks, settings and
+user changes. If the only supported switch has wider scope, report that scope and use the
+narrowest supported change. Do not touch Codex authentication, billing or model settings
+to repair a workflow being retired. Cancel obsolete review jobs through supported
+mechanisms and verify the old trigger is inactive. **Do not keep invoking failed Codex
+reviews or repeat waiting messages.**
+
+**Editing `CLAUDE.md` does not disable a runtime hook or configure a model.** Report
+separately: what instruction changes were made, what runtime configuration was verified,
+what remains unavailable. If configuration cannot be changed with available access,
+report the blocker **once** and continue independent authorized work.
+
+**Checkpoints:**
+
+1. **Before implementation** — send the plan to a separate Opus reviewer with task
+   requirements, spec excerpts, affected components, assumptions, proposed tests and
+   acceptance criteria. Resolve material findings before implementing. Repeat when
+   architecture, scope or safety assumptions materially change. A short plan suffices
+   for a trivial change.
+2. **After each coherent unit of work** — run relevant checks, then request review of the
+   actual scoped changes and evidence before starting dependent work. A unit is a bounded
+   task, bug fix or integrated sub-agent result — **not every file write.**
+3. **After corrections** — the lead evaluates findings and implements justified fixes,
+   then sends corrected changes and updated checks. **Earlier approval does not cover
+   later edits.**
+4. **Before completion** — final review of scoped changes, acceptance criteria, test
+   evidence and safety scenarios. Record the result in `TASKS.md`.
+
+**Review inputs.** Give the reviewer: task ID, milestone, requested outcome, relevant
+source-of-truth sections, exact scope, plan or implementation, changed files, check
+results, known limitations, unresolved findings. **The reviewer inspects actual code and
+tests, not only the implementer's summary.** Request actionable findings with locations
+and reasoning, and a clear split between **acceptance blockers** and optional improvements.
+
+Resolve the project Git root per §1. **Never review an unrelated user-home repository.**
+Share only the minimum necessary code, documentation and non-sensitive evidence.
+**§4.3 applies:** no raw video, face images, biometric samples, calibration data,
+credentials or unrelated user files.
+
+**The reviewer is read-only:** no implementation edits, dependency changes, roadmap
+rewrites, commits or real OS input. The lead owns corrections. Automated checks use fake
+OS-input adapters. A separate review context reduces reliance on the implementer's
+narrative — it is **not** a guarantee of correctness.
+
+**Findings and limits.** Evaluate findings against actual code and approved requirements.
+Fix substantiated defects; dispute others with evidence and request re-evaluation.
+**Do not expand product scope to satisfy the reviewer.**
+**At most three correction-and-review cycles per unit.** If a blocker remains, findings
+repeat without progress, or a product decision is needed — report it and stop dependent
+implementation. Do not loop failed reviews or re-request a granted approval.
+
+Record in `TASKS.md`: review scope, reviewer session/agent id when exposed, **actual
+model, actual effort (or explicitly unverified)**, outcome, findings, corrections, checks,
+limitations. **Never claim Opus or Extra High Effort without runtime evidence.
+Never mark DONE while acceptance-blocking findings remain or required review is missing.**
+
+Replacing the reviewer does not weaken regression gates, privacy rules, acceptance
+criteria, required live validation, or explicit user approval for real OS input and
+commits. **Opus review cannot certify hardware tests, usability, gaze accuracy or safety
+that were not actually measured.**
+
+---
+
+## 8. Working practices
+
+- Prefer small, reviewable changes connected to one outcome.
+- Read before editing; follow established conventions.
+- **Preserve user changes. Avoid destructive Git operations.**
+- **Never silently replace an existing implementation or dependency choice.**
+- Add dependencies only when they materially improve the requested outcome; explain the
+  tradeoff.
+- Put configurable thresholds and tunable parameters in **one discoverable place.**
+- Document units for time, distance, angles, screen coordinates and confidence.
+- **Use monotonic time** for gesture durations and cooldowns.
+- Keep logs useful and free of raw biometric/video data.
+- **Never claim behavior was tested with real hardware or users unless it actually was.**
+
+---
+
+## 9. Completion checklist
 
 Before the final response:
 
-Re-read the requested outcome, exact TASKS.md entry, relevant spec.MD milestone, and matching TECHNICAL_SPEC.md sections.
+1. Re-read the requested outcome, the `TASKS.md` entry, the `spec.MD` milestone and the
+   matching `TECHNICAL_SPEC.md` sections
+2. Review project-scoped git status and the full diff **after** resolving a valid project
+   Git root; otherwise inspect the scoped files directly (§1)
+3. Confirm only intended files changed
+4. Verify the §5 OOP policy: responsibility boundaries, thin entry points, reuse, size
+   exceptions, architecture review evidence
+5. Run the relevant tests and static checks available in the repository
+6. Verify applicable safety, confidence, recovery, privacy and accessibility scenarios
+7. **Confirm no real cursor/click action can occur during automated testing**
+8. Record what could not be tested, especially hardware-dependent behavior
+9. Complete the §7.5 Opus checkpoints; resolve blockers or **report QA as blocked**
+10. Update status and completion evidence in `TASKS.md` without removing the original
+    acceptance criteria, including the Opus outcome and remaining limitations
 
-Review project-scoped git status and the complete diff only after resolving a valid project Git root; otherwise inspect the scoped files directly as required in section 2.
+**The final response must report:** task IDs · milestone/outcome · files changed · what
+was manually reviewed · scenarios verified · tests and checks run with results ·
+measured performance/accuracy where applicable · **Opus QA outcome, actual reviewer model
+and effort, corrections, disputed findings, any review blocker** · local/commit status ·
+remaining risks, hardware validation and follow-up work.
 
-Confirm only intended files changed.
+**If sub-agents were used, also report:** each agent's scope · files each touched · what
+the lead independently reviewed and verified · corrections after integration QA · final
+orchestration QA result.
 
-Verify the mandatory OOP and modularity policy in sections 5.1-5.6: responsibility boundaries, thin entry points, reuse, size exceptions, and architecture review evidence.
-
-Run relevant tests and static checks available in the repository.
-
-Verify applicable safety, confidence, recovery, privacy, and accessibility scenarios.
-
-Confirm no real cursor/click action can occur unexpectedly during automated testing.
-
-Record anything that could not be tested, especially hardware-dependent behavior.
-
-Complete the Opus QA checkpoints in section 7.5 for the current work; resolve acceptance-blocking findings or report QA as blocked.
-
-Update the task status and completion evidence in TASKS.md without removing the original acceptance criteria, including the Opus review outcome and remaining limitations.
-
-The final response must report:
-
-Task IDs addressed
-
-Milestone/outcome addressed
-
-Files changed
-
-What was manually reviewed
-
-Scenarios verified
-
-Tests/checks run and results
-
-Measured performance/accuracy results, if applicable
-
-Opus QA outcome, actual reviewer model and effort, corrections, disputed findings, and any review blocker
-
-Local/commit status
-
-Remaining risks, hardware validation, or follow-up work
-
-If sub-agents were used, also report:
-
-Each agent's scope
-
-Files each agent touched
-
-What the lead independently reviewed and verified
-
-Corrections made after integration QA
-
-Final orchestration QA result
-
-Never present delegated work as complete before lead-agent verification.
+**Never present delegated work as complete before lead verification.**
