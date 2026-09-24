@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<title>המרווחים שמאחורי העיצוב</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&amp;family=Heebo:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0E0F11; font-family: Assistant, system-ui, sans-serif; }
+a { color: #D4A24C; } a:hover { color: #F0CC7E; }
+</style>
+</helmet>
+<div style="width: 2400px; height: 900px; box-sizing: border-box; background: #0E0F11; padding: 26px 40px; display: flex; flex-direction: column; gap: 22px;" dir="rtl">
+
+  <div style="display: flex; gap: 26px; align-items: stretch;">
+    <div style="flex-grow: 1; border-radius: 14px; background: #14161A; border: 2px solid #3A3E47; padding: 18px 24px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-family: Heebo, sans-serif; font-size: 25px; font-weight: 700; color: #F4F3F0;">למה הכפתורים במקום שהם נמצאים בו</div>
+      <div style="font-size: 16px; line-height: 1.6; color: #A8AAB1;">הרצה מ־22.9 על הפרופיל והמודל הפעילים, תשעה יעדים ברצועה: <span style="color: #F4F3F0; font-weight: 700;">17 מתוך 18</span> נכונות, <span style="color: #5FCF8E; font-weight: 700;">אפס בחירות שגויות</span>, אי־בחירה אחת, ואפס הפעלות שווא בשישים שניות מנוחה. ההטיה שנמדדה הגיעה ל־0.052 מרוחב המסך.</div>
+    </div>
+    <div style="width: 660px; border-radius: 14px; background: #1A1410; border: 2px solid #D4A24C; padding: 18px 24px; display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-family: Heebo, sans-serif; font-size: 25px; font-weight: 700; color: #F0CC7E;">הכלל</div>
+      <div style="font-size: 17px; line-height: 1.6; color: #E8DFCF;">כפתור מוחמץ כשההטיה עוברת את חצי־רוחבו, וזה נסבל. השכן נלחץ רק כשהיא עוברת חצי־רוחב <span style="font-weight: 700;">ועוד מרווח</span>, וזה מה שאסור. לכן המרווחים גדולים ולא הכפתורים.</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px;">
+    <sc-for list="{{options}}" as="o" hint-placeholder-count="4">
+      <div style="height: 322px; box-sizing: border-box; border-radius: 14px; background: #14161A; border: 2px solid {{o.edge}}; padding: 14px 20px; display: flex; flex-direction: column; gap: 10px;">
+
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <span style="font-family: Heebo, sans-serif; font-size: 22px; font-weight: 700; color: #F4F3F0;">{{o.name}}</span>
+          <span style="flex-grow: 1;"></span>
+          <span style="padding: 4px 14px; border-radius: 999px; background: {{o.badgeBg}}; color: {{o.badgeInk}}; font-size: 15px; font-weight: 700;">{{o.verdict}}</span>
+        </div>
+
+        <div style="position: relative; width: 720px; height: 202.5px; align-self: center; border-radius: 8px; background: #FBFAF7; overflow: hidden;">
+          <div style="position: absolute; top: 0; right: 216px; width: 288px; height: 202.5px; background: rgba(77,163,255,0.10); border-inline: 1px dashed rgba(44,111,184,0.8);"></div>
+          <sc-for list="{{o.rects}}" as="r" hint-placeholder-count="4">
+            <div style="position: absolute; left: {{r.left}}px; top: {{r.top}}px; width: {{r.w}}px; height: {{r.h}}px; box-sizing: border-box; border-radius: 4px; background: #1A1C20; border: 1.5px solid {{o.edge}};"></div>
+          </sc-for>
+          <div style="position: absolute; left: 8px; bottom: 6px; font-size: 12px; font-weight: 700; color: #6E7480;">0.30 – 0.70</div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          <sc-for list="{{o.stats}}" as="s" hint-placeholder-count="3">
+            <div style="flex-grow: 1; border-radius: 8px; background: #0E0F11; border: 1px solid #2A2E36; padding: 6px 10px;">
+              <div style="font-size: 13px; color: #8A8D95;">{{s.k}}</div>
+              <div style="font-family: Heebo, sans-serif; font-size: 19px; font-weight: 700; color: {{s.ink}};">{{s.v}}</div>
+            </div>
+          </sc-for>
+        </div>
+
+      </div>
+    </sc-for>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var S = 0.30;
+    function at(left, top, w, h) { return { left: left * S, top: top * S, w: w * S, h: h * S }; }
+    function many(lefts, tops, w, h) {
+      var out = [];
+      for (var r = 0; r < tops.length; r++) {
+        for (var c = 0; c < lefts.length; c++) { out.push(at(lefts[c], tops[r], w, h)); }
+      }
+      return out;
+    }
+    var GREEN = '#5FCF8E', BLUE = '#6BA8E8';
+    function stat(k, v, ink) { return { k: k, v: v, ink: ink || '#F4F3F0' }; }
+    var pass = { verdict: 'בטוח', badgeBg: '#16241C', badgeInk: '#9BE3BC', edge: GREEN };
+    return {
+      options: [
+        {
+          name: 'הסרגל הראשי — ארבעה כפתורים',
+          verdict: pass.verdict, badgeBg: pass.badgeBg, badgeInk: pass.badgeInk, edge: GREEN,
+          rects: many([1476, 1236, 996, 756], [513], 168, 101),
+          stats: [stat('רוחב כפתור', '0.070'), stat('מרווח', '0.030'), stat('טווח לשכן', '0.065', GREEN)]
+        },
+        {
+          name: 'תפריט משני — שישה אריחים',
+          verdict: pass.verdict, badgeBg: pass.badgeBg, badgeInk: pass.badgeInk, edge: GREEN,
+          rects: many([1448, 1084, 720], [135, 310], 232, 108),
+          stats: [stat('רוחב אריח', '0.097'), stat('מרווח', '0.055'), stat('טווח לשכן', '0.103', GREEN)]
+        },
+        {
+          name: 'המקלדת — ארבע עמודות',
+          verdict: pass.verdict, badgeBg: pass.badgeBg, badgeInk: pass.badgeInk, edge: GREEN,
+          rects: many([1494, 1236, 978, 720], [135, 300, 470], 186, 101),
+          stats: [stat('רוחב מקש', '0.078'), stat('מרווח', '0.030'), stat('טווח לשכן', '0.069', GREEN)]
+        },
+        {
+          name: 'השהיה — יעד מבודד',
+          verdict: 'אין שכן', badgeBg: '#101A24', badgeInk: '#AFD0F0', edge: BLUE,
+          rects: [at(1440, 17, 240, 67)],
+          stats: [stat('רוחב', '0.100'), stat('שכן קרוב', 'אין'), stat('אותו מקום בכל מסך', 'כן', BLUE)]
+        }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

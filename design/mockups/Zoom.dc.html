@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<title>דייק</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&amp;family=Heebo:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0E0F11; font-family: Assistant, system-ui, sans-serif; }
+a { color: #D4A24C; } a:hover { color: #F0CC7E; }
+.gz-stage { appearance: none; padding: 0; border: 0; background: transparent; cursor: crosshair; display: block; }
+.gz-b { appearance: none; cursor: pointer; font-family: inherit; }
+.gz-b:hover { border-color: #D4A24C; }
+.gz-b:disabled { cursor: default; opacity: 0.4; }
+</style>
+</helmet>
+<div style="width: 2400px; height: 675px; box-sizing: border-box; position: relative; overflow: hidden; background: #FBFAF7;" dir="rtl">
+
+  <div style="position: absolute; inset: 0; box-sizing: border-box; padding: 22px 44px; color: #2B2E34; display: flex; flex-direction: column; gap: 13px;">
+    <div style="font-size: 21px; font-weight: 700; color: #4A4E57;">דוח רבעוני</div>
+    <div style="width: 1480px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+    <div style="width: 1240px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+  </div>
+  <div style="position: absolute; inset: 0; background: rgba(14,15,17,0.55);"></div>
+
+  <div style="position: absolute; left: 0; top: 26px; width: 1400px; display: flex; justify-content: center;">
+    <div style="background: #14161A; border-radius: 999px; padding: 12px 30px;">
+      <span style="font-family: Heebo, sans-serif; font-size: 25px; font-weight: 500; color: #F4F3F0;">{{say}}</span>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 1440px; top: 17px; width: 240px; height: 67px; box-sizing: border-box; border-radius: 12px; background: #14161A; border: 3px solid #4C525C; display: flex; align-items: center; justify-content: center; gap: 12px;">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path d="M9 5v14M15 5v14" fill="none" stroke="#F4F3F0" stroke-width="2.6" stroke-linecap="round"></path>
+    </svg>
+    <span style="font-family: Heebo, sans-serif; font-size: 24px; font-weight: 700; color: #F4F3F0;">השהיה</span>
+  </div>
+
+  <button type="button" class="gz-stage" onClick="{{onStage}}" style="position: absolute; left: 720px; top: 130px; width: 960px; height: 270px; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 40px rgba(0,0,0,0.5);">
+    <div style="position: relative; width: 960px; height: 270px; overflow: hidden; background: #FBFAF7; border: 3px solid {{frame}}; box-sizing: border-box;">
+      <div style="position: absolute; left: 0; top: 0; width: 2400px; height: 675px; transform-origin: 0 0; transform: {{tf}};">
+        <div style="position: absolute; inset: 0; box-sizing: border-box; padding: 22px 44px; background: #FBFAF7; color: #2B2E34; display: flex; flex-direction: column; gap: 13px;">
+          <div style="font-size: 21px; font-weight: 700; color: #4A4E57;">דוח רבעוני</div>
+          <div style="width: 1480px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+          <div style="width: 1240px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+          <div style="width: 1390px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+          <div style="width: 1120px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+          <div style="display: flex; gap: 18px; padding-top: 6px;">
+            <div style="width: 210px; height: 58px; border-radius: 10px; background: #2F6FD0; color: #FFFFFF; font-size: 24px; font-weight: 700; display: flex; align-items: center; justify-content: center;">שלח</div>
+            <div style="width: 210px; height: 58px; border-radius: 10px; background: #EDEAE3; color: #4A4E57; font-size: 24px; font-weight: 700; display: flex; align-items: center; justify-content: center;">שמור</div>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{hasPoint}}" hint-placeholder-val="{{ true }}">
+        <div style="position: absolute; left: {{px}}px; top: {{py}}px; width: 96px; height: 96px; margin: -48px 0 0 -48px; pointer-events: none;">
+          <svg viewBox="0 0 96 96" style="width: 96px; height: 96px;" aria-hidden="true">
+            <circle cx="48" cy="48" r="33" fill="rgba(47,111,208,0.16)"></circle>
+            <circle cx="48" cy="48" r="33" fill="none" stroke="#C9D9EC" stroke-width="7"></circle>
+            <circle cx="48" cy="48" r="33" fill="none" stroke="#2F6FD0" stroke-width="7" pathLength="100" stroke-dasharray="72 100" stroke-linecap="round" transform="rotate(-90 48 48)"></circle>
+            <circle cx="48" cy="48" r="10" fill="#2F6FD0"></circle>
+          </svg>
+        </div>
+      </sc-if>
+      <sc-if value="{{done}}" hint-placeholder-val="{{ true }}">
+        <div style="position: absolute; inset: 0; background: rgba(14,15,17,0.78); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;">
+          <svg viewBox="0 0 64 64" width="70" height="70" aria-hidden="true">
+            <circle cx="32" cy="32" r="27" fill="none" stroke="#7BD8A6" stroke-width="6"></circle>
+            <path d="M20 33l9 9 16-18" fill="none" stroke="#7BD8A6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          <span style="font-family: Heebo, sans-serif; font-size: 30px; font-weight: 700; color: #F4F3F0;">בוצע</span>
+        </div>
+      </sc-if>
+    </div>
+  </button>
+
+  <sc-for list="{{buttons}}" as="b" hint-placeholder-count="4">
+    <button type="button" class="gz-b" onClick="{{b.go}}" disabled="{{b.off}}" style="position: absolute; left: {{b.left}}px; top: 513px; width: 168px; height: 101px; box-sizing: border-box; border-radius: 14px; background: {{b.bg}}; border: 3px solid {{b.edge}}; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+      {{b.icon}}
+      <span style="font-family: Heebo, sans-serif; font-size: 21px; font-weight: 700; color: {{b.ink}};">{{b.label}}</span>
+    </button>
+  </sc-for>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":675}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { cx: 0.086, cy: 0.79, span: 0.10, point: null, done: false };
+  }
+  icon(name, ink) {
+    var R = window.React;
+    var s = { stroke: ink, fill: 'none', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+    function p(d, k) { return R.createElement('path', Object.assign({ d: d, key: k }, s)); }
+    var sets = {
+      ok: [R.createElement('circle', Object.assign({ cx: 10, cy: 10, r: 7.5, key: 'a' }, s)), p('M6.6 10.2l2.4 2.4 4.4-4.8', 'b')],
+      plus: [R.createElement('circle', Object.assign({ cx: 9, cy: 9, r: 5.5, key: 'a' }, s)), p('M13 13l4 4', 'b'), p('M9 6.8v4.4', 'c'), p('M6.8 9h4.4', 'd')],
+      screen: [R.createElement('rect', Object.assign({ x: 2.5, y: 4, width: 15, height: 10, rx: 1.6, key: 'a' }, s)), p('M7 17h6', 'b')],
+      back: [p('M16 10H4M9 5L4 10l5 5', 'a')]
+    };
+    return R.createElement('svg', { viewBox: '0 0 20 20', width: 30, height: 30, 'aria-hidden': 'true' }, sets[name]);
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state;
+    var overview = st.span >= 0.999;
+    var k = 960 / (st.span * 2400);
+    var left = Math.min(Math.max(st.cx - st.span / 2, 0), 1 - st.span);
+    var top = Math.min(Math.max(st.cy - st.span / 2, 0), 1 - st.span);
+    var say = st.done
+      ? 'בוצע'
+      : (overview ? 'בחר את האזור שאליו תרצה להגיע'
+        : (st.point ? 'אשר כדי ללחוץ כאן' : 'הבט בנקודה המדויקת ואשר'));
+    function stageClick(e) {
+      var r = e.currentTarget.getBoundingClientRect();
+      var fx = (e.clientX - r.left) / r.width;
+      var fy = (e.clientY - r.top) / r.height;
+      if (overview) {
+        self.setState({ cx: fx, cy: fy, span: 0.10, point: null, done: false });
+      } else {
+        self.setState({ point: { x: fx, y: fy }, done: false });
+      }
+    }
+    var GOLD = '#D4A24C', DARK = '#14161A', LINE = '#4C525C', TEXT = '#F4F3F0';
+    var canOk = !!st.point && !overview && !st.done;
+    var defs = [
+      {
+        label: st.done ? 'סיום' : 'אשר', ic: 'ok', off: !(canOk || st.done), primary: (canOk || st.done),
+        go: function () {
+          if (st.done) { self.setState({ cx: 0.086, cy: 0.79, span: 0.10, point: null, done: false }); }
+          else if (canOk) { self.setState({ done: true }); }
+        }
+      },
+      {
+        label: 'הגדל עוד', ic: 'plus', off: overview || st.span <= 0.051 || st.done, primary: false,
+        go: function () {
+          var p = st.point;
+          var ncx = p ? left + p.x * st.span : st.cx;
+          var ncy = p ? top + p.y * st.span : st.cy;
+          self.setState({ cx: ncx, cy: ncy, span: 0.05, point: null, done: false });
+        }
+      },
+      {
+        label: 'כל המסך', ic: 'screen', off: st.done, primary: false,
+        go: function () { self.setState({ span: 1, cx: 0.5, cy: 0.5, point: null, done: false }); }
+      },
+      { label: 'חזרה', ic: 'back', off: false, primary: false, go: function () { self.setState({ cx: 0.086, cy: 0.79, span: 0.10, point: null, done: false }); } }
+    ];
+    var lefts = [1476, 1236, 996, 756];
+    return {
+      say: say,
+      tf: 'scale(' + k.toFixed(4) + ') translate(' + (-left * 2400).toFixed(1) + 'px,' + (-top * 675).toFixed(1) + 'px)',
+      frame: overview ? '#4C525C' : '#D4A24C',
+      hasPoint: !!st.point && !st.done,
+      px: st.point ? st.point.x * 960 : 0,
+      py: st.point ? st.point.y * 270 : 0,
+      done: st.done,
+      onStage: stageClick,
+      buttons: defs.map(function (d, i) {
+        return {
+          label: d.label,
+          icon: self.icon(d.ic, d.primary ? '#14161A' : TEXT),
+          left: lefts[i],
+          off: d.off,
+          bg: d.primary ? '#F0CC7E' : DARK,
+          edge: d.primary ? GOLD : LINE,
+          ink: d.primary ? '#14161A' : TEXT,
+          go: d.go
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

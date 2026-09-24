@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<title>מצבים ומשוב</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&amp;family=Heebo:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0E0F11; font-family: Assistant, system-ui, sans-serif; }
+a { color: #D4A24C; } a:hover { color: #F0CC7E; }
+</style>
+</helmet>
+<div style="width: 2400px; height: 675px; box-sizing: border-box; background: #0E0F11; padding: 30px 40px; display: flex; flex-direction: column; gap: 22px;" dir="rtl">
+
+  <div style="display: flex; align-items: baseline; gap: 18px;">
+    <span style="font-family: Heebo, sans-serif; font-size: 27px; font-weight: 700; color: #F4F3F0;">שלושת שלבי הבחירה</span>
+    <span style="font-size: 16px; color: #8A8D95;">נבדלים בצורה ובטקסט, לא רק בצבע — מי שאינו מבחין בצבע רואה את אותו הדבר</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 26px;">
+    <sc-for list="{{stages}}" as="s" hint-placeholder-count="3">
+      <div style="height: 224px; box-sizing: border-box; border-radius: 14px; background: #14161A; border: 2px solid {{s.edge}}; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          {{s.mark}}
+          <span style="font-family: Heebo, sans-serif; font-size: 23px; font-weight: 700; color: #F4F3F0;">{{s.title}}</span>
+        </div>
+        <div style="font-size: 16px; line-height: 1.6; color: #A8AAB1;">{{s.body}}</div>
+        <span style="flex-grow: 1;"></span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 150px; height: 48px; box-sizing: border-box; border-radius: 10px; background: {{s.tileBg}}; border: 2px {{s.tileStyle}} {{s.edge}}; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 15px; font-weight: 700; color: {{s.tileInk}};">גלילה</span>
+          </div>
+          <span style="font-size: 15px; color: #8A8D95;">{{s.caption}}</span>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; align-items: baseline; gap: 18px; padding-top: 4px;">
+    <span style="font-family: Heebo, sans-serif; font-size: 27px; font-weight: 700; color: #F4F3F0;">ארבעת מצבי המערכת</span>
+    <span style="font-size: 16px; color: #8A8D95;">תמיד גלויים, תמיד באותו מקום, ותמיד עם דרך חזרה</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 26px;">
+    <sc-for list="{{modes}}" as="m" hint-placeholder-count="4">
+      <div style="height: 186px; box-sizing: border-box; border-radius: 14px; background: {{m.bg}}; border: 2px solid {{m.edge}}; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          {{m.mark}}
+          <span style="font-family: Heebo, sans-serif; font-size: 22px; font-weight: 700; color: {{m.ink}};">{{m.title}}</span>
+        </div>
+        <div style="font-size: 15px; line-height: 1.6; color: {{m.sub}};">{{m.body}}</div>
+        <span style="flex-grow: 1;"></span>
+        <div style="font-size: 14px; font-weight: 700; color: {{m.edge}};">{{m.exit}}</div>
+      </div>
+    </sc-for>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":675}}'>
+class Component extends DCLogic {
+  ring(pct, color) {
+    var R = window.React;
+    return R.createElement('svg', { viewBox: '0 0 40 40', width: 36, height: 36, 'aria-hidden': 'true' }, [
+      R.createElement('circle', { key: 'a', cx: 20, cy: 20, r: 16, fill: 'none', stroke: '#2A2E36', strokeWidth: 4 }),
+      R.createElement('circle', {
+        key: 'b', cx: 20, cy: 20, r: 16, fill: 'none', stroke: color, strokeWidth: 4,
+        pathLength: 100, strokeDasharray: pct + ' 100', strokeLinecap: 'round', transform: 'rotate(-90 20 20)'
+      })
+    ]);
+  }
+  glyph(kind, color) {
+    var R = window.React;
+    var s = { fill: 'none', stroke: color, strokeWidth: 2.6, strokeLinecap: 'round', strokeLinejoin: 'round' };
+    var inner = {
+      dot: [R.createElement('circle', { key: 'a', cx: 20, cy: 20, r: 7, fill: color }),
+            R.createElement('circle', { key: 'b', cx: 20, cy: 20, r: 14, fill: 'none', stroke: color, strokeWidth: 2.6 })],
+      check: [R.createElement('circle', Object.assign({ key: 'a', cx: 20, cy: 20, r: 16 }, s)),
+              R.createElement('path', Object.assign({ key: 'b', d: 'M13 20.5l5 5 9-10' }, s))],
+      pause: [R.createElement('circle', Object.assign({ key: 'a', cx: 20, cy: 20, r: 16 }, s)),
+              R.createElement('path', Object.assign({ key: 'b', d: 'M16.5 14v12' }, s)),
+              R.createElement('path', Object.assign({ key: 'c', d: 'M23.5 14v12' }, s))],
+      lost: [R.createElement('circle', Object.assign({ key: 'a', cx: 20, cy: 20, r: 16, strokeDasharray: '5 5' }, s)),
+             R.createElement('path', Object.assign({ key: 'b', d: 'M14 14l12 12' }, s)),
+             R.createElement('path', Object.assign({ key: 'c', d: 'M26 14L14 26' }, s))],
+      wait: [R.createElement('circle', Object.assign({ key: 'a', cx: 20, cy: 20, r: 16 }, s)),
+             R.createElement('path', Object.assign({ key: 'b', d: 'M20 12v8l5 3' }, s))]
+    }[kind];
+    return R.createElement('svg', { viewBox: '0 0 40 40', width: 36, height: 36, 'aria-hidden': 'true' }, inner);
+  }
+  renderVals() {
+    return {
+      stages: [
+        {
+          title: 'מסתכל', body: 'המבט על האריח והאריח מגיב, אבל שום שעון לא התחיל. אפשר להמשיך הלאה בלי לעשות כלום.',
+          mark: this.ring(0, '#4DA3FF'), edge: '#4DA3FF', tileBg: '#1A1C20', tileStyle: 'solid', tileInk: '#C9CBD1',
+          caption: 'מסגרת רגילה'
+        },
+        {
+          title: 'עומד לבחור', body: 'הטבעת מתמלאת והכיתוב אומר זאת במילים. הסטת המבט מבטלת, ושום דבר לא זז בינתיים.',
+          mark: this.ring(64, '#D4A24C'), edge: '#D4A24C', tileBg: '#23262C', tileStyle: 'solid', tileInk: '#F4F3F0',
+          caption: 'מסגרת עבה וטבעת'
+        },
+        {
+          title: 'בוצע', body: 'סימון מלא, והפעולה חוזרת מיד לברירת המחדל כדי שלא תופעל שוב בטעות.',
+          mark: this.glyph('check', '#5FCF8E'), edge: '#5FCF8E', tileBg: '#16241C', tileStyle: 'dashed', tileInk: '#CFF0DD',
+          caption: 'מסגרת מקווקוות וסימן'
+        }
+      ],
+      modes: [
+        {
+          title: 'פעיל', body: 'המבט מזיז את המצביע, והסרגל פתוח לבחירה.',
+          mark: this.glyph('dot', '#D4A24C'), edge: '#D4A24C', bg: '#14161A', ink: '#F4F3F0', sub: '#A8AAB1',
+          exit: 'השהיה זמינה תמיד'
+        },
+        {
+          title: 'מושהה', body: 'שום דבר אינו נשלח למערכת. הסרגל עדיין נפתח, וזו הדרך חזרה.',
+          mark: this.glyph('pause', '#8FB4E8'), edge: '#8FB4E8', bg: '#121822', ink: '#F4F3F0', sub: '#A8AAB1',
+          exit: 'המשך שליטה — באותו מקום'
+        },
+        {
+          title: 'אובדן מעקב', body: 'הסמן קופא, לחצן מוחזק משתחרר, ושום פעולה חדשה אינה נוצרת.',
+          mark: this.glyph('lost', '#E0705F'), edge: '#E0705F', bg: '#1E1416', ink: '#FFECE8', sub: '#D9B4AE',
+          exit: 'חוזר מעצמו כשהפנים נראים'
+        },
+        {
+          title: 'ממתין לבחירה', body: 'המערכת ראתה כוונה ומחכה. הטבעת אומרת כמה נשאר.',
+          mark: this.glyph('wait', '#C9CBD1'), edge: '#C9CBD1', bg: '#14161A', ink: '#F4F3F0', sub: '#A8AAB1',
+          exit: 'הסטת מבט מבטלת'
+        }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

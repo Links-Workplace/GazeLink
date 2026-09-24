@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<title>מקלדת</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&amp;family=Heebo:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0E0F11; font-family: Assistant, system-ui, sans-serif; }
+a { color: #D4A24C; } a:hover { color: #F0CC7E; }
+</style>
+</helmet>
+<div style="width: 2400px; height: 675px; box-sizing: border-box; position: relative; overflow: hidden; background: #FBFAF7;" dir="rtl">
+
+  <div style="position: absolute; inset: 0; box-sizing: border-box; padding: 22px 44px; color: #2B2E34;">
+    <div style="font-size: 21px; font-weight: 700; color: #4A4E57;">הודעה חדשה</div>
+  </div>
+  <div style="position: absolute; inset: 0; background: rgba(14,15,17,0.62);"></div>
+
+  <div style="position: absolute; left: 120px; top: 17px; width: 1272px; height: 67px; box-sizing: border-box; border-radius: 12px; background: #14161A; border: 3px solid #4C525C; display: flex; align-items: center; padding: 0 24px;">
+    <span style="font-family: Heebo, sans-serif; font-size: 30px; font-weight: 500; color: #F4F3F0;">שלום, אני</span>
+    <span style="display: inline-block; width: 4px; height: 32px; background: #D4A24C; margin-inline-start: 5px;"></span>
+  </div>
+
+  <div style="position: absolute; left: 1440px; top: 17px; width: 240px; height: 67px; box-sizing: border-box; border-radius: 12px; background: #14161A; border: 3px solid #4C525C; display: flex; align-items: center; justify-content: center; gap: 12px;">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path d="M9 5v14M15 5v14" fill="none" stroke="#F4F3F0" stroke-width="2.6" stroke-linecap="round"></path>
+    </svg>
+    <span style="font-family: Heebo, sans-serif; font-size: 24px; font-weight: 700; color: #F4F3F0;">השהיה</span>
+  </div>
+
+  <sc-for list="{{letters}}" as="k" hint-placeholder-count="8">
+    <div style="position: absolute; left: {{k.left}}px; top: {{k.top}}px; width: 186px; height: 101px; box-sizing: border-box; border-radius: 14px; background: {{k.bg}}; border: 3px solid {{k.edge}}; display: flex; align-items: center; justify-content: center; box-shadow: 0 12px 26px rgba(0,0,0,0.45);">
+      <span style="font-family: Heebo, sans-serif; font-size: 52px; font-weight: 700; color: {{k.ink}};">{{k.label}}</span>
+      <sc-if value="{{k.on}}" hint-placeholder-val="{{ true }}">
+        <span style="position: absolute; top: -13px; background: #D4A24C; color: #14161A; font-size: 15px; font-weight: 700; border-radius: 999px; padding: 2px 14px;">נבחר</span>
+      </sc-if>
+    </div>
+  </sc-for>
+
+  <sc-for list="{{actions}}" as="a" hint-placeholder-count="4">
+    <div style="position: absolute; left: {{a.left}}px; top: 470px; width: 186px; height: 101px; box-sizing: border-box; border-radius: 14px; background: #14161A; border: 3px solid #4C525C; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;">
+      <span style="font-family: Heebo, sans-serif; font-size: 24px; font-weight: 700; color: #F4F3F0;">{{a.label}}</span>
+      <sc-if value="{{a.hasSub}}" hint-placeholder-val="{{ true }}">
+        <span style="font-family: Heebo, sans-serif; font-size: 22px; font-weight: 500; color: #D4A24C; letter-spacing: 0.10em;">{{a.sub}}</span>
+      </sc-if>
+    </div>
+  </sc-for>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":675}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var page = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח'];
+    var lefts = [1494, 1236, 978, 720];
+    var rows = [135, 300];
+    var hot = 5;
+    var letters = page.map(function (label, i) {
+      var on = i === hot;
+      return {
+        label: label,
+        left: lefts[i % 4],
+        top: rows[Math.floor(i / 4)],
+        bg: on ? '#F0CC7E' : '#14161A',
+        edge: on ? '#D4A24C' : '#4C525C',
+        ink: on ? '#14161A' : '#F4F3F0',
+        on: on
+      };
+    });
+    var acts = [
+      { label: 'רווח', sub: '', hasSub: false },
+      { label: 'מחיקה', sub: '', hasSub: false },
+      { label: 'עמוד הבא', sub: 'ט י כ ל', hasSub: true },
+      { label: 'סגירה', sub: '', hasSub: false }
+    ];
+    return {
+      letters: letters,
+      actions: acts.map(function (a, i) {
+        return { label: a.label, sub: a.sub, hasSub: a.hasSub, left: lefts[i] };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

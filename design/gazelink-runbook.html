@@ -1,0 +1,434 @@
+<title>לוח הבקרה של GAZELINK</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;900&family=Assistant:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --ground:#F6F4EF; --panel:#FFFFFF; --sunk:#EFEBE2;
+  --line:#DCD6C9; --line-soft:#E8E3D8;
+  --ink:#1C1F24; --ink-2:#4A4F58; --ink-3:#7B8089;
+  --amber:#B8751A; --amber-soft:#FBF0DC; --amber-line:#E4BE7C;
+  --blue:#26618F; --blue-soft:#E6EFF6;
+  --sage:#3E7A5E; --sage-soft:#E4F0E9;
+  --red:#A63A2E; --red-soft:#F8E6E2;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --disp:"Heebo",system-ui,sans-serif;
+  --body:"Assistant",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#12151A; --panel:#1A1E25; --sunk:#0D1014;
+  --line:#2B313B; --line-soft:#222831;
+  --ink:#ECE8E0; --ink-2:#AEB4BE; --ink-3:#787F8A;
+  --amber:#E3A445; --amber-soft:#2A2113; --amber-line:#6B4E1E;
+  --blue:#6FAEDC; --blue-soft:#14222E;
+  --sage:#6FBF95; --sage-soft:#12231A;
+  --red:#E08376; --red-soft:#2A1614;
+}}
+:root[data-theme="dark"]{
+  --ground:#12151A; --panel:#1A1E25; --sunk:#0D1014;
+  --line:#2B313B; --line-soft:#222831;
+  --ink:#ECE8E0; --ink-2:#AEB4BE; --ink-3:#787F8A;
+  --amber:#E3A445; --amber-soft:#2A2113; --amber-line:#6B4E1E;
+  --blue:#6FAEDC; --blue-soft:#14222E;
+  --sage:#6FBF95; --sage-soft:#12231A;
+  --red:#E08376; --red-soft:#2A1614;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.65}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:20px;padding-block:0 72px}
+h1,h2,h3{font-family:var(--disp);text-wrap:balance;margin:0}
+code,kbd,pre{font-family:var(--mono)}
+
+/* masthead */
+.top{border-bottom:1px solid var(--line);background:var(--panel)}
+.top .wrap{padding-block:26px 22px}
+.eyebrow{font-size:12px;letter-spacing:.20em;color:var(--amber);font-weight:700}
+h1{font-size:clamp(28px,5vw,42px);font-weight:900;letter-spacing:-.01em;margin-top:8px}
+.sub{color:var(--ink-2);margin-top:8px;max-width:62ch}
+.themeBtn{position:absolute;inset-inline-start:20px;inset-block-start:22px;border:1px solid var(--line);background:var(--sunk);color:var(--ink-2);border-radius:999px;padding:5px 14px;font:inherit;font-size:13px;cursor:pointer}
+.themeBtn:hover{border-color:var(--amber)}
+.top .wrap{position:relative}
+
+/* state strip */
+.state{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;background:var(--line-soft);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:26px}
+.cell{background:var(--panel);padding:14px 16px}
+.cell dt{font-size:12px;letter-spacing:.06em;color:var(--ink-3);font-weight:700}
+.cell dd{margin:4px 0 0;font-family:var(--disp);font-weight:700;font-size:17px;font-variant-numeric:tabular-nums;word-break:break-word}
+.cell dd small{display:block;font-family:var(--body);font-weight:400;font-size:13px;color:var(--ink-3);margin-top:2px}
+
+section{margin-top:52px;scroll-margin-top:16px}
+h2{font-size:24px;font-weight:700;display:flex;align-items:baseline;gap:12px}
+h2 .n{font-family:var(--mono);font-size:13px;color:var(--amber);font-weight:600}
+.lede{color:var(--ink-2);margin:10px 0 0;max-width:68ch}
+
+nav.rail{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--ground);border-bottom:1px solid var(--line);margin-top:0}
+nav.rail .inner{max-width:1180px;margin:0 auto;padding-inline:20px;display:flex;gap:4px;overflow-x:auto;padding-block:8px}
+nav.rail a{flex:none;color:var(--ink-2);text-decoration:none;font-size:14px;padding:5px 11px;border-radius:999px;white-space:nowrap}
+nav.rail a:hover{background:var(--sunk);color:var(--ink)}
+
+/* command list */
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:18px 0 14px}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--ink-2);border-radius:999px;padding:6px 14px;font:inherit;font-size:14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--ground);border-color:var(--ink)}
+.chip:hover{border-color:var(--amber)}
+.cmds{display:flex;flex-direction:column;gap:10px}
+.cmd{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;border-inline-start:4px solid var(--line)}
+.cmd[data-risk="input"]{border-inline-start-color:var(--red)}
+.cmd[data-risk="camera"]{border-inline-start-color:var(--amber)}
+.cmd[data-risk="safe"]{border-inline-start-color:var(--sage)}
+.cmd h3{font-size:16px;font-weight:700}
+.cmd p{margin:6px 0 0;color:var(--ink-2);font-size:15px;max-width:72ch}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.b{font-size:12px;font-weight:700;border-radius:5px;padding:2px 9px;border:1px solid transparent}
+.b.input{background:var(--red-soft);color:var(--red);border-color:var(--red)}
+.b.cam{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-line)}
+.b.safe{background:var(--sage-soft);color:var(--sage)}
+.b.data{background:var(--blue-soft);color:var(--blue)}
+.cmdline{margin-top:11px;display:flex;gap:8px;align-items:stretch}
+.cmdline pre{flex:1;margin:0;background:var(--sunk);border:1px solid var(--line-soft);border-radius:7px;padding:10px 12px;overflow-x:auto;font-size:13.5px;direction:ltr;text-align:start}
+.copy{flex:none;border:1px solid var(--line);background:var(--panel);color:var(--ink-2);border-radius:7px;padding:0 13px;font:inherit;font-size:13px;cursor:pointer}
+.copy:hover{border-color:var(--amber);color:var(--ink)}
+.copy.ok{background:var(--sage-soft);color:var(--sage);border-color:var(--sage)}
+.empty{color:var(--ink-3);padding:20px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+
+/* flow */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin-top:20px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.step .k{font-family:var(--mono);font-size:12px;color:var(--amber);font-weight:600}
+.step h3{font-size:16px;margin-top:5px}
+.step p{margin:6px 0 0;font-size:14.5px;color:var(--ink-2)}
+
+/* gates */
+.gates{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:20px}
+.gate{display:grid;grid-template-columns:44px 1fr;gap:14px;padding:15px 16px;background:var(--panel);align-items:start}
+.gate + .gate{border-top:1px solid var(--line-soft)}
+.gate .num{font-family:var(--disp);font-weight:900;font-size:24px;color:var(--amber);text-align:center;line-height:1.2}
+.gate h3{font-size:16px}
+.gate p{margin:5px 0 0;color:var(--ink-2);font-size:15px}
+
+/* checklist */
+.check{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:2px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.check li{background:var(--panel)}
+.check li + li{border-top:1px solid var(--line-soft)}
+.check label{display:grid;grid-template-columns:22px 1fr;gap:12px;padding:12px 15px;cursor:pointer;align-items:start}
+.check input{margin:3px 0 0;width:17px;height:17px;accent-color:var(--sage)}
+.check .t{font-weight:700;font-size:15px}
+.check .d{color:var(--ink-3);font-size:13.5px;margin-top:2px}
+.check input:checked ~ span .t{color:var(--ink-3);text-decoration:line-through}
+.resetBtn{margin-top:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink-2);border-radius:7px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer}
+
+/* plan */
+.plan{display:flex;flex-direction:column;gap:10px;margin-top:20px}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start}
+.item h3{font-size:16px}
+.item p{margin:6px 0 0;color:var(--ink-2);font-size:15px;max-width:74ch}
+.tag{font-size:12px;font-weight:700;padding:3px 10px;border-radius:5px;white-space:nowrap;align-self:start}
+.tag.block{background:var(--red-soft);color:var(--red)}
+.tag.next{background:var(--amber-soft);color:var(--amber)}
+.tag.open{background:var(--blue-soft);color:var(--blue)}
+.tag.done{background:var(--sage-soft);color:var(--sage)}
+
+.note{border:1px solid var(--amber-line);background:var(--amber-soft);border-radius:10px;padding:14px 16px;margin-top:20px}
+.note strong{color:var(--amber)}
+.note p{margin:6px 0 0;font-size:15px;color:var(--ink-2)}
+table{width:100%;border-collapse:collapse;margin-top:16px;font-size:15px}
+th,td{text-align:start;padding:9px 12px;border-bottom:1px solid var(--line-soft)}
+th{font-size:12px;letter-spacing:.06em;color:var(--ink-3);font-weight:700}
+td{font-variant-numeric:tabular-nums}
+.tableWrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--ink-3);font-size:13.5px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:520px){.item{grid-template-columns:1fr}.cmdline{flex-direction:column}.copy{padding:8px}}
+</style>
+
+<div dir="rtl">
+
+<header class="top">
+  <div class="wrap">
+    <button class="themeBtn" id="themeBtn" type="button">מצב תצוגה</button>
+    <div class="eyebrow">GAZELINK · לוח בקרה</div>
+    <h1>איך מפעילים את הריפו הזה</h1>
+    <p class="sub">כל פקודה כאן נבדקה מול הקוד. המודל הראשי, הכיול והמסנן קפואים, וכל מה שנוגע בעכבר או במקלדת האמיתיים מסומן.</p>
+
+    <dl class="state">
+      <div class="cell"><dt>פרופיל פעיל</dt><dd>group1_corrected_trial<small>חזרה: pooled_trial</small></dd></div>
+      <div class="cell"><dt>מודל ראשי</dt><dd>group1_corrected_20260916<small>pilot_cam/round5 + שכבת תיקון</small></dd></div>
+      <div class="cell"><dt>מסנן</dt><dd>one-euro<small>fc 0.4 · beta 0</small></dd></div>
+      <div class="cell"><dt>מסך מאומת</dt><dd>LS49C95xU<small>5120×1440 · 1192×336 מ״מ</small></dd></div>
+      <div class="cell"><dt>דיוק נוכחי</dt><dd>~2.5°<small>היעד באפיון: 1.5°</small></dd></div>
+      <div class="cell"><dt>בחירה מתוך תשעה</dt><dd>17 / 18<small>אפס שגויות · 22.9</small></dd></div>
+    </dl>
+  </div>
+</header>
+
+<nav class="rail">
+  <div class="inner">
+    <a href="#env">סביבות</a>
+    <a href="#cmds">פקודות</a>
+    <a href="#calib">הכיול</a>
+    <a href="#gates">שערי בטיחות</a>
+    <a href="#verify">אחרי שינוי בקוד</a>
+    <a href="#plan">תוכנית שיפור</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<section id="env">
+  <h2><span class="n">01</span>שתי סביבות, ולא במקרה</h2>
+  <p class="lede">ספריית <code>GazeFollower</code> היא CC BY-NC-SA ויושבת מחוץ לריפו. לכן הכלים והבדיקות רצים מסביבה אחת, ו-ruff ו-mypy מסביבה שנייה. הרצה מהסביבה הלא נכונה נכשלת על ייבוא, לא בשקט.</p>
+  <div class="cmdline">
+    <pre>cd C:\Users\User\Desktop\focus\gazefollower
+$py = "C:\Users\User\Desktop\gazefollower_eval\.venv\Scripts\python.exe"</pre>
+    <button class="copy" type="button">העתק</button>
+  </div>
+  <div class="note">
+    <strong>לפני כל הרצה של הבדיקות</strong>
+    <p>מחיקת <code>__pycache__</code>. בלעדיה מודולים שעברו מקום נטענים מגרסה ישנה, וזה כבר הסתיר כשל אמיתי פעם אחת.</p>
+    <div class="cmdline">
+      <pre>Get-ChildItem -Path C:\Users\User\Desktop\focus\gazefollower -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force</pre>
+      <button class="copy" type="button">העתק</button>
+    </div>
+  </div>
+</section>
+
+<section id="cmds">
+  <h2><span class="n">02</span>מה אפשר להריץ</h2>
+  <p class="lede">סנן לפי מה שאתה צריך. הפס הצבעוני בצד אומר מה הפקודה נוגעת בו: אדום שולח קלט אמיתי למערכת ההפעלה, כתום פותח מצלמה, ירוק לא עושה אף אחד מהם.</p>
+  <div class="tools" id="filters">
+    <button class="chip" data-f="all" aria-pressed="true" type="button">הכל</button>
+    <button class="chip" data-f="live" aria-pressed="false" type="button">המערכת החיה</button>
+    <button class="chip" data-f="calib" aria-pressed="false" type="button">כיול והקלטה</button>
+    <button class="chip" data-f="practice" aria-pressed="false" type="button">תרגול ו-probes</button>
+    <button class="chip" data-f="analysis" aria-pressed="false" type="button">ניתוח</button>
+    <button class="chip" data-f="tests" aria-pressed="false" type="button">בדיקות</button>
+    <button class="chip" data-f="privacy" aria-pressed="false" type="button">פרטיות</button>
+    <button class="chip" data-f="risk" aria-pressed="false" type="button" id="riskChip">רק מה שנוגע במערכת</button>
+  </div>
+  <div class="cmds" id="cmdList"></div>
+  <p class="empty" id="noneMsg" hidden>אין פקודה שמתאימה לסינון הזה.</p>
+</section>
+
+<section id="calib">
+  <h2><span class="n">03</span>הלולאה שמייצרת את המודל</h2>
+  <p class="lede">המודל אינו נלמד תוך כדי שימוש. הוא מותאם מהקלטות, נבדק על הקלטה שלא השתתפה באימון, ומאומץ רק אם הוא עבר שער שנקבע מראש.</p>
+  <div class="flow">
+    <div class="step"><div class="k">01</div><h3>מניפסט המתקן</h3><p><code>gf_setup.py</code> רושם איפה המצלמה ומה גודל המסך. בלעדיו להקלטה אין הקשר פיזי והיא אינה בת השוואה.</p></div>
+    <div class="step"><div class="k">02</div><h3>הקלטה</h3><p><code>gf_record.py</code> מציג מטרות ואוסף תכונות עין וראש מול נקודות מסך. זה החומר, לא המודל.</p></div>
+    <div class="step"><div class="k">03</div><h3>התאמה</h3><p><code>gf_fit.py</code> מאמן SVR לכל ציר. ‏C ו-gamma נבחרים ב-leave-one-point-out על הכיול בלבד.</p></div>
+    <div class="step"><div class="k">04</div><h3>הכרעה</h3><p><code>gf_recalibrate.py</code> משווה מול הפרופיל הנוכחי על הקלטה מוחזקת ומחליט. <code>--adopt never</code> מודד בלי לאמץ.</p></div>
+  </div>
+  <div class="note">
+    <strong>שכבת התיקון היא קובץ נפרד ליד המודל</strong>
+    <p>השארית שנמדדה לא הייתה היסט ולא רעד אלא <em>מתיחה אופקית</em>: שיפוע 0.985 על נקודות הכיול עצמן, אבל 1.23–1.25 על מטרות שביניהן. התיקון הלינארי מוריד את השגיאה בכ-35% מחוץ למדגם. מחיקת הקובץ מבטלת אותו, והמודל נשאר זהה בייט-לבייט. ה-gain אינו קבוע של המערכת — הוא נמדד 1.16–1.25 בין ישיבות.</p>
+  </div>
+</section>
+
+<section id="gates">
+  <h2><span class="n">04</span>שלושה שערים לפני שמשהו אמיתי קורה</h2>
+  <p class="lede">כל אחד מהם עומד בפני עצמו. אף אחד אינו מחליף את השניים האחרים.</p>
+  <div class="gates">
+    <div class="gate"><div class="num">1</div><div><h3>המשתמש אומר שהוא מתכוון</h3><p><code>--move-cursor</code> מסורב בלי <code>--i-mean-it</code>. הוא מסורב, לא מורץ בסימולציה — כדי שאי אפשר יהיה לחשוב שהרצת בטוח.</p></div></div>
+    <div class="gate"><div class="num">2</div><div><h3>המכונה מסכימה שהסרגל אמין</h3><p>בדיקת מסך: זהות הצג, מידות פיזיות, מודעות DPI ומקור שולחן העבודה. מסך לא מאומת = אין סמן אמיתי. שתי רזולוציות זהות אינן מסך זהה.</p></div></div>
+    <div class="gate"><div class="num">3</div><div><h3>נעילה ברמת התהליך</h3><p>כל שולח Windows אמיתי קורא ל-<code>real_input.require</code> ונכשל אלא אם נקודת כניסה חימשה במפורש. שחרור כפתור ומקש תמיד עוברים — אחרת השהיה הייתה יכולה להשאיר כפתור לחוץ.</p></div></div>
+  </div>
+  <div class="note">
+    <strong>Esc עוצר הכל, גם כשאין פוקוס</strong>
+    <p>חלון click-through לעולם אינו מקבל פוקוס, ולכן pygame מפסיק לראות מקשים ברגע שהשכבה מתחילה לעבוד. העצירה נקראת ישירות ממצב המקלדת. עצירת חירום שפועלת רק כשהמצב המסוכן כבוי אינה עצירת חירום.</p>
+  </div>
+</section>
+
+<section id="verify">
+  <h2><span class="n">05</span>סדר הבדיקה אחרי שינוי בקוד</h2>
+  <p class="lede">שבעה שלבים, בסדר הזה. הסימון נשמר בדפדפן שלך.</p>
+  <ul class="check" id="check">
+    <li><label><input type="checkbox" id="c1"><span><span class="t">מחיקת __pycache__ והרצת הסוויטה המלאה</span><span class="d">מצופה OK. כל כשל חדש נבדק לפני שממשיכים</span></span></label></li>
+    <li><label><input type="checkbox" id="c2"><span><span class="t">שני ה-golden ללא שינוי</span><span class="d">3263891C ו-D99D68BD. שינוי פירושו שההתנהגות או התחזיות זזו</span></span></label></li>
+    <li><label><input type="checkbox" id="c3"><span><span class="t">audit קלט אמיתי</span><span class="d">רק שורות מבדיקות ה-guard. כל שורה אחרת היא בדיקה שכמעט נגעה במערכת</span></span></label></li>
+    <li><label><input type="checkbox" id="c4"><span><span class="t">ruff ו-mypy מהסביבה השנייה</span><span class="d">הן אינן מותקנות ב-venv ההרצה</span></span></label></li>
+    <li><label><input type="checkbox" id="c5"><span><span class="t">gf_live בלי דגלים, מול מצלמה</span><span class="d">מעקב, preflight ושכבת-על. בלי קלט מערכת</span></span></label></li>
+    <li><label><input type="checkbox" id="c6"><span><span class="t">gf_live --move-cursor --i-mean-it</span><span class="d">סמן אמיתי, בלי קליקים</span></span></label></li>
+    <li><label><input type="checkbox" id="c7"><span><span class="t">המערכת המלאה, כולל Esc באמצע קליק מוחזק</span><span class="d">אם מריצים רק בדיקת חומרה אחת — זו</span></span></label></li>
+  </ul>
+  <button class="resetBtn" id="resetCheck" type="button">נקה סימון</button>
+</section>
+
+<section id="plan">
+  <h2><span class="n">06</span>תוכנית השיפור</h2>
+  <p class="lede">מה סגור, מה חוסם ומה הצעד הבא. הסדר הוא סדר העבודה, לא סדר חשיבות.</p>
+
+  <div class="tableWrap">
+    <table>
+      <thead><tr><th>מה נוסה</th><th>תוצאה</th><th>הוחלט</th></tr></thead>
+      <tbody>
+        <tr><td>כיול רב-תנוחתי</td><td>158–184px מול 212–336px</td><td>אומץ</td></tr>
+        <tr><td>שכבת תיקון לינארית</td><td>כ-35% שיפור מחוץ למדגם</td><td>אומצה</td></tr>
+        <tr><td>עמודות ראש במודל</td><td>גרוע ב-4 עד 16px</td><td>נדחה</td></tr>
+        <tr><td>דחיסת רשת הכיול ל-7 עמודות</td><td>2px במקום 25px שנדרשו</td><td>נכשל</td></tr>
+        <tr><td>מפת שארית פוסט-הוק</td><td>2px על שגיאה של 105</td><td>כיוון סגור</td></tr>
+        <tr><td>רזולוציה גבוהה, תקציב שווה</td><td>‎+23.7px לטובת hi, בגבול</td><td>לא הוכרע</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="plan">
+    <div class="item"><div><h3>הרצת אישור של פריסת תשעת היעדים ביום אחר</h3><p>הגאומטריה של כל הממשק נשענת על ישיבה אחת מ-22.9 — 18 ניסיונות, אדם אחד. זו תוצאה טובה ולא מדידת אמינות. עד שתהיה הרצה שנייה ביום אחר, אין לקבע את הגאומטריה בקוד.</p></div><span class="tag block">חוסם</span></div>
+
+    <div class="item"><div><h3>תיקון מנגנון אזהרות הפריסה</h3><p><code>measure_bias</code> לוקח את ההטיה הגרועה ביותר על פני כל היעדים בהקלטה האחרונה. הוא החזיר הטיה אנכית של 3.02 — שלוש גבהי מסך, חריג בודד — ולכן צעק אזהרה על כל אריח, בדיוק בהרצה שהצליחה 17 מתוך 18. אזהרה שתמיד דולקת אינה אזהרה.</p></div><span class="tag next">הבא</span></div>
+
+    <div class="item"><div><h3>ציור מסכי הממשק והרצה חיה</h3><p>מודלי הסרגל, המקלדת, ההגדלה והגרירה קיימים ונבדקים. מה שחסר הוא שכבת הציור והרצה מול מצלמה. עד אז <code>--desk</code> קיים ואינו מראה דבר.</p></div><span class="tag next">הבא</span></div>
+
+    <div class="item"><div><h3>השוואה למנוע עם נרמול גאומטרי</h3><p>הפער ליעד הוא כ-2.5° מול 1.5°. הוחלט מראש להפסיק להוסיף נתוני כיול בלי השערה חדשה, ולעבור להשוואה מוגבלת מול ptgaze או ETH-XGaze על אותם פריימים ובתקציב כיול שווה.</p></div><span class="tag open">פתוח</span></div>
+
+    <div class="item"><div><h3>רזולוציה גבוהה בזרוע אחת</h3><p>ההשוואה המזווגת נתנה ‎+23.7 פיקסלים לטובת החיתוך ברזולוציה גבוהה, בגבול שנקבע מראש. השלב שהותר הוא הקלטה בזרוע אחת במיקום הנוכחי, בתקציב אימון תואם ועם מדידת קצב פריימים משלה.</p></div><span class="tag open">פתוח</span></div>
+
+    <div class="item"><div><h3>הצהרת התלויות החסרות במניפסטים</h3><p><code>Pillow</code> ו-<code>screeninfo</code> מותקנים ונדרשים, ואינם ב-<code>pyproject.toml</code> ולא ב-<code>requirements.lock</code>. ‏<code>screeninfo</code> חמור יותר: שער המסך שמתיר סמן אמיתי תלוי בו. הקובץ נוצר ב-pip-compile ועריכה ידנית שלו יוצרת שקר, ולכן זה נרשם כפער ולא תוקן בשקט.</p></div><span class="tag open">פתוח</span></div>
+
+    <div class="item"><div><h3>שתי מקלדות חיות זו לצד זו</h3><p>המרחבית במצב השולחן, מקלדת הסריקה במסלול החי הקיים. מצב ביניים מכוון. אחרי מדידת זמן הקלדה על אותו אדם, אחת מהן נסגרת.</p></div><span class="tag open">פתוח</span></div>
+
+    <div class="item"><div><h3>Opus QA לפי סעיף 7.5</h3><p>לא בוצעה בשלושת הסבבים האחרונים. ה-QA שבוצע הוא של סוכן הביצוע עצמו, וזה אינו ממלא את הדרישה.</p></div><span class="tag block">חוסם</span></div>
+  </div>
+
+  <div class="note">
+    <strong>מה שעדיין לא נמדד</strong>
+    <p>זמן ההשהיה ממצלמה לעכבר. האם התיקון מפיל קריצות כשזיהוי הפנים מהבהב. ספי הטריות של ההגדלה — סמן מהבהב בשדה טקסט, ודף שגלל שורה אחת. עמידות בתנועת ראש: ההקלטה שסומנה ״תנועה טבעית״ נבדקה, וטווחי הראש בה צרים או זהים לזו שלידה, כלומר היא אינה בדיקת תנועה.</p>
+  </div>
+</section>
+
+<footer>
+  המודל, הכיול, המסנן והאפיון לא משתנים בעבודה על הממשק. כל מספר בעמוד הזה מגיע מקובץ תוצאה או מקוד בריפו, לא מהערכה.
+</footer>
+
+</div>
+</div>
+
+<script>
+const COMMANDS = [
+  {c:"live", risk:"safe", t:"תצוגה בלבד", d:"נקודת מבט על המסך. בלי תפריט, בלי מחוות, בלי מקלדת ובלי שום קלט למערכת ההפעלה. זו ההרצה שבודקים בה שהמעקב בכלל עובד.", cmd:"& $py gf_live.py", b:[["cam","מצלמה"],["safe","בלי קלט"]]},
+  {c:"live", risk:"safe", t:"בדיקת הסירוב", d:"אמורה לסרב ולא לרוץ בסימולציה. אם היא רצה, שער החימוש נשבר.", cmd:"& $py gf_live.py --click-by wink", b:[["safe","אמור לסרב"]]},
+  {c:"live", risk:"input", t:"סמן אמיתי, בלי קליקים", d:"המצביע נע לפי המבט. עדיין אין תפריט ואין מחוות.", cmd:"& $py gf_live.py --move-cursor --i-mean-it", b:[["cam","מצלמה"],["input","מזיז את הסמן"]]},
+  {c:"live", risk:"input", t:"המערכת המלאה", d:"תפריט, מחוות, מקלדת, גלילה וקליקים אמיתיים. התפריט קיים רק כאן. כוון לשולחן עבודה ריק — קליק לא ניתן לביטול.", cmd:"& $py gf_live.py --move-cursor --i-mean-it --click-by wink", b:[["cam","מצלמה"],["input","קליקים אמיתיים"]]},
+  {c:"live", risk:"input", t:"ממשק השולחן", d:"סרגל אחד, השהיה במקום קבוע, הגדלה, מקלדת מבט וגרירה. כבוי כברירת מחדל. שכבת הציור עדיין לא נכתבה, ולכן כרגע הוא מחווט ואינו מוצג.", cmd:"& $py gf_live.py --desk --move-cursor --i-mean-it --click-by wink", b:[["cam","מצלמה"],["input","קליקים אמיתיים"]]},
+
+  {c:"calib", risk:"camera", t:"מניפסט המתקן", d:"רושם איפה המצלמה ומה גודל המסך. בלעדיו להקלטה אין הקשר פיזי.", cmd:"& $py gf_setup.py --camera-x-cm 60 --camera-y-cm 63.6 --screen-width-cm 120 --screen-height-cm 33.75", b:[["cam","מצלמה"]]},
+  {c:"calib", risk:"camera", t:"הקלטת פרוטוקול", d:"מציג מטרות ואוסף את החומר שממנו מכיילים.", cmd:"& $py gf_record.py --round 48 --camera-x-cm 60 --camera-y-cm 63.6 --screen-width-cm 120 --screen-height-cm 33.75", b:[["cam","מצלמה"]]},
+  {c:"calib", risk:"safe", t:"התאמת מודל", d:"מתאים מודל מהקלטות שכבר על הדיסק. בלי מצלמה.", cmd:"& $py gf_fit.py phase0", b:[["data","נתונים בלבד"]]},
+  {c:"calib", risk:"camera", t:"כיול מחדש והכרעה", d:"מקליט, מתאים, בודק מול הפרופיל הנוכחי ומחליט אם לאמץ.", cmd:"& $py gf_recalibrate.py", b:[["cam","מצלמה"]]},
+  {c:"calib", risk:"safe", t:"כיול מחדש מהקלטה קיימת", d:"אותה הכרעה בדיוק, בלי מצלמה, על הקלטה שכבר קיימת.", cmd:"& $py gf_recalibrate.py --from-existing 46", b:[["data","נתונים בלבד"]]},
+  {c:"calib", risk:"safe", t:"תצורות ומטרות כיול", d:"מה שמור ומה מוצג בכיול.", cmd:"& $py gf_presets.py\n& $py gf_targets.py", b:[["data","נתונים בלבד"]]},
+  {c:"calib", risk:"safe", t:"חזרה לפרופיל הקודם", d:"הרישום ב-PREVIOUS_ACTIVE.txt אומר לאן חוזרים. זו דרך הביטול של אימוץ.", cmd:"& $py -c \"import gf_profile as P; P.activate('pooled_trial')\"", b:[["data","משנה פרופיל"]]},
+
+  {c:"practice", risk:"camera", t:"תרגול בחירה בשהייה", d:"האם הדיוק הזה מאפשר בחירות אמינות. זו ההרצה שנתנה 17 מתוך 18 בתשעה יעדים.", cmd:"& $py gf_dwell_practice.py --layout zones", b:[["cam","מצלמה"],["safe","בלי קלט"]]},
+  {c:"practice", risk:"camera", t:"תרגול לחיצה, בלי קליקים", d:"מבט, שהייה וקליק מדומה על כפתורים שרק מקדמים מונה.", cmd:"& $py gf_click_practice.py", b:[["cam","מצלמה"],["safe","בלי קלט"]]},
+  {c:"practice", risk:"input", t:"תרגול לחיצה, עם קליקים", d:"אותו מסך, קליקים אמיתיים. החלון במסך מלא ולכן הקליק נוחת עליו.", cmd:"& $py gf_click_practice.py --click --i-mean-it", b:[["cam","מצלמה"],["input","קליקים אמיתיים"]]},
+  {c:"practice", risk:"camera", t:"איך קריצה נראית", d:"על האדם הזה ועל המצלמה הזאת. זה מה שקובע את הספים בפרופיל.", cmd:"& $py gf_wink_probe.py", b:[["cam","מצלמה"]]},
+  {c:"practice", risk:"camera", t:"עצימה מכוונת מול עפעוף", d:"האם השתיים בכלל נפרדות. עפעוף טבעי הגיע ל-297 מ״ש, עצימה מכוונת מ-1172.", cmd:"& $py gf_gesture_probe.py", b:[["cam","מצלמה"]]},
+  {c:"practice", risk:"camera", t:"מה המצלמה באמת מספקת", d:"איזו רזולוציה מתקבלת בפועל, לא מה שהוגדר.", cmd:"& $py gf_camera_probe.py", b:[["cam","מצלמה"]]},
+
+  {c:"analysis", risk:"safe", t:"מאיפה מגיעה הסטייה האופקית", d:"האבחון שהוביל לשכבת התיקון.", cmd:"& $py gf_diagnose_bias.py", b:[["data","נתונים בלבד"]]},
+  {c:"analysis", risk:"safe", t:"למה הציר האנכי דחוס", d:"והאם הכיול מתקן את זה.", cmd:"& $py gf_vertical.py", b:[["data","נתונים בלבד"]]},
+  {c:"analysis", risk:"safe", t:"כיול המסנן", d:"הפשרה בין זמן הגעה לרעידות. beta מהיר בחצי שנייה ורועד ב-40% יותר.", cmd:"& $py gf_filter_benchmark.py", b:[["data","נתונים בלבד"]]},
+  {c:"analysis", risk:"safe", t:"שני מודלים, אותם פריימים", d:"ההשוואה המזווגת. זה הכלי שמכריע אם מודל חדש מאומץ.", cmd:"& $py gf_recal_compare.py --by-zone", b:[["data","נתונים בלבד"]]},
+  {c:"analysis", risk:"safe", t:"האם רזולוציה גבוהה עוזרת", d:"שתי זרועות על אותו פריים מפוענח פעמיים, כך שתקציב האימון זהה בהגדרה.", cmd:"& $py gf_resolution_compare.py", b:[["data","נתונים בלבד"]]},
+  {c:"analysis", risk:"safe", t:"האם ההפרש מופיע בבחירה", d:"האם הפרש במודל מופיע במה שאדם באמת מצליח לבחור. זה המדד שקובע, לא הפיקסלים.", cmd:"& $py gf_select_compare.py", b:[["data","נתונים בלבד"]]},
+  {c:"analysis", risk:"safe", t:"המסכים שמערכת ההפעלה מדווחת", d:"זהות הצג, רזולוציה ומידות פיזיות. זה מה ששער המסך משווה מולו.", cmd:"& $py gf_screen_check.py\n& $py gf_display.py", b:[["data","נתונים בלבד"]]},
+
+  {c:"tests", risk:"safe", t:"הסוויטה המלאה", d:"אחרי מחיקת __pycache__. כל כשל חדש נבדק לפני שממשיכים.", cmd:"& $py -m unittest discover -s tests", b:[["safe","בלי קלט"]]},
+  {c:"tests", risk:"safe", t:"מודול בודד", d:"למחזור מהיר בזמן עבודה על נושא אחד.", cmd:"& $py -m unittest tests.test_desk_layout", b:[["safe","בלי קלט"]]},
+  {c:"tests", risk:"safe", t:"שני ה-golden", d:"מצופה 3263891C ו-D99D68BD. שינוי פירושו שההתנהגות או התחזיות זזו, ולא מייצרים אותם מחדש כדי ש״יעבור״.", cmd:"Get-FileHash tests\\golden\\live_trace.json,tests\\golden\\pipeline_digests.json -Algorithm SHA256", b:[["safe","בלי קלט"]]},
+  {c:"tests", risk:"safe", t:"audit קלט אמיתי", d:"מוכיח שאף בדיקה אינה נשענת על שולח אמיתי. כל שורה שאינה מבדיקות ה-guard היא בדיקה שכמעט נגעה במערכת.", cmd:"$env:GAZELINK_INPUT_REFUSAL_LOG = \"C:\\Users\\User\\Desktop\\refusals.log\"\n& $py -m unittest discover -s tests\nGet-Content C:\\Users\\User\\Desktop\\refusals.log", b:[["safe","בלי קלט"]]},
+  {c:"tests", risk:"safe", t:"lint ו-types", d:"מהסביבה השנייה. ruff ו-mypy אינם מותקנים ב-venv ההרצה.", cmd:"& \"C:\\Users\\User\\Desktop\\focus\\.venv\\Scripts\\ruff.exe\" check gazelink_core gf_live.py\n& \"C:\\Users\\User\\Desktop\\focus\\.venv\\Scripts\\python.exe\" -m mypy gazelink_core", b:[["safe","בלי קלט"]]},
+
+  {c:"privacy", risk:"safe", t:"מה יימחק", d:"רשימה בלבד. ברירת המחדל אינה מוחקת דבר.", cmd:"& $py gf_purge.py --dry-run", b:[["safe","קריאה בלבד"]]},
+  {c:"privacy", risk:"input", t:"מחיקת קבצים שנגזרו מביומטריה", d:"בלתי הפיך. הרץ את הרשימה קודם.", cmd:"& $py gf_purge.py --yes", b:[["input","מוחק קבצים"]]}
+];
+
+const LABEL = {live:"המערכת החיה", calib:"כיול והקלטה", practice:"תרגול ו-probes", analysis:"ניתוח", tests:"בדיקות", privacy:"פרטיות"};
+let filter = "all", riskOnly = false;
+
+function render(){
+  const list = document.getElementById("cmdList");
+  const items = COMMANDS.filter(c =>
+    (filter === "all" || c.c === filter) && (!riskOnly || c.risk === "input")
+  );
+  list.innerHTML = "";
+  for (const c of items){
+    const el = document.createElement("article");
+    el.className = "cmd";
+    el.dataset.risk = c.risk;
+    const badges = c.b.map(([k,t]) => `<span class="b ${k}">${t}</span>`).join("");
+    el.innerHTML =
+      `<h3>${c.t}</h3>` +
+      `<p>${c.d}</p>` +
+      `<div class="badges"><span class="b data">${LABEL[c.c]}</span>${badges}</div>` +
+      `<div class="cmdline"><pre></pre><button class="copy" type="button">העתק</button></div>`;
+    el.querySelector("pre").textContent = c.cmd;
+    list.appendChild(el);
+  }
+  document.getElementById("noneMsg").hidden = items.length > 0;
+  wireCopy(list);
+}
+
+function wireCopy(root){
+  root.querySelectorAll(".copy").forEach(btn => {
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", async () => {
+      const text = btn.parentElement.querySelector("pre").textContent;
+      try { await navigator.clipboard.writeText(text); }
+      catch { const r = document.createRange(); r.selectNodeContents(btn.parentElement.querySelector("pre")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+      const was = btn.textContent;
+      btn.textContent = "הועתק";
+      btn.classList.add("ok");
+      setTimeout(() => { btn.textContent = was; btn.classList.remove("ok"); }, 1400);
+    });
+  });
+}
+
+document.getElementById("filters").addEventListener("click", e => {
+  const btn = e.target.closest(".chip");
+  if (!btn) return;
+  if (btn.id === "riskChip"){
+    riskOnly = !riskOnly;
+    btn.setAttribute("aria-pressed", String(riskOnly));
+  } else {
+    filter = btn.dataset.f;
+    document.querySelectorAll("#filters .chip[data-f]").forEach(b =>
+      b.setAttribute("aria-pressed", String(b === btn)));
+  }
+  render();
+});
+
+const KEY = "gazelink-runbook-check";
+function loadCheck(){
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { saved = {}; }
+  document.querySelectorAll("#check input").forEach(i => { i.checked = !!saved[i.id]; });
+}
+function saveCheck(){
+  const out = {};
+  document.querySelectorAll("#check input").forEach(i => { out[i.id] = i.checked; });
+  try { localStorage.setItem(KEY, JSON.stringify(out)); } catch {}
+}
+document.getElementById("check").addEventListener("change", saveCheck);
+document.getElementById("resetCheck").addEventListener("click", () => {
+  document.querySelectorAll("#check input").forEach(i => { i.checked = false; });
+  saveCheck();
+});
+
+const TKEY = "gazelink-runbook-theme";
+function applyTheme(t){
+  if (t) document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+}
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const now = document.documentElement.getAttribute("data-theme");
+  const next = now === "dark" ? "light" : now === "light" ? null : "dark";
+  applyTheme(next);
+  try { next ? localStorage.setItem(TKEY, next) : localStorage.removeItem(TKEY); } catch {}
+});
+try { applyTheme(localStorage.getItem(TKEY)); } catch {}
+
+render();
+wireCopy(document);
+loadCheck();
+</script>

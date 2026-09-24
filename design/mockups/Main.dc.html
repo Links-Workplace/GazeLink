@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<title>מסך עבודה</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&amp;family=Heebo:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0E0F11; font-family: Assistant, system-ui, sans-serif; }
+a { color: #D4A24C; } a:hover { color: #F0CC7E; }
+</style>
+</helmet>
+<div style="width: 2400px; height: 675px; box-sizing: border-box; position: relative; overflow: hidden; background: #FBFAF7;" dir="rtl">
+
+  <div style="position: absolute; inset: 0; box-sizing: border-box; padding: 22px 44px; color: #2B2E34; display: flex; flex-direction: column; gap: 13px;">
+    <div style="font-size: 21px; font-weight: 700; color: #4A4E57;">דוח רבעוני</div>
+    <div style="width: 1480px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+    <div style="width: 1240px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+    <div style="width: 1390px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+    <div style="width: 1120px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+    <div style="display: flex; gap: 18px; padding-top: 6px;">
+      <div style="width: 210px; height: 58px; border-radius: 10px; background: #2F6FD0;"></div>
+      <div style="width: 210px; height: 58px; border-radius: 10px; background: #EDEAE3;"></div>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 306px; top: 348px; width: 128px; height: 128px; pointer-events: none;">
+    <svg viewBox="0 0 128 128" style="width: 128px; height: 128px;" aria-hidden="true">
+      <circle cx="64" cy="64" r="44" fill="rgba(77,163,255,0.14)"></circle>
+      <circle cx="64" cy="64" r="44" fill="none" stroke="#C9D9EC" stroke-width="8"></circle>
+      <circle cx="64" cy="64" r="44" fill="none" stroke="#2F6FD0" stroke-width="8" pathLength="100" stroke-dasharray="66 100" stroke-linecap="round" transform="rotate(-90 64 64)"></circle>
+      <circle cx="64" cy="64" r="13" fill="#2F6FD0"></circle>
+    </svg>
+  </div>
+
+  <div style="position: absolute; left: 0; top: 26px; width: 1400px; display: flex; justify-content: center;">
+    <div style="background: #14161A; border-radius: 999px; padding: 12px 30px;">
+      <span style="font-family: Heebo, sans-serif; font-size: 25px; font-weight: 500; color: #F4F3F0;">הבט במקום שעליו תרצה ללחוץ</span>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 1440px; top: 17px; width: 240px; height: 67px; box-sizing: border-box; border-radius: 12px; background: #14161A; border: 3px solid #4C525C; display: flex; align-items: center; justify-content: center; gap: 12px;">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path d="M9 5v14M15 5v14" fill="none" stroke="#F4F3F0" stroke-width="2.6" stroke-linecap="round"></path>
+    </svg>
+    <span style="font-family: Heebo, sans-serif; font-size: 24px; font-weight: 700; color: #F4F3F0;">השהיה</span>
+  </div>
+
+  <sc-for list="{{bar}}" as="b" hint-placeholder-count="4">
+    <div style="position: absolute; left: {{b.left}}px; top: 513px; width: 168px; height: 101px; box-sizing: border-box; border-radius: 14px; background: {{b.bg}}; border: 3px solid {{b.edge}}; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 12px 28px rgba(0,0,0,0.30);">
+      {{b.icon}}
+      <span style="font-family: Heebo, sans-serif; font-size: 22px; font-weight: 700; color: {{b.ink}};">{{b.label}}</span>
+      <sc-if value="{{b.on}}" hint-placeholder-val="{{ true }}">
+        <span style="position: absolute; top: -13px; background: #D4A24C; color: #14161A; font-size: 15px; font-weight: 700; border-radius: 999px; padding: 2px 14px;">נבחר</span>
+      </sc-if>
+    </div>
+  </sc-for>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":675}}'>
+class Component extends DCLogic {
+  icon(name, ink) {
+    var R = window.React;
+    var s = { stroke: ink, fill: 'none', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+    function p(d, k) { return R.createElement('path', Object.assign({ d: d, key: k }, s)); }
+    var sets = {
+      click: [p('M5 3v13l3.4-3.4 2.2 5 2.6-1.1-2.2-5 4.8-.4z', 'a')],
+      scroll: [p('M10 3v14', 'a'), p('M6 7l4-4 4 4', 'b'), p('M6 13l4 4 4-4', 'c')],
+      keys: [R.createElement('rect', Object.assign({ x: 2.5, y: 5, width: 15, height: 10, rx: 2, key: 'a' }, s)), p('M6 9h.01', 'b'), p('M10 9h.01', 'c'), p('M14 9h.01', 'd'), p('M6.5 12.4h7', 'e')],
+      more: [p('M5 10h.01', 'a'), p('M10 10h.01', 'b'), p('M15 10h.01', 'c')]
+    };
+    return R.createElement('svg', { viewBox: '0 0 20 20', width: 32, height: 32, 'aria-hidden': 'true' }, sets[name]);
+  }
+  renderVals() {
+    var self = this;
+    var defs = [['click', 'לחיצה', true], ['scroll', 'גלילה', false], ['keys', 'מקלדת', false], ['more', 'עוד', false]];
+    var lefts = [1476, 1236, 996, 756];
+    return {
+      bar: defs.map(function (d, i) {
+        var on = d[2];
+        return {
+          label: d[1],
+          icon: self.icon(d[0], on ? '#14161A' : '#F4F3F0'),
+          left: lefts[i],
+          bg: on ? '#F0CC7E' : '#14161A',
+          edge: on ? '#D4A24C' : '#4C525C',
+          ink: on ? '#14161A' : '#F4F3F0',
+          on: on
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

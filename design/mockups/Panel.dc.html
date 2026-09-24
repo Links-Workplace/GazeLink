@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="he">
+<head>
+<meta charset="utf-8">
+<title>פעולות נוספות</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&amp;family=Heebo:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0E0F11; font-family: Assistant, system-ui, sans-serif; }
+a { color: #D4A24C; } a:hover { color: #F0CC7E; }
+</style>
+</helmet>
+<div style="width: 2400px; height: 675px; box-sizing: border-box; position: relative; overflow: hidden; background: #FBFAF7;" dir="rtl">
+
+  <div style="position: absolute; inset: 0; box-sizing: border-box; padding: 22px 44px; color: #2B2E34; display: flex; flex-direction: column; gap: 13px;">
+    <div style="font-size: 21px; font-weight: 700; color: #4A4E57;">דוח רבעוני</div>
+    <div style="width: 1480px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+    <div style="width: 1240px; height: 13px; border-radius: 7px; background: #E8E5DE;"></div>
+  </div>
+  <div style="position: absolute; inset: 0; background: rgba(14,15,17,0.50);"></div>
+
+  <div style="position: absolute; left: 0; top: 26px; width: 1400px; display: flex; justify-content: center;">
+    <div style="background: #14161A; border-radius: 999px; padding: 12px 30px;">
+      <span style="font-family: Heebo, sans-serif; font-size: 25px; font-weight: 500; color: #F4F3F0;">בחר פעולה</span>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 1440px; top: 17px; width: 240px; height: 67px; box-sizing: border-box; border-radius: 12px; background: #14161A; border: 3px solid #4C525C; display: flex; align-items: center; justify-content: center; gap: 12px;">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path d="M9 5v14M15 5v14" fill="none" stroke="#F4F3F0" stroke-width="2.6" stroke-linecap="round"></path>
+    </svg>
+    <span style="font-family: Heebo, sans-serif; font-size: 24px; font-weight: 700; color: #F4F3F0;">השהיה</span>
+  </div>
+
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="6">
+    <div style="position: absolute; left: {{t.left}}px; top: {{t.top}}px; width: 232px; height: 108px; box-sizing: border-box; border-radius: 14px; background: #14161A; border: 3px solid #4C525C; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; box-shadow: 0 12px 28px rgba(0,0,0,0.45);">
+      {{t.icon}}
+      <span style="font-family: Heebo, sans-serif; font-size: 23px; font-weight: 700; color: #F4F3F0;">{{t.label}}</span>
+    </div>
+  </sc-for>
+
+  <div style="position: absolute; left: 756px; top: 513px; width: 168px; height: 101px; box-sizing: border-box; border-radius: 14px; background: #14161A; border: 3px solid #4C525C; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;">
+    <svg viewBox="0 0 20 20" width="32" height="32" aria-hidden="true">
+      <path d="M16 10H4M9 5L4 10l5 5" fill="none" stroke="#F4F3F0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+    <span style="font-family: Heebo, sans-serif; font-size: 22px; font-weight: 700; color: #F4F3F0;">חזרה</span>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":675}}'>
+class Component extends DCLogic {
+  icon(name) {
+    var R = window.React;
+    var ink = '#F4F3F0';
+    var s = { stroke: ink, fill: 'none', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+    function p(d, k) { return R.createElement('path', Object.assign({ d: d, key: k }, s)); }
+    function rc(x, y, w, h, rx, k) { return R.createElement('rect', Object.assign({ x: x, y: y, width: w, height: h, rx: rx, key: k }, s)); }
+    var sets = {
+      right: [rc(5, 2.5, 10, 15, 5, 'a'), p('M10 2.5v6', 'b'), p('M15 8.5h-5', 'c')],
+      dbl: [p('M4 3v12l3.2-3.2 2 4.6 2.4-1-2-4.6 4.4-.4z', 'a'), p('M14 4.5v3', 'b'), p('M16.8 6.2h-3', 'c')],
+      drag: [p('M10 3v14', 'a'), p('M3 10h14', 'b'), p('M7.2 6.8L10 4l2.8 2.8', 'c'), p('M13.2 13.2L10 16l-2.8-2.8', 'd')],
+      zoom: [R.createElement('circle', Object.assign({ cx: 9, cy: 9, r: 5.5, key: 'a' }, s)), p('M13 13l4 4', 'b'), p('M9 6.8v4.4', 'c'), p('M6.8 9h4.4', 'd')],
+      gear: [R.createElement('circle', Object.assign({ cx: 10, cy: 10, r: 2.6, key: 'a' }, s)), p('M10 2.6v2.2M10 15.2v2.2M17.4 10h-2.2M4.8 10H2.6M15.2 4.8l-1.6 1.6M6.4 13.6l-1.6 1.6M15.2 15.2l-1.6-1.6M6.4 6.4L4.8 4.8', 'b')],
+      close: [R.createElement('circle', Object.assign({ cx: 10, cy: 10, r: 7.5, key: 'a' }, s)), p('M7 7l6 6M13 7l-6 6', 'b')]
+    };
+    return R.createElement('svg', { viewBox: '0 0 20 20', width: 34, height: 34, 'aria-hidden': 'true' }, sets[name]);
+  }
+  renderVals() {
+    var self = this;
+    var defs = [
+      ['zoom', 'דייק'], ['right', 'לחיצה ימנית'], ['dbl', 'לחיצה כפולה'],
+      ['drag', 'גרירה'], ['gear', 'הגדרות'], ['close', 'סגור תפריט']
+    ];
+    var cols = [1448, 1084, 720];
+    var rows = [135, 310];
+    return {
+      tiles: defs.map(function (d, i) {
+        return { label: d[1], icon: self.icon(d[0]), left: cols[i % 3], top: rows[Math.floor(i / 3)] };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>
